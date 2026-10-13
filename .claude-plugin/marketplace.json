@@ -1,0 +1,16 @@
+{
+  "name": "overwatch",
+  "owner": {
+    "name": "benomahony"
+  },
+  "plugins": [
+    {
+      "name": "overwatch",
+      "source": "./",
+      "author": {
+        "name": "benomahony"
+      }
+    }
+  ],
+  "description": "Test watchers that keep coding agents honest."
+}
