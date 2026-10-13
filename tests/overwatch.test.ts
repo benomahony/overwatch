@@ -1,8 +1,9 @@
 import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
-import { WATCHERS, readReport } from '../hooks/watchers'
+import { WATCHERS, readReport, statusLine } from '../hooks/watchers'
 
 const zig = WATCHERS[0]!
+const python = WATCHERS[1]!
 
 const FAILING = `test
 +- run test 0 pass, 1 fail (1 total)
@@ -18,6 +19,42 @@ test transitive failure
 const PASSING = `Build Summary: 4/4 steps succeeded; 48/48 tests passed
 test success
 +- run test 48 pass (48 total) 1s MaxRSS:52M
+`
+
+const PYTEST_FAILING = `============================= test session starts ==============================
+collected 3 items
+
+tests/test_add.py ..F                                                    [100%]
+
+=================================== FAILURES ===================================
+___________________________________ test_add ___________________________________
+
+    def test_add():
+>       assert add(3, 7) == 11
+E       assert 10 == 11
+
+tests/test_add.py:9: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_add.py::test_add - assert 10 == 11
+========================= 1 failed, 2 passed in 0.03s ==========================
+`
+
+const PYTEST_PASSING = `============================= test session starts ==============================
+collected 3 items
+
+tests/test_add.py ...                                                    [100%]
+
+============================== 3 passed in 0.01s ===============================
+`
+
+const PYTEST_COLLECTION_ERROR = `============================= test session starts ==============================
+collected 0 items / 1 error
+
+==================================== ERRORS ====================================
+______________________ ERROR collecting tests/test_add.py ______________________
+E   ModuleNotFoundError: No module named 'calc'
+!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+=============================== 1 error in 0.05s ===============================
 `
 
 const project = (on: On, files: readonly string[], output: string, spawned: string[][]) => {
@@ -95,4 +132,32 @@ test('the zig summary line decides pass or fail', () => {
   expect(readReport(zig, FAILING)?.isFailed).toBe(true)
   expect(readReport(zig, PASSING)?.isFailed).toBe(false)
   expect(readReport(zig, 'test\n+- compile test')).toBeUndefined()
+})
+
+test('a pyproject.toml project runs pytest under a watcher', async ($, on) => {
+  const clock = mock.clock(on)
+  const spawned: string[][] = []
+  const prompts: string[] = []
+  project(on, ['pyproject.toml'], PYTEST_FAILING, spawned)
+  on('prompt.submit', ($, e) => {
+    prompts.push(e.text)
+    return { text: e.text }
+  })
+  await $.session.start(start)
+  await clock.advance(1000)
+  expect(spawned).toEqual([['uv', 'run', '--with', 'pytest', '--with', 'pytest-watcher', 'ptw', '--now', '.']])
+  expect(prompts.length).toBe(1)
+  expect(prompts[0]).toContain('assert 10 == 11')
+})
+
+test('the pytest summary line decides pass or fail', () => {
+  expect(readReport(python, PYTEST_FAILING)?.isFailed).toBe(true)
+  expect(readReport(python, PYTEST_COLLECTION_ERROR)?.isFailed).toBe(true)
+  expect(readReport(python, PYTEST_PASSING)?.isFailed).toBe(false)
+  expect(readReport(python, '=== test session starts ===\ncollected 3 items')).toBeUndefined()
+})
+
+test('the status line drops the summary decoration', () => {
+  expect(statusLine(python, readReport(python, PYTEST_FAILING)!)).toBe('overwatch python ✗ 1 failed, 2 passed in 0.03s')
+  expect(statusLine(zig, readReport(zig, PASSING)!)).toBe('overwatch zig ✓ 4/4 steps succeeded; 48/48 tests passed')
 })

@@ -27,6 +27,13 @@ export const WATCHERS: readonly Watcher[] = [
     summary: /^Build Summary:.*$/m,
     failed: /failed/,
   },
+  {
+    name: 'python',
+    marker: 'pyproject.toml',
+    argv: ['uv', 'run', '--with', 'pytest', '--with', 'pytest-watcher', 'ptw', '--now', '.'],
+    summary: /^=+ .+ in \d+(?:\.\d+)?s(?: \([^)]*\))? =+$/m,
+    failed: /\b(?:failed|errors?)\b/,
+  },
 ]
 
 export const REPORT_LIMIT = 8000
@@ -75,5 +82,5 @@ export function recoveryMessage(watcher: Watcher, report: Report): string {
 
 export function statusLine(watcher: Watcher, report: Report): string {
   const mark = report.isFailed ? '✗' : '✓'
-  return `overwatch ${watcher.name} ${mark} ${report.summary.replace(/^Build Summary:\s*/, '')}`
+  return `overwatch ${watcher.name} ${mark} ${report.summary.replace(/^Build Summary:\s*|^=+\s*|\s*=+$/g, '')}`
 }
