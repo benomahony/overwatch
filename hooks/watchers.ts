@@ -30,7 +30,7 @@ export const WATCHERS: readonly Watcher[] = [
   {
     name: 'python',
     marker: 'pyproject.toml',
-    argv: ['uv', 'run', '--with', 'pytest', '--with', 'pytest-watcher', 'ptw', '--now', '.'],
+    argv: ['uv', 'run', '--with', 'pytest', '--with', 'pytest-watcher', '--with', 'pytest-testmon', 'ptw', '--now', '.', '--testmon'],
     summary: /^=+ .+ in \d+(?:\.\d+)?s(?: \([^)]*\))? =+$/m,
     failed: /\b(?:failed|errors?)\b/,
   },

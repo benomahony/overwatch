@@ -14,7 +14,7 @@ The watcher starts with an interactive session, survives `/clear`, and stops whe
 | Project marker | Command |
 | --- | --- |
 | `build.zig` | `zig build -Doptimize=fast test --watch` |
-| `pyproject.toml` | `uv run --with pytest --with pytest-watcher ptw --now .` |
+| `pyproject.toml` | `uv run --with pytest --with pytest-watcher --with pytest-testmon ptw --now . --testmon` |
 
 Add a language by adding an entry to `WATCHERS` in `hooks/watchers.ts`: its marker file, its command, the line that closes one build's report, and the pattern on that line that means it failed.
 

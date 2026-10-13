@@ -145,7 +145,7 @@ test('a pyproject.toml project runs pytest under a watcher', async ($, on) => {
   })
   await $.session.start(start)
   await clock.advance(1000)
-  expect(spawned).toEqual([['uv', 'run', '--with', 'pytest', '--with', 'pytest-watcher', 'ptw', '--now', '.']])
+  expect(spawned).toEqual([['uv', 'run', '--with', 'pytest', '--with', 'pytest-watcher', '--with', 'pytest-testmon', 'ptw', '--now', '.', '--testmon']])
   expect(prompts.length).toBe(1)
   expect(prompts[0]).toContain('assert 10 == 11')
 })
@@ -154,6 +154,7 @@ test('the pytest summary line decides pass or fail', () => {
   expect(readReport(python, PYTEST_FAILING)?.isFailed).toBe(true)
   expect(readReport(python, PYTEST_COLLECTION_ERROR)?.isFailed).toBe(true)
   expect(readReport(python, PYTEST_PASSING)?.isFailed).toBe(false)
+  expect(readReport(python, '=== no tests ran in 0.00s ===')?.isFailed).toBe(false)
   expect(readReport(python, '=== test session starts ===\ncollected 3 items')).toBeUndefined()
 })
 
