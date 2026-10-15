@@ -3,6 +3,8 @@ export type Watcher = {
   name: string
   marker: string
   argv: readonly string[]
+  /** Runs the whole suite once before the watcher starts, read the same way; absent or empty, the watcher's first build is the baseline. */
+  baseline?: readonly string[]
   /** Matches the line that closes one build's report. */
   summary: RegExp
   /** Tested against the summary line: a match means the build failed. */
@@ -13,6 +15,7 @@ export type Watcher = {
 export type Override = {
   enabled?: boolean
   argv?: string[]
+  baseline?: string[]
   summary?: string
   failed?: string
 }
@@ -30,7 +33,8 @@ export const WATCHERS: readonly Watcher[] = [
   {
     name: 'python',
     marker: 'pyproject.toml',
-    argv: ['uv', 'run', '--with', 'pytest', '--with', 'pytest-watcher', '--with', 'pytest-testmon', 'ptw', '--now', '.', '--testmon'],
+    argv: ['uv', 'run', '--with', 'pytest', '--with', 'pytest-watcher', '--with', 'pytest-testmon', 'ptw', '.', '--testmon'],
+    baseline: ['uv', 'run', '--with', 'pytest', '--with', 'pytest-testmon', 'pytest', '--testmon-noselect'],
     summary: /^=+ .+ in \d+(?:\.\d+)?s(?: \([^)]*\))? =+$/m,
     failed: /\b(?:failed|errors?)\b/,
   },
@@ -42,6 +46,7 @@ export function applyOverride(watcher: Watcher, override: Override): Watcher {
   return {
     ...watcher,
     argv: override.argv ?? watcher.argv,
+    baseline: override.baseline ?? watcher.baseline,
     summary: override.summary === undefined ? watcher.summary : new RegExp(override.summary, 'm'),
     failed: override.failed === undefined ? watcher.failed : new RegExp(override.failed),
   }
@@ -61,8 +66,8 @@ export function readReport(watcher: Watcher, output: string): Report | undefined
   }
 }
 
-export function commandLine(watcher: Watcher): string {
-  return watcher.argv.join(' ')
+export function commandLine(watcher: Watcher, argv: readonly string[] = watcher.argv): string {
+  return argv.join(' ')
 }
 
 export function failureMessage(watcher: Watcher, report: Report): string {

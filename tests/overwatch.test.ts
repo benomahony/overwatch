@@ -145,9 +145,38 @@ test('a pyproject.toml project runs pytest under a watcher', async ($, on) => {
   })
   await $.session.start(start)
   await clock.advance(1000)
-  expect(spawned).toEqual([['uv', 'run', '--with', 'pytest', '--with', 'pytest-watcher', '--with', 'pytest-testmon', 'ptw', '--now', '.', '--testmon']])
+  expect(spawned).toEqual([
+    ['uv', 'run', '--with', 'pytest', '--with', 'pytest-testmon', 'pytest', '--testmon-noselect'],
+    ['uv', 'run', '--with', 'pytest', '--with', 'pytest-watcher', '--with', 'pytest-testmon', 'ptw', '.', '--testmon'],
+  ])
   expect(prompts.length).toBe(1)
   expect(prompts[0]).toContain('assert 10 == 11')
+})
+
+test('the full suite runs green before the watcher starts', async ($, on) => {
+  const clock = mock.clock(on)
+  const statuses: (string | undefined)[] = []
+  const spawned: string[][] = []
+  on('fs.read', () => ({ deny: 'no such file' }))
+  on('fs.exists', ($, e) => ({ value: e.path.endsWith('/pyproject.toml') }))
+  on('ui.status', ($, e, next) => {
+    statuses.push(e.text)
+    return next(e)
+  })
+  on('process.spawn', async function* ($, e) {
+    spawned.push([...e.argv])
+    const text = e.argv.includes('ptw') ? '=== no tests ran in 0.00s ===\n' : PYTEST_PASSING
+    yield { stream: 'stdout' as const, text }
+    return { value: { code: 0, signal: null } }
+  })
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  await $.session.start(start)
+  await clock.advance(1000)
+  expect(spawned.map(argv => argv.includes('ptw'))).toEqual([false, true])
+  const green = statuses.indexOf('overwatch python ✓ 3 passed in 0.01s')
+  const watching = statuses.findIndex(text => text?.includes(': starting uv run'))
+  expect(green).toBeGreaterThan(-1)
+  expect(watching).toBeGreaterThan(green)
 })
 
 test('the pytest summary line decides pass or fail', () => {

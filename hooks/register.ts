@@ -37,7 +37,30 @@ async function deliver($: EngineInterface, state: State, watcher: Watcher, repor
   await $.prompt.submit({ text })
 }
 
+/** Runs the whole suite once and reports it, so the watcher starts from a known result. */
+async function runBaseline($: EngineInterface, state: State, watcher: Watcher, argv: readonly string[], cwd: string) {
+  const child = $.process.spawn({ argv, cwd })
+  state.stop = () => child.return({ code: null, signal: null })
+  $.ui.status(`overwatch ${watcher.name}: running the full suite with ${commandLine(watcher, argv)}`)
+  let output = ''
+  for await (const { text } of child) output += text
+  const report = readReport(watcher, output)
+  if (report === undefined) {
+    $.ui.log(`overwatch: ${commandLine(watcher, argv)} gave no summary:\n${output}`, { to: 'debug' })
+    return
+  }
+  await deliver($, state, watcher, report)
+}
+
 async function watch($: EngineInterface, state: State, watcher: Watcher, cwd: string) {
+  if (watcher.baseline !== undefined && watcher.baseline.length > 0) {
+    try {
+      await runBaseline($, state, watcher, watcher.baseline, cwd)
+    } catch (error) {
+      $.ui.log(`overwatch: ${String(error)}`, { to: 'debug' })
+    }
+    if (state.stop === undefined) return
+  }
   const child = $.process.spawn({ argv: watcher.argv, cwd })
   state.stop = () => child.return({ code: null, signal: null })
   $.ui.status(`overwatch ${watcher.name}: starting ${commandLine(watcher)}`)
