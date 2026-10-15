@@ -5,6 +5,7 @@ import {
   applyOverride,
   commandLine,
   failureMessage,
+  overrideWatcher,
   readReport,
   recoveryMessage,
   statusLine,
@@ -93,7 +94,7 @@ async function findWatcher($: EngineInterface, cwd: string): Promise<Watcher | u
   for (const watcher of WATCHERS) {
     if (await $.fs.exists(`${cwd}/${watcher.marker}`)) return applyOverride(watcher, override)
   }
-  return undefined
+  return overrideWatcher(override)
 }
 
 export const register: Register = on => {

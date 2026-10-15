@@ -128,6 +128,51 @@ test('a project with no watcher starts nothing', async ($, on) => {
   expect(spawned).toEqual([])
 })
 
+test('a project with no marker runs the watcher its override names', async ($, on) => {
+  const clock = mock.clock(on)
+  const spawned: string[][] = []
+  const prompts: string[] = []
+  const override = {
+    name: 'plugin',
+    baseline: ['claude', 'plugin', 'test', '.'],
+    argv: ['sh', '-c', 'git ls-files | entr -np claude plugin test .'],
+    summary: '^ \\d+ fail$',
+    failed: '^[1-9]\\d* fail$',
+  }
+  on('fs.read', ($, e) => (e.path === '/repo/.claude/overwatch.json' ? { value: JSON.stringify(override) } : { deny: 'no such file' }))
+  on('fs.exists', () => ({ value: false }))
+  on('process.spawn', async function* ($, e) {
+    spawned.push([...e.argv])
+    yield { stream: 'stdout' as const, text: '(fail) adds [0.1ms]\n 8 pass\n 1 fail\nRan 9 tests across 1 file. [0.28s]\n' }
+    return { value: { code: 1, signal: null } }
+  })
+  on('prompt.submit', ($, e) => {
+    prompts.push(e.text)
+    return { text: e.text }
+  })
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  await $.session.start(start)
+  await clock.advance(1000)
+  expect(spawned).toEqual([override.baseline, override.argv])
+  expect(prompts.length).toBe(1)
+  expect(prompts[0]).toContain('(fail) adds')
+})
+
+test('an override with no command starts nothing in a project with no marker', async ($, on) => {
+  const clock = mock.clock(on)
+  const spawned: string[][] = []
+  on('fs.read', () => ({ value: JSON.stringify({ summary: '^ \\d+ fail$' }) }))
+  on('fs.exists', () => ({ value: false }))
+  on('process.spawn', async function* ($, e) {
+    spawned.push([...e.argv])
+    return { value: { code: 0, signal: null } }
+  })
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  await $.session.start(start)
+  await clock.advance(1000)
+  expect(spawned).toEqual([])
+})
+
 test('the zig summary line decides pass or fail', () => {
   expect(readReport(zig, FAILING)?.isFailed).toBe(true)
   expect(readReport(zig, PASSING)?.isFailed).toBe(false)

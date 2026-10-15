@@ -1,0 +1,7 @@
+{
+  "name": "plugin",
+  "baseline": ["claude", "plugin", "test", "."],
+  "argv": ["sh", "-c", "git ls-files -co --exclude-standard | entr -np claude plugin test ."],
+  "summary": "^ \\d+ fail$",
+  "failed": "^[1-9]\\d* fail$"
+}

@@ -14,6 +14,7 @@ export type Watcher = {
 /** The project's own `.claude/overwatch.json`, every field optional. */
 export type Override = {
   enabled?: boolean
+  name?: string
   argv?: string[]
   baseline?: string[]
   summary?: string
@@ -45,6 +46,7 @@ export const REPORT_LIMIT = 8000
 export function applyOverride(watcher: Watcher, override: Override): Watcher {
   return {
     ...watcher,
+    name: override.name ?? watcher.name,
     argv: override.argv ?? watcher.argv,
     baseline: override.baseline ?? watcher.baseline,
     summary: override.summary === undefined ? watcher.summary : new RegExp(override.summary, 'm'),
@@ -52,7 +54,14 @@ export function applyOverride(watcher: Watcher, override: Override): Watcher {
   }
 }
 
-export type Report = { summary: string; isFailed: boolean; text: string }
+/** A project no marker matches gets the override itself as its watcher, once it names a command, a summary line and a failure pattern. */
+export function overrideWatcher(override: Override): Watcher | undefined {
+  const { argv, summary, failed } = override
+  if (argv === undefined || summary === undefined || failed === undefined) return undefined
+  return applyOverride({ name: 'project', marker: OVERRIDE_PATH, argv, summary: /$^/, failed: /$^/ }, override)
+}
+
+export type Report ={ summary: string; isFailed: boolean; text: string }
 
 /** Reads one build's output; undefined until the summary line has arrived. */
 export function readReport(watcher: Watcher, output: string): Report | undefined {

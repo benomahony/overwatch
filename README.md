@@ -36,6 +36,18 @@ Add a language by adding an entry to `WATCHERS` in `hooks/watchers.ts`: its mark
 
 `"enabled": false` turns overwatch off for that project; `"baseline": []` skips the full run first.
 
+A project with no marker file is watched when its override names `argv`, `summary` and `failed`; `name` labels it in the status line. This repository watches its own tests with [entr](https://eradman.com/entrproject/):
+
+```json
+{
+  "name": "plugin",
+  "baseline": ["claude", "plugin", "test", "."],
+  "argv": ["sh", "-c", "git ls-files -co --exclude-standard | entr -np claude plugin test ."],
+  "summary": "^ \\d+ fail$",
+  "failed": "^[1-9]\\d* fail$"
+}
+```
+
 ## Install
 
 ```
