@@ -148,6 +148,14 @@ local function command_line(argv)
   return table.concat(argv, ' ')
 end
 
+--- Tells the user a command gave no result, with the last lines it printed.
+local function report_broken(argv, why, output)
+  local lines = vim.split(vim.trim(output), '\n', { plain = true })
+  local tail = table.concat(vim.list_slice(lines, math.max(1, #lines - 9)), '\n')
+  set_status(('overwatch %s: %s %s'):format(state.watcher.name, command_line(argv), why))
+  vim.notify(('overwatch: %s %s\n%s'):format(command_line(argv), why, tail), vim.log.levels.ERROR)
+end
+
 --- Starts argv, handing each chunk of output to on_output on the main loop.
 local function spawn(argv, on_output, on_exit)
   local function read(_, data)
@@ -171,7 +179,11 @@ local function run_once(watcher, argv, done)
     state.process = nil
     if state.watcher ~= watcher then return end
     local report = M.read_report(watcher, output)
-    if report then deliver(watcher, report) end
+    if report then
+      deliver(watcher, report)
+    else
+      report_broken(argv, 'gave no summary', output)
+    end
     if done then done() end
   end)
 end
@@ -199,18 +211,18 @@ local function rerun_on_save(watcher)
 end
 
 local function watch(watcher)
-  local output, flush = '', vim.uv.new_timer()
+  local output, recent, flush = '', '', vim.uv.new_timer()
   set_status(('overwatch %s: starting %s'):format(watcher.name, command_line(watcher.argv)))
   spawn(watcher.argv, function(data)
-    output = output .. data
+    output, recent = output .. data, (recent .. data):sub(-4000)
     flush:start(QUIET_MS, 0, vim.schedule_wrap(function()
       local report = M.read_report(watcher, output)
       if report == nil then return end
       output = ''
       deliver(watcher, report)
     end))
-  end, function()
-    if state.watcher == watcher then vim.notify('overwatch: ' .. command_line(watcher.argv) .. ' exited', vim.log.levels.WARN) end
+  end, function(result)
+    if state.watcher == watcher then report_broken(watcher.argv, ('exited with code %d'):format(result.code), recent) end
   end)
 end
 

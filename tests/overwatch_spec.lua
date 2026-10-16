@@ -76,4 +76,15 @@ test('a project with no watch command reruns its suite after each save', functio
   eq(overwatch.status(), '')
 end)
 
+test('a command that gives no summary shows what it printed', function()
+  local dir = project({ name = 'sh', baseline = { 'sh', '-c', 'echo error: Failed to parse uv.lock; exit 2' }, summary = 'x', failed = 'y' })
+  local notified = {}
+  vim.notify = function(text) notified[#notified + 1] = text end
+  overwatch.start(dir)
+  vim.wait(2000, function() return #notified > 0 end)
+  eq(overwatch.status(), 'overwatch sh: sh -c echo error: Failed to parse uv.lock; exit 2 gave no summary')
+  eq(notified[1]:find('error: Failed to parse uv.lock', 1, true) ~= nil, true)
+  overwatch.stop()
+end)
+
 os.exit(failures == 0 and 0 or 1)
