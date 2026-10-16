@@ -16,8 +16,13 @@ import {
 
 const QUIET_MS = 400
 
+/** Tools whose call may change the project's files; a watcher that is no long-running command reruns after each. */
+const EDITING_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Bash'])
+
 type State = {
-  stop: (() => Promise<unknown>) | undefined
+  isWatching: boolean
+  kill: (() => Promise<unknown>) | undefined
+  changed: (() => void) | undefined
   isTurnRunning: boolean
   isPromptQueued: boolean
   wasFailing: boolean
@@ -38,13 +43,21 @@ async function deliver($: EngineInterface, state: State, watcher: Watcher, repor
   await $.prompt.submit({ text })
 }
 
-/** Runs the whole suite once and reports it, so the watcher starts from a known result. */
-async function runBaseline($: EngineInterface, state: State, watcher: Watcher, argv: readonly string[], cwd: string) {
+/** Runs a command to its end and reports what it printed. */
+async function runOnce($: EngineInterface, state: State, watcher: Watcher, argv: readonly string[], cwd: string) {
   const child = $.process.spawn({ argv, cwd })
-  state.stop = () => child.return({ code: null, signal: null })
-  $.ui.status(`overwatch ${watcher.name}: running the full suite with ${commandLine(watcher, argv)}`)
+  state.kill = () => child.return({ code: null, signal: null })
   let output = ''
-  for await (const { text } of child) output += text
+  try {
+    for await (const { text } of child) output += text
+  } catch (error) {
+    $.ui.status(`overwatch ${watcher.name}: could not start ${commandLine(watcher, argv)}`)
+    $.ui.log(`overwatch: ${String(error)}`, { to: 'debug' })
+    return
+  } finally {
+    state.kill = undefined
+  }
+  if (!state.isWatching) return
   const report = readReport(watcher, output)
   if (report === undefined) {
     $.ui.log(`overwatch: ${commandLine(watcher, argv)} gave no summary:\n${output}`, { to: 'debug' })
@@ -53,17 +66,42 @@ async function runBaseline($: EngineInterface, state: State, watcher: Watcher, a
   await deliver($, state, watcher, report)
 }
 
+/** Reruns the suite once the agent's edits go quiet, one run at a time. */
+function rerunOnChange($: EngineInterface, state: State, watcher: Watcher, argv: readonly string[], cwd: string) {
+  let timer: Timer | undefined
+  let isRunning = false
+  let isPending = false
+  const run = async () => {
+    if (!state.isWatching) return
+    if (isRunning) {
+      isPending = true
+      return
+    }
+    isRunning = true
+    await runOnce($, state, watcher, argv, cwd)
+    isRunning = false
+    if (!isPending) return
+    isPending = false
+    await run()
+  }
+  state.changed = () => {
+    timer?.cancel()
+    timer = $.clock.after(QUIET_MS, () => void run())
+  }
+}
+
 async function watch($: EngineInterface, state: State, watcher: Watcher, cwd: string) {
   if (watcher.baseline !== undefined && watcher.baseline.length > 0) {
-    try {
-      await runBaseline($, state, watcher, watcher.baseline, cwd)
-    } catch (error) {
-      $.ui.log(`overwatch: ${String(error)}`, { to: 'debug' })
-    }
-    if (state.stop === undefined) return
+    $.ui.status(`overwatch ${watcher.name}: running the full suite with ${commandLine(watcher, watcher.baseline)}`)
+    await runOnce($, state, watcher, watcher.baseline, cwd)
+    if (!state.isWatching) return
+  }
+  if (watcher.argv === undefined) {
+    if (watcher.baseline !== undefined) rerunOnChange($, state, watcher, watcher.baseline, cwd)
+    return
   }
   const child = $.process.spawn({ argv: watcher.argv, cwd })
-  state.stop = () => child.return({ code: null, signal: null })
+  state.kill = () => child.return({ code: null, signal: null })
   $.ui.status(`overwatch ${watcher.name}: starting ${commandLine(watcher)}`)
   let output = ''
   let flush: Timer | undefined
@@ -98,14 +136,29 @@ async function findWatcher($: EngineInterface, cwd: string): Promise<Watcher | u
 }
 
 export const register: Register = on => {
-  const state: State = { stop: undefined, isTurnRunning: false, isPromptQueued: false, wasFailing: false }
+  const state: State = {
+    isWatching: false,
+    kill: undefined,
+    changed: undefined,
+    isTurnRunning: false,
+    isPromptQueued: false,
+    wasFailing: false,
+  }
 
   on('session.start', async ($, e, next) => {
     const started = await next(e)
-    if (!e.isInteractive || state.stop !== undefined) return started
+    if (!e.isInteractive || state.isWatching) return started
     const watcher = await findWatcher($, e.cwd)
-    if (watcher !== undefined) void watch($, state, watcher, e.cwd)
+    if (watcher === undefined || state.isWatching) return started
+    state.isWatching = true
+    void watch($, state, watcher, e.cwd)
     return started
+  })
+
+  on('tool.call', async ($, e, next) => {
+    const result = await next(e)
+    if (EDITING_TOOLS.has(e.tool)) state.changed?.()
+    return result
   })
 
   on('turn.start', ($, e, next) => {
@@ -121,8 +174,9 @@ export const register: Register = on => {
 
   on('session.end', async ($, e, next) => {
     if (e.reason === 'clear') return next(e)
-    await state.stop?.()
-    state.stop = undefined
+    state.isWatching = false
+    state.changed = undefined
+    await state.kill?.()
     $.ui.status(undefined)
     return next(e)
   })

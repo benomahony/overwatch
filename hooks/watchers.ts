@@ -2,7 +2,8 @@
 export type Watcher = {
   name: string
   marker: string
-  argv: readonly string[]
+  /** The long-running watch command; absent, overwatch reruns `baseline` itself after each change the agent makes. */
+  argv?: readonly string[]
   /** Runs the whole suite once before the watcher starts, read the same way; absent or empty, the watcher's first build is the baseline. */
   baseline?: readonly string[]
   /** Matches the line that closes one build's report. */
@@ -56,12 +57,12 @@ export function applyOverride(watcher: Watcher, override: Override): Watcher {
 
 /** A project no marker matches gets the override itself as its watcher, once it names a command, a summary line and a failure pattern. */
 export function overrideWatcher(override: Override): Watcher | undefined {
-  const { argv, summary, failed } = override
-  if (argv === undefined || summary === undefined || failed === undefined) return undefined
-  return applyOverride({ name: 'project', marker: OVERRIDE_PATH, argv, summary: /$^/, failed: /$^/ }, override)
+  const { argv, baseline, summary, failed } = override
+  if ((argv === undefined && !baseline?.length) || summary === undefined || failed === undefined) return undefined
+  return applyOverride({ name: 'project', marker: OVERRIDE_PATH, summary: /$^/, failed: /$^/ }, override)
 }
 
-export type Report ={ summary: string; isFailed: boolean; text: string }
+export type Report = { summary: string; isFailed: boolean; text: string }
 
 /** Reads one build's output; undefined until the summary line has arrived. */
 export function readReport(watcher: Watcher, output: string): Report | undefined {
@@ -75,7 +76,7 @@ export function readReport(watcher: Watcher, output: string): Report | undefined
   }
 }
 
-export function commandLine(watcher: Watcher, argv: readonly string[] = watcher.argv): string {
+export function commandLine(watcher: Watcher, argv: readonly string[] = watcher.argv ?? watcher.baseline ?? []): string {
   return argv.join(' ')
 }
 

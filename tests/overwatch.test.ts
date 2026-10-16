@@ -128,32 +128,42 @@ test('a project with no watcher starts nothing', async ($, on) => {
   expect(spawned).toEqual([])
 })
 
-test('a project with no marker runs the watcher its override names', async ($, on) => {
+test('a project with no watch command reruns its suite after each edit', async ($, on) => {
   const clock = mock.clock(on)
   const spawned: string[][] = []
   const prompts: string[] = []
   const override = {
     name: 'plugin',
     baseline: ['claude', 'plugin', 'test', '.'],
-    argv: ['sh', '-c', 'git ls-files | entr -np claude plugin test .'],
     summary: '^ \\d+ fail$',
     failed: '^[1-9]\\d* fail$',
   }
+  let output = ' 9 pass\n 0 fail\n'
   on('fs.read', ($, e) => (e.path === '/repo/.claude/overwatch.json' ? { value: JSON.stringify(override) } : { deny: 'no such file' }))
   on('fs.exists', () => ({ value: false }))
   on('process.spawn', async function* ($, e) {
     spawned.push([...e.argv])
-    yield { stream: 'stdout' as const, text: '(fail) adds [0.1ms]\n 8 pass\n 1 fail\nRan 9 tests across 1 file. [0.28s]\n' }
-    return { value: { code: 1, signal: null } }
+    yield { stream: 'stdout' as const, text: output }
+    return { value: { code: 0, signal: null } }
   })
   on('prompt.submit', ($, e) => {
     prompts.push(e.text)
     return { text: e.text }
   })
+  on('tool.call', () => ({ result: 'ok' }))
   on('session.start', ($, e) => ({ cwd: e.cwd }))
   await $.session.start(start)
   await clock.advance(1000)
-  expect(spawned).toEqual([override.baseline, override.argv])
+  expect(spawned).toEqual([override.baseline])
+  expect(prompts).toEqual([])
+  output = '(fail) adds [0.1ms]\n 8 pass\n 1 fail\n'
+  await $.tool.call({ tool: 'Read', file_path: '/repo/hooks/register.ts' })
+  await clock.advance(1000)
+  expect(spawned.length).toBe(1)
+  await $.tool.call({ tool: 'Edit', file_path: '/repo/hooks/register.ts', old_string: 'a', new_string: 'b' })
+  await $.tool.call({ tool: 'Write', file_path: '/repo/hooks/watchers.ts', content: '' })
+  await clock.advance(1000)
+  expect(spawned).toEqual([override.baseline, override.baseline])
   expect(prompts.length).toBe(1)
   expect(prompts[0]).toContain('(fail) adds')
 })
