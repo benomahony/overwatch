@@ -18,11 +18,11 @@ The watcher starts with an interactive session, survives `/clear`, and stops whe
 | `build.zig` | the watcher's first build | `zig build -Doptimize=fast test --watch` |
 | `pyproject.toml` | `uv run --with pytest --with pytest-testmon pytest --testmon-noselect` | `uv run --with pytest --with pytest-watcher --with pytest-testmon ptw . --testmon` |
 
-Add a language by adding an entry to `WATCHERS` in `hooks/watchers.ts`: its marker file, its command, optionally a command that runs the whole suite once first, the line that closes one build's report, and the pattern on that line that means it failed.
+Add a language by adding an entry to `WATCHERS` in `hooks/watchers.ts` (and the same entry in `lua/overwatch/init.lua` for Neovim): its marker file, its command, optionally a command that runs the whole suite once first, the line that closes one build's report, and the pattern on that line that means it failed.
 
 ## Per-project override
 
-`.claude/overwatch.json` in the project, every field optional:
+`.overwatch.json` at the project root, every field optional. Claude Code and Neovim both read it; `summary` and `failed` are JavaScript regexes, which the Neovim plugin translates.
 
 ```json
 {
@@ -60,10 +60,20 @@ claude plugin marketplace add ~/Code/open_source/overwatch
 claude plugin install overwatch@overwatch
 ```
 
+## Neovim
+
+The same watchers run beside Neovim: the full suite first, then the watcher, with no agent involved. The latest result is in `require('overwatch').status()`, each failing build goes into the quickfix list (`:copen`), and a watcher with no `argv` reruns `baseline` after every save. It starts with Neovim in a project that has a watcher; `:OverwatchStart` and `:OverwatchStop` start and stop it.
+
+```lua
+vim.pack.add({ "https://github.com/benomahony/overwatch" })
+require("lualine").setup({ sections = { lualine_x = { require("overwatch").status } } })
+```
+
 ## Develop
 
 ```
 claude plugin validate .
 claude plugin test .
 claude --plugin-dir .
+nvim --headless -l tests/overwatch_spec.lua
 ```

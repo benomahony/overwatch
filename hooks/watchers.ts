@@ -12,7 +12,7 @@ export type Watcher = {
   failed: RegExp
 }
 
-/** The project's own `.claude/overwatch.json`, every field optional. */
+/** The project's own `.overwatch.json`, shared with the Neovim plugin, every field optional. */
 export type Override = {
   enabled?: boolean
   name?: string
@@ -22,7 +22,7 @@ export type Override = {
   failed?: string
 }
 
-export const OVERRIDE_PATH = '.claude/overwatch.json'
+export const OVERRIDE_PATH = '.overwatch.json'
 
 export const WATCHERS: readonly Watcher[] = [
   {

@@ -139,7 +139,7 @@ test('a project with no watch command reruns its suite after each edit', async (
     failed: '^[1-9]\\d* fail$',
   }
   let output = ' 9 pass\n 0 fail\n'
-  on('fs.read', ($, e) => (e.path === '/repo/.claude/overwatch.json' ? { value: JSON.stringify(override) } : { deny: 'no such file' }))
+  on('fs.read', ($, e) => (e.path === '/repo/.overwatch.json' ? { value: JSON.stringify(override) } : { deny: 'no such file' }))
   on('fs.exists', () => ({ value: false }))
   on('process.spawn', async function* ($, e) {
     spawned.push([...e.argv])
