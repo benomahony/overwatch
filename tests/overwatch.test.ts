@@ -183,6 +183,186 @@ test('an override with no command starts nothing in a project with no marker', a
   expect(spawned).toEqual([])
 })
 
+const ZIG_WATCH = ['zig', 'build', '-Doptimize=fast', 'test', '--watch']
+
+const turnHooks = (on: On) => {
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  on('turn.complete', ($, e) => ({ text: e.answer }))
+}
+
+const ended = { turnId: 't1', answer: '', durationMs: 1, isAborted: false, reason: 'answer' as const }
+
+test('a marker created mid-session starts its watcher on the next turn', async ($, on) => {
+  const clock = mock.clock(on)
+  const files: string[] = []
+  const spawned: string[][] = []
+  project(on, files, PASSING, spawned)
+  turnHooks(on)
+  await $.session.start(start)
+  await $.turn.start({ text: 'uv init', turnId: 't1' })
+  await clock.advance(1000)
+  expect(spawned).toEqual([])
+  files.push('build.zig')
+  await $.turn.start({ text: 'go on', turnId: 't2' })
+  await clock.advance(1000)
+  expect(spawned).toEqual([ZIG_WATCH])
+})
+
+test('a marker created during a turn starts its watcher as the turn completes', async ($, on) => {
+  const clock = mock.clock(on)
+  const files: string[] = []
+  const spawned: string[][] = []
+  project(on, files, PASSING, spawned)
+  turnHooks(on)
+  await $.session.start(start)
+  await $.turn.start({ text: 'zig init', turnId: 't1' })
+  files.push('build.zig')
+  await $.turn.complete(ended)
+  await clock.advance(1000)
+  expect(spawned).toEqual([ZIG_WATCH])
+})
+
+test('a watcher that exits is restarted on a later turn', async ($, on) => {
+  const clock = mock.clock(on)
+  const spawned: string[][] = []
+  const statuses: (string | undefined)[] = []
+  on('fs.read', () => ({ deny: 'no such file' }))
+  on('fs.exists', ($, e) => ({ value: e.path.endsWith('/build.zig') }))
+  on('process.spawn', async function* ($, e) {
+    spawned.push([...e.argv])
+    yield { stream: 'stderr' as const, text: PASSING }
+    await clock.sleep(60_000)
+    return { value: { code: 1, signal: null } }
+  })
+  on('ui.status', ($, e, next) => {
+    statuses.push(e.text)
+    return next(e)
+  })
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  turnHooks(on)
+  await $.session.start(start)
+  await clock.advance(1000)
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await clock.advance(1000)
+  expect(spawned.length).toBe(1)
+  await clock.advance(60_000)
+  expect(statuses.at(-1)).toContain('exited, restarting at the next turn')
+  await $.turn.start({ text: 'go', turnId: 't2' })
+  await clock.advance(1000)
+  expect(spawned).toEqual([ZIG_WATCH, ZIG_WATCH])
+})
+
+test('a watcher that cannot start is retried no sooner than 30s after each failure', async ($, on) => {
+  const clock = mock.clock(on)
+  let attempts = 0
+  const statuses: (string | undefined)[] = []
+  on('fs.read', () => ({ deny: 'no such file' }))
+  on('fs.exists', ($, e) => ({ value: e.path.endsWith('/build.zig') }))
+  on('process.spawn', async function* () {
+    attempts += 1
+    throw new Error('zig: command not found')
+  })
+  on('ui.status', ($, e, next) => {
+    statuses.push(e.text)
+    return next(e)
+  })
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  turnHooks(on)
+  const turn = async (turnId: string, ms: number) => {
+    await $.turn.start({ text: 'go', turnId })
+    await clock.advance(ms)
+  }
+  await $.session.start(start)
+  await clock.advance(1000)
+  expect(attempts).toBe(1)
+  expect(statuses.at(-1)).toContain('could not start zig build')
+  expect(statuses.at(-1)).toContain('retrying at the first turn after 30s')
+  await turn('t1', 30_000)
+  expect(attempts).toBe(1)
+  await turn('t2', 20_000)
+  expect(attempts).toBe(2)
+  await turn('t3', 10_000)
+  expect(attempts).toBe(2)
+  await turn('t4', 1000)
+  expect(attempts).toBe(3)
+})
+
+test('enabled: false keeps the watcher off, read afresh at each turn', async ($, on) => {
+  const clock = mock.clock(on)
+  const spawned: string[][] = []
+  let override = { enabled: false }
+  on('fs.read', ($, e) => (e.path === '/repo/.overwatch.json' ? { value: JSON.stringify(override) } : { deny: 'no such file' }))
+  on('fs.exists', ($, e) => ({ value: e.path.endsWith('/build.zig') }))
+  on('process.spawn', async function* ($, e) {
+    spawned.push([...e.argv])
+    await clock.sleep(600_000)
+    return { value: { code: 0, signal: null } }
+  })
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  turnHooks(on)
+  await $.session.start(start)
+  for (const turnId of ['t1', 't2', 't3']) {
+    await $.turn.start({ text: 'go', turnId })
+    await $.turn.complete({ ...ended, turnId })
+    await clock.advance(40_000)
+  }
+  expect(spawned).toEqual([])
+  override = { enabled: true }
+  await $.turn.start({ text: 'go', turnId: 't4' })
+  await clock.advance(1000)
+  expect(spawned).toEqual([ZIG_WATCH])
+})
+
+test('a turn that starts while the session is still looking spawns one watcher', async ($, on) => {
+  const clock = mock.clock(on)
+  const spawned: string[][] = []
+  on('fs.read', () => ({ deny: 'no such file' }))
+  const looking: (() => void)[] = []
+  on('fs.exists', async ($, e) => {
+    await new Promise<void>(resolve => looking.push(resolve))
+    return { value: e.path.endsWith('/build.zig') }
+  })
+  on('process.spawn', async function* ($, e) {
+    spawned.push([...e.argv])
+    await clock.sleep(600_000)
+    return { value: { code: 0, signal: null } }
+  })
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  turnHooks(on)
+  await $.session.start(start)
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await $.turn.complete(ended)
+  await clock.settle()
+  expect(looking.length).toBe(1)
+  looking.splice(0).forEach(resolve => resolve())
+  await $.turn.start({ text: 'go', turnId: 't2' })
+  await clock.advance(1000)
+  looking.splice(0).forEach(resolve => resolve())
+  await clock.advance(1000)
+  expect(spawned).toEqual([ZIG_WATCH])
+})
+
+test('the session ending stops the watcher and any restart', async ($, on) => {
+  const clock = mock.clock(on)
+  const spawned: string[][] = []
+  const statuses: (string | undefined)[] = []
+  project(on, ['build.zig'], PASSING, spawned)
+  on('ui.status', ($, e, next) => {
+    statuses.push(e.text)
+    return next(e)
+  })
+  on('session.end', ($, e) => ({ sessionId: e.sessionId }))
+  turnHooks(on)
+  await $.session.start(start)
+  await clock.advance(1000)
+  await $.session.end({ reason: 'prompt_input_exit', sessionId: 's1', resume: { id: 's1' } })
+  await clock.advance(60_000)
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await clock.advance(1000)
+  expect(spawned).toEqual([ZIG_WATCH])
+  expect(statuses.at(-1)).toBeUndefined()
+})
+
 test('the zig summary line decides pass or fail', () => {
   expect(readReport(zig, FAILING)?.isFailed).toBe(true)
   expect(readReport(zig, PASSING)?.isFailed).toBe(false)

@@ -9,7 +9,7 @@ Watchers for agentic engineering. overwatch runs your project's test watcher bes
 
 Before it starts watching, overwatch runs the whole suite once, so you see every test green (or the agent gets the failures) before any change is made.
 
-The watcher starts with an interactive session, survives `/clear`, and stops when the session ends.
+The watcher starts with an interactive session, survives `/clear`, and stops when the session ends. Until one runs, overwatch looks again as each turn starts and completes, so a project scaffolded mid-session (`uv init`, `zig init`) is watched by its next turn at the latest, and a watcher that exits is started again; one that could not start, or exited within 30 seconds of starting, waits 30 seconds first. Setting `"enabled": false` in `.overwatch.json` takes effect at the next check, with no restart.
 
 ## Watchers
 
