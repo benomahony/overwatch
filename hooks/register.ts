@@ -1,5 +1,6 @@
 import type { EngineInterface, Register, Timer } from 'claude-code'
 import {
+  CHECKERS,
   OVERRIDE_PATH,
   WATCHERS,
   applyOverride,
@@ -22,11 +23,10 @@ const RETRY_MS = 30_000
 /** Tools whose call may change the project's files; a watcher that is no long-running command reruns after each. */
 const EDITING_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Bash'])
 
-type State = {
-  /** The interactive session's directory; undefined before it starts and once it ends. */
-  cwd: string | undefined
-  /** Bumped when the session ends, so a check still in flight starts nothing. */
-  epoch: number
+/** One watcher's place beside the others: the project's test watcher, or a checker such as zanity. */
+type Slot = {
+  /** The checker this slot runs; undefined for the project's test watcher. */
+  checker: Watcher | undefined
   isChecking: boolean
   /** A check was asked for while one was in flight, which may have read the project before it changed. */
   isRecheckDue: boolean
@@ -35,15 +35,35 @@ type State = {
   retryAt: number
   kill: (() => Promise<unknown>) | undefined
   changed: (() => void) | undefined
-  isTurnRunning: boolean
-  isPromptQueued: boolean
   wasFailing: boolean
+  /** This watcher's part of the plugin's one status line. */
+  status: string | undefined
 }
 
-async function deliver($: EngineInterface, state: State, watcher: Watcher, report: Report) {
-  $.ui.status(statusLine(watcher, report))
-  const isRecovery = !report.isFailed && state.wasFailing
-  state.wasFailing = report.isFailed
+type State = {
+  /** The interactive session's directory; undefined before it starts and once it ends. */
+  cwd: string | undefined
+  /** Bumped when the session ends, so a check still in flight starts nothing. */
+  epoch: number
+  isTurnRunning: boolean
+  isPromptQueued: boolean
+  slots: readonly Slot[]
+}
+
+/** One watcher running in its slot: what each step of a run needs. */
+type Run = { state: State; slot: Slot; watcher: Watcher; cwd: string }
+
+/** Sets this slot's part of the status line, which shows every running watcher's. */
+function setStatus($: EngineInterface, state: State, slot: Slot, text: string | undefined) {
+  slot.status = text
+  const parts = state.slots.flatMap(({ status }) => (status === undefined ? [] : [status]))
+  $.ui.status(parts.length === 0 ? undefined : parts.join(' · '))
+}
+
+async function deliver($: EngineInterface, { state, slot, watcher }: Run, report: Report) {
+  setStatus($, state, slot, statusLine(watcher, report))
+  const isRecovery = !report.isFailed && slot.wasFailing
+  slot.wasFailing = report.isFailed
   if (!report.isFailed && !isRecovery) return
   const text = report.isFailed ? failureMessage(watcher, report) : recoveryMessage(watcher, report)
   if (state.isTurnRunning) {
@@ -56,73 +76,77 @@ async function deliver($: EngineInterface, state: State, watcher: Watcher, repor
 }
 
 /** Runs a command to its end and reports what it printed. */
-async function runOnce($: EngineInterface, state: State, watcher: Watcher, argv: readonly string[], cwd: string) {
+async function runOnce($: EngineInterface, run: Run, argv: readonly string[]) {
+  const { state, slot, watcher, cwd } = run
   const child = $.process.spawn({ argv, cwd })
-  state.kill = () => child.return({ code: null, signal: null })
+  slot.kill = () => child.return({ code: null, signal: null })
   let output = ''
   try {
     for await (const { text } of child) output += text
   } catch (error) {
-    $.ui.status(`overwatch ${watcher.name}: could not start ${commandLine(watcher, argv)}`)
+    setStatus($, state, slot, `overwatch ${watcher.name}: could not start ${commandLine(watcher, argv)}`)
     $.ui.log(`overwatch: ${String(error)}`, { to: 'debug' })
     return
   } finally {
-    state.kill = undefined
+    slot.kill = undefined
   }
-  if (!state.isWatching) return
+  if (!slot.isWatching) return
   const report = readReport(watcher, output)
   if (report === undefined) {
     $.ui.log(`overwatch: ${commandLine(watcher, argv)} gave no summary:\n${output}`, { to: 'debug' })
     return
   }
-  await deliver($, state, watcher, report)
+  await deliver($, run, report)
 }
 
 /** Reruns the suite once the agent's edits go quiet, one run at a time. */
-function rerunOnChange($: EngineInterface, state: State, watcher: Watcher, argv: readonly string[], cwd: string) {
+function rerunOnChange($: EngineInterface, run: Run, argv: readonly string[]) {
   let timer: Timer | undefined
   let isRunning = false
   let isPending = false
-  const run = async () => {
-    if (!state.isWatching) return
+  const rerun = async () => {
+    if (!run.slot.isWatching) return
     if (isRunning) {
       isPending = true
       return
     }
     isRunning = true
-    await runOnce($, state, watcher, argv, cwd)
+    await runOnce($, run, argv)
     isRunning = false
     if (!isPending) return
     isPending = false
-    await run()
+    await rerun()
   }
-  state.changed = () => {
+  run.slot.changed = () => {
     timer?.cancel()
-    timer = $.clock.after(QUIET_MS, () => void run())
+    timer = $.clock.after(QUIET_MS, () => void rerun())
   }
 }
 
-/** How a watcher ended of itself: its process exited, or it never started. */
-type Ending = { isStarted: boolean; startedAt: number }
+/** How a watcher ended of itself, its process exited or never started, and when. */
+type Ending = { isStarted: boolean; startedAt: number; endedAt: number }
 
 /** Watches until the watcher ends of itself, resolving how; a watcher with no command never ends. */
-async function watch($: EngineInterface, state: State, watcher: Watcher, cwd: string): Promise<Ending | undefined> {
+async function watch($: EngineInterface, run: Run): Promise<Ending | undefined> {
+  const { state, slot, watcher, cwd } = run
   if (watcher.baseline !== undefined && watcher.baseline.length > 0) {
-    $.ui.status(`overwatch ${watcher.name}: running the full suite with ${commandLine(watcher, watcher.baseline)}`)
-    await runOnce($, state, watcher, watcher.baseline, cwd)
-    if (!state.isWatching) return undefined
+    const text = `overwatch ${watcher.name}: running the full suite with ${commandLine(watcher, watcher.baseline)}`
+    setStatus($, state, slot, text)
+    await runOnce($, run, watcher.baseline)
+    if (!slot.isWatching) return undefined
   }
   if (watcher.argv === undefined) {
-    if (watcher.baseline !== undefined) rerunOnChange($, state, watcher, watcher.baseline, cwd)
+    if (watcher.baseline !== undefined) rerunOnChange($, run, watcher.baseline)
     return undefined
   }
   const startedAt = await $.clock.now()
-  if (!state.isWatching) return undefined
+  if (!slot.isWatching) return undefined
   const child = $.process.spawn({ argv: watcher.argv, cwd })
-  state.kill = () => child.return({ code: null, signal: null })
-  $.ui.status(`overwatch ${watcher.name}: starting ${commandLine(watcher)}`)
+  slot.kill = () => child.return({ code: null, signal: null })
+  setStatus($, state, slot, `overwatch ${watcher.name}: starting ${commandLine(watcher)}`)
   let output = ''
   let flush: Timer | undefined
+  let isStarted = true
   try {
     for await (const { text } of child) {
       output += text
@@ -131,111 +155,142 @@ async function watch($: EngineInterface, state: State, watcher: Watcher, cwd: st
         const report = readReport(watcher, output)
         if (report === undefined) return
         output = ''
-        void deliver($, state, watcher, report)
+        void deliver($, run, report)
       })
     }
-    if (!state.isWatching) return undefined
+    if (!slot.isWatching) return undefined
     $.ui.toast(`overwatch: ${commandLine(watcher)} exited`)
-    return { isStarted: true, startedAt }
   } catch (error) {
-    if (!state.isWatching) return undefined
+    if (!slot.isWatching) return undefined
     $.ui.log(`overwatch: ${String(error)}`, { to: 'debug' })
-    return { isStarted: false, startedAt }
+    isStarted = false
   } finally {
-    state.kill = undefined
+    slot.kill = undefined
   }
+  return { isStarted, startedAt, endedAt: await $.clock.now() }
 }
 
-async function findWatcher($: EngineInterface, cwd: string): Promise<Watcher | undefined> {
-  const override: Override = await $.fs
+async function readOverride($: EngineInterface, cwd: string): Promise<Override> {
+  return $.fs
     .read(`${cwd}/${OVERRIDE_PATH}`)
     .then(text => JSON.parse(text) as Override)
     .catch(() => ({}))
-  if (override.enabled === false) return undefined
+}
+
+/** The project's test watcher: the first whose marker it has, or its override's own. */
+async function findWatcher($: EngineInterface, cwd: string, override: Override): Promise<Watcher | undefined> {
   for (const watcher of WATCHERS) {
     if (await $.fs.exists(`${cwd}/${watcher.marker}`)) return applyOverride(watcher, override)
   }
   return overrideWatcher(override)
 }
 
+/** Whether `name` is an executable in a directory on PATH. */
+async function isOnPath($: EngineInterface, name: string): Promise<boolean> {
+  const path = (await $.env.get('PATH').catch(() => undefined)) ?? ''
+  for (const dir of path.split(':')) {
+    if (dir !== '' && (await $.fs.exists(`${dir}/${name}`).catch(() => false))) return true
+  }
+  return false
+}
+
+/** A checker runs in any project, as long as its executable is installed. */
+async function findChecker($: EngineInterface, checker: Watcher): Promise<Watcher | undefined> {
+  return (await isOnPath($, checker.marker)) ? checker : undefined
+}
+
+/** This slot's watcher, read afresh; undefined while it waits out a retry or overwatch is off. */
+async function lookFor($: EngineInterface, slot: Slot, cwd: string): Promise<Watcher | undefined> {
+  if (slot.retryAt > 0 && (await $.clock.now()) < slot.retryAt) return undefined
+  const override = await readOverride($, cwd)
+  if (override.enabled === false) return undefined
+  return slot.checker === undefined ? findWatcher($, cwd, override) : findChecker($, slot.checker)
+}
+
 /**
- * Starts the project's watcher unless one runs or a check is in flight, reading the
+ * Starts the slot's watcher unless one runs or a check is in flight, reading the
  * marker and the override afresh, so a project scaffolded mid-session gets its
  * watcher. One that could not start, or exited within RETRY_MS, waits that long.
  */
-async function ensureWatching($: EngineInterface, state: State) {
+async function ensureWatching($: EngineInterface, state: State, slot: Slot) {
   const { cwd, epoch } = state
-  if (cwd === undefined || state.isWatching) return
-  if (state.isChecking) {
-    state.isRecheckDue = true
+  if (cwd === undefined || slot.isWatching) return
+  if (slot.isChecking) {
+    slot.isRecheckDue = true
     return
   }
-  state.isChecking = true
-  state.isRecheckDue = false
-  const watcher = await (async () => {
-    if (state.retryAt > 0 && (await $.clock.now()) < state.retryAt) return undefined
-    return findWatcher($, cwd)
-  })().finally(() => {
-    state.isChecking = false
+  slot.isChecking = true
+  slot.isRecheckDue = false
+  const watcher = await lookFor($, slot, cwd).finally(() => {
+    slot.isChecking = false
   })
-  if (state.isWatching || state.epoch !== epoch) return
+  if (slot.isWatching || state.epoch !== epoch) return
   if (watcher === undefined) {
-    if (state.isRecheckDue) await ensureWatching($, state)
+    if (slot.isRecheckDue) await ensureWatching($, state, slot)
     return
   }
-  state.isWatching = true
-  state.retryAt = 0
-  const ending = await watch($, state, watcher, cwd)
+  slot.isWatching = true
+  slot.retryAt = 0
+  const ending = await watch($, { state, slot, watcher, cwd })
   if (ending === undefined || state.epoch !== epoch) return
-  const endedAt = await $.clock.now()
-  const isQuick = !ending.isStarted || endedAt - ending.startedAt < RETRY_MS
-  state.retryAt = isQuick ? endedAt + RETRY_MS : 0
-  const what = ending.isStarted ? `${commandLine(watcher)} exited` : `could not start ${commandLine(watcher)}`
+  const { isStarted, startedAt, endedAt } = ending
+  const isQuick = !isStarted || endedAt - startedAt < RETRY_MS
+  slot.retryAt = isQuick ? endedAt + RETRY_MS : 0
+  const what = isStarted ? `${commandLine(watcher)} exited` : `could not start ${commandLine(watcher)}`
   const when = isQuick ? `retrying at the first turn after ${RETRY_MS / 1000}s` : 'restarting at the next turn'
-  if (state.epoch !== epoch) return
-  $.ui.status(`overwatch ${watcher.name}: ${what}, ${when}`)
-  state.isWatching = false
+  setStatus($, state, slot, `overwatch ${watcher.name}: ${what}, ${when}`)
+  slot.isWatching = false
+}
+
+const slot = (checker?: Watcher): Slot => ({
+  checker,
+  isChecking: false,
+  isRecheckDue: false,
+  isWatching: false,
+  retryAt: 0,
+  kill: undefined,
+  changed: undefined,
+  wasFailing: false,
+  status: undefined,
+})
+
+function ensureAll($: EngineInterface, state: State) {
+  for (const each of state.slots) void ensureWatching($, state, each)
 }
 
 export const register: Register = on => {
   const state: State = {
     cwd: undefined,
     epoch: 0,
-    isChecking: false,
-    isRecheckDue: false,
-    isWatching: false,
-    retryAt: 0,
-    kill: undefined,
-    changed: undefined,
     isTurnRunning: false,
     isPromptQueued: false,
-    wasFailing: false,
+    slots: [slot(), ...CHECKERS.map(checker => slot(checker))],
   }
 
   on('session.start', async ($, e, next) => {
     const started = await next(e)
     if (!e.isInteractive) return started
     state.cwd = e.cwd
-    void ensureWatching($, state)
+    ensureAll($, state)
     return started
   })
 
   on('tool.call', async ($, e, next) => {
     const result = await next(e)
-    if (EDITING_TOOLS.has(e.tool)) state.changed?.()
+    if (EDITING_TOOLS.has(e.tool)) for (const each of state.slots) each.changed?.()
     return result
   })
 
   on('turn.start', ($, e, next) => {
     state.isTurnRunning = true
     state.isPromptQueued = false
-    void ensureWatching($, state)
+    ensureAll($, state)
     return next(e)
   })
 
   on('turn.complete', ($, e, next) => {
     if (e.agentId === undefined) state.isTurnRunning = false
-    void ensureWatching($, state)
+    ensureAll($, state)
     return next(e)
   })
 
@@ -243,9 +298,13 @@ export const register: Register = on => {
     if (e.reason === 'clear') return next(e)
     state.cwd = undefined
     state.epoch += 1
-    state.isWatching = false
-    state.changed = undefined
-    await state.kill?.()
+    const slots = state.slots.map(each => {
+      each.isWatching = false
+      each.changed = undefined
+      each.status = undefined
+      return each.kill?.()
+    })
+    await Promise.all(slots)
     $.ui.status(undefined)
     return next(e)
   })

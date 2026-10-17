@@ -1,6 +1,7 @@
 /** A test watcher overwatch can run: the file that marks a project as its kind, the command, and how to read its output. */
 export type Watcher = {
   name: string
+  /** The file that marks a project as this watcher's kind; for a checker, the executable that must be on PATH. */
   marker: string
   /** The long-running watch command; absent, overwatch reruns `baseline` itself after each change the agent makes. */
   argv?: readonly string[]
@@ -39,6 +40,17 @@ export const WATCHERS: readonly Watcher[] = [
     baseline: ['uv', 'run', '--with', 'pytest', '--with', 'pytest-testmon', 'pytest', '--testmon-noselect'],
     summary: /^=+ .+ in \d+(?:\.\d+)?s(?: \([^)]*\))? =+$/m,
     failed: /\b(?:failed|errors?)\b/,
+  },
+]
+
+/** Checkers run beside the project's watcher, in any project, whenever their executable is on PATH. */
+export const CHECKERS: readonly Watcher[] = [
+  {
+    name: 'zanity',
+    marker: 'zanity',
+    argv: ['zanity', 'check', '.', '--watch', '--no-color'],
+    summary: /^zanity: (?:\d+ errors?, \d+ warnings? in .*|checked .*, no issues found\.)$/m,
+    failed: /\b[1-9]\d* (?:errors?|warnings?)\b/,
   },
 ]
 
@@ -97,5 +109,5 @@ export function recoveryMessage(watcher: Watcher, report: Report): string {
 
 export function statusLine(watcher: Watcher, report: Report): string {
   const mark = report.isFailed ? '✗' : '✓'
-  return `overwatch ${watcher.name} ${mark} ${report.summary.replace(/^Build Summary:\s*|^=+\s*|\s*=+$/g, '')}`
+  return `overwatch ${watcher.name} ${mark} ${report.summary.replace(/^Build Summary:\s*|^zanity:\s*|^=+\s*|\s*=+$/g, '')}`
 }

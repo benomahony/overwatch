@@ -18,6 +18,8 @@ The watcher starts with an interactive session, survives `/clear`, and stops whe
 | `build.zig` | the watcher's first build | `zig build -Doptimize=fast test --watch` |
 | `pyproject.toml` | `uv run --with pytest --with pytest-testmon pytest --testmon-noselect` | `uv run --with pytest --with pytest-watcher --with pytest-testmon ptw . --testmon` |
 
+In every project, whatever its marker, zanity runs beside the test watcher whenever `zanity` is on `PATH`, as `zanity check . --watch --no-color` (zanity 0.1.12 or later). Any error or warning it reports counts as a failure, handed to the agent like a failing build, and the status line shows both results, for example `overwatch zig ✓ 4/4 steps succeeded; 48/48 tests passed · overwatch zanity ✓ checked 12 files, no issues found.`. Add another checker to `CHECKERS` in `hooks/watchers.ts`, its `marker` naming the executable to look for on `PATH`.
+
 Add a language by adding an entry to `WATCHERS` in `hooks/watchers.ts` (and the same entry in `lua/overwatch/init.lua` for Neovim): its marker file, its command, optionally a command that runs the whole suite once first, the line that closes one build's report, and the pattern on that line that means it failed.
 
 ## Per-project override
@@ -34,7 +36,7 @@ Add a language by adding an entry to `WATCHERS` in `hooks/watchers.ts` (and the 
 }
 ```
 
-`"enabled": false` turns overwatch off for that project; `"baseline": []` skips the full run first.
+`"enabled": false` turns overwatch off for that project, zanity included; `"baseline": []` skips the full run first. The other fields apply to the test watcher alone.
 
 A project with no marker file is watched when its override names `summary`, `failed`, and `argv` or `baseline`; `name` labels it in the status line. With no `argv`, overwatch needs no watch tool: it reruns `baseline` itself after the agent's edits (Edit, Write, MultiEdit, NotebookEdit or Bash calls) go quiet. Edits made outside the session are picked up at the agent's next edit. This repository watches its own tests that way:
 
@@ -62,7 +64,7 @@ claude plugin install overwatch@overwatch
 
 ## Neovim
 
-The same watchers run beside Neovim: the full suite first, then the watcher, with no agent involved. The latest result is in `require('overwatch').status()`, each failing build goes into the quickfix list (`:copen`), and a watcher with no `argv` reruns `baseline` after every save. It starts with Neovim in a project that has a watcher; `:OverwatchStart` and `:OverwatchStop` start and stop it.
+The same test watchers run beside Neovim (zanity does not; its own `zanity lsp` gives Neovim its findings on save): the full suite first, then the watcher, with no agent involved. The latest result is in `require('overwatch').status()`, each failing build goes into the quickfix list (`:copen`), and a watcher with no `argv` reruns `baseline` after every save. It starts with Neovim in a project that has a watcher; `:OverwatchStart` and `:OverwatchStop` start and stop it.
 
 ```lua
 vim.pack.add({ "https://github.com/benomahony/overwatch" })

@@ -1,9 +1,10 @@
 import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
-import { WATCHERS, readReport, statusLine } from '../hooks/watchers'
+import { CHECKERS, WATCHERS, readReport, statusLine } from '../hooks/watchers'
 
 const zig = WATCHERS[0]!
 const python = WATCHERS[1]!
+const zanity = CHECKERS[0]!
 
 const FAILING = `test
 +- run test 0 pass, 1 fail (1 total)
@@ -361,6 +362,76 @@ test('the session ending stops the watcher and any restart', async ($, on) => {
   await clock.advance(1000)
   expect(spawned).toEqual([ZIG_WATCH])
   expect(statuses.at(-1)).toBeUndefined()
+})
+
+const ZANITY_WARNINGS = `zanity: 0 errors, 1 warning in 1/1 file.
+Next: fix these; saving a file checks again. Don't silence rules.
+
+empty-block [warning] 1 in 1 file: Fill in the body, delete the block, or leave a comment saying why nothing happens here.
+  a.py
+    2:5 'while True' has an empty body.
+zanity: watching for changes; save a file to check again, Ctrl-C to stop.
+`
+
+const ZANITY_CLEAN = `zanity: checked 1 file, no issues found.
+zanity: watching for changes; save a file to check again, Ctrl-C to stop.
+`
+
+test('zanity on PATH runs beside the project watcher', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.env(on, { PATH: '/usr/bin:/home/me/.local/bin' })
+  const spawned: string[][] = []
+  const prompts: string[] = []
+  const statuses: (string | undefined)[] = []
+  on('fs.read', () => ({ deny: 'no such file' }))
+  on('fs.exists', ($, e) => ({ value: e.path === '/repo/build.zig' || e.path === '/home/me/.local/bin/zanity' }))
+  on('process.spawn', async function* ($, e) {
+    spawned.push([...e.argv])
+    yield { stream: 'stdout' as const, text: e.argv[0] === 'zanity' ? ZANITY_WARNINGS : PASSING }
+    await clock.sleep(600_000)
+    return { value: { code: 0, signal: null } }
+  })
+  on('prompt.submit', ($, e) => {
+    prompts.push(e.text)
+    return { text: e.text }
+  })
+  on('ui.status', ($, e, next) => {
+    statuses.push(e.text)
+    return next(e)
+  })
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  await $.session.start(start)
+  await clock.advance(1000)
+  expect(spawned).toEqual([ZIG_WATCH, ['zanity', 'check', '.', '--watch', '--no-color']])
+  expect(prompts.length).toBe(1)
+  expect(prompts[0]).toContain("'while True' has an empty body")
+  expect(statuses.at(-1)).toBe(
+    'overwatch zig ✓ 4/4 steps succeeded; 48/48 tests passed · overwatch zanity ✗ 0 errors, 1 warning in 1/1 file.',
+  )
+})
+
+test('zanity is not run when it is not on PATH', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.env(on, { PATH: '/usr/bin' })
+  const spawned: string[][] = []
+  on('fs.read', () => ({ deny: 'no such file' }))
+  on('fs.exists', ($, e) => ({ value: e.path === '/repo/build.zig' || e.path === '/home/me/.local/bin/zanity' }))
+  on('process.spawn', async function* ($, e) {
+    spawned.push([...e.argv])
+    yield { stream: 'stderr' as const, text: PASSING }
+    return { value: { code: 0, signal: null } }
+  })
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  await $.session.start(start)
+  await clock.advance(1000)
+  expect(spawned).toEqual([ZIG_WATCH])
+})
+
+test('a zanity warning fails, a clean check passes', () => {
+  expect(readReport(zanity, ZANITY_WARNINGS)?.isFailed).toBe(true)
+  expect(readReport(zanity, 'zanity: 2 errors, 0 warnings in 3/9 files.')?.isFailed).toBe(true)
+  expect(readReport(zanity, ZANITY_CLEAN)?.isFailed).toBe(false)
+  expect(readReport(zanity, 'zanity: watching for changes; save a file to check again, Ctrl-C to stop.')).toBeUndefined()
 })
 
 test('the zig summary line decides pass or fail', () => {
