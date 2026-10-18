@@ -58,7 +58,9 @@ E   ModuleNotFoundError: No module named 'calc'
 =============================== 1 error in 0.05s ===============================
 `
 
-const project = (on: On, files: readonly string[], output: string, spawned: string[][]) => {
+type Project = { files: readonly string[]; output: string; spawned: string[][] }
+
+const project = (on: On, { files, output, spawned }: Project) => {
   on('fs.read', () => ({ deny: 'no such file' }))
   on('fs.exists', ($, e) => ({ value: files.some(file => e.path.endsWith(`/${file}`)) }))
   on('process.spawn', async function* ($, e) {
@@ -75,7 +77,7 @@ test('a failing build wakes an idle session with the failure', async ($, on) => 
   const clock = mock.clock(on)
   const spawned: string[][] = []
   const prompts: string[] = []
-  project(on, ['build.zig'], FAILING, spawned)
+  project(on, { files: ['build.zig'], output: FAILING, spawned })
   on('prompt.submit', ($, e) => {
     prompts.push(e.text)
     return { text: e.text }
@@ -91,7 +93,7 @@ test('a failing build during a turn joins that turn', async ($, on) => {
   const clock = mock.clock(on)
   const session = mock.session(on)
   const prompts: string[] = []
-  project(on, ['build.zig'], FAILING, [])
+  project(on, { files: ['build.zig'], output: FAILING, spawned: [] })
   on('prompt.submit', ($, e) => {
     prompts.push(e.text)
     return { text: e.text }
@@ -109,7 +111,7 @@ test('a passing build stays quiet', async ($, on) => {
   const clock = mock.clock(on)
   const session = mock.session(on)
   const prompts: string[] = []
-  project(on, ['build.zig'], PASSING, [])
+  project(on, { files: ['build.zig'], output: PASSING, spawned: [] })
   on('prompt.submit', ($, e) => {
     prompts.push(e.text)
     return { text: e.text }
@@ -123,7 +125,7 @@ test('a passing build stays quiet', async ($, on) => {
 test('a project with no watcher starts nothing', async ($, on) => {
   const clock = mock.clock(on)
   const spawned: string[][] = []
-  project(on, [], FAILING, spawned)
+  project(on, { files: [], output: FAILING, spawned })
   await $.session.start(start)
   await clock.advance(1000)
   expect(spawned).toEqual([])
@@ -197,7 +199,7 @@ test('a marker created mid-session starts its watcher on the next turn', async (
   const clock = mock.clock(on)
   const files: string[] = []
   const spawned: string[][] = []
-  project(on, files, PASSING, spawned)
+  project(on, { files, output: PASSING, spawned })
   turnHooks(on)
   await $.session.start(start)
   await $.turn.start({ text: 'uv init', turnId: 't1' })
@@ -213,7 +215,7 @@ test('a marker created during a turn starts its watcher as the turn completes', 
   const clock = mock.clock(on)
   const files: string[] = []
   const spawned: string[][] = []
-  project(on, files, PASSING, spawned)
+  project(on, { files, output: PASSING, spawned })
   turnHooks(on)
   await $.session.start(start)
   await $.turn.start({ text: 'zig init', turnId: 't1' })
@@ -347,7 +349,7 @@ test('the session ending stops the watcher and any restart', async ($, on) => {
   const clock = mock.clock(on)
   const spawned: string[][] = []
   const statuses: (string | undefined)[] = []
-  project(on, ['build.zig'], PASSING, spawned)
+  project(on, { files: ['build.zig'], output: PASSING, spawned })
   on('ui.status', ($, e, next) => {
     statuses.push(e.text)
     return next(e)
@@ -430,7 +432,9 @@ test('zanity is not run when it is not on PATH', async ($, on) => {
 test('a zanity warning fails, a clean check passes', () => {
   expect(readReport(zanity, ZANITY_WARNINGS)?.isFailed).toBe(true)
   expect(readReport(zanity, 'zanity: 2 errors, 0 warnings in 3/9 files.')?.isFailed).toBe(true)
+  expect(readReport(zanity, 'zanity: 0 errors and 2 warnings in 2 of 9 files')?.isFailed).toBe(true)
   expect(readReport(zanity, ZANITY_CLEAN)?.isFailed).toBe(false)
+  expect(readReport(zanity, 'zanity: checked 1 file, no issues found')?.isFailed).toBe(false)
   expect(readReport(zanity, 'zanity: watching for changes; save a file to check again, Ctrl-C to stop.')).toBeUndefined()
 })
 
@@ -444,7 +448,7 @@ test('a pyproject.toml project runs pytest under a watcher', async ($, on) => {
   const clock = mock.clock(on)
   const spawned: string[][] = []
   const prompts: string[] = []
-  project(on, ['pyproject.toml'], PYTEST_FAILING, spawned)
+  project(on, { files: ['pyproject.toml'], output: PYTEST_FAILING, spawned })
   on('prompt.submit', ($, e) => {
     prompts.push(e.text)
     return { text: e.text }

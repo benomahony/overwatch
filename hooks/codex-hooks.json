@@ -1,0 +1,54 @@
+{
+  "description": "Run Overwatch checks during Codex turns.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$PLUGIN_ROOT/hooks/codex.py\"",
+            "timeout": 600,
+            "statusMessage": "Overwatch: running the full test suite"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "^(Bash|Edit|Write|apply_patch)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$PLUGIN_ROOT/hooks/codex.py\"",
+            "timeout": 600,
+            "statusMessage": "Overwatch: checking the latest changes"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$PLUGIN_ROOT/hooks/codex.py\"",
+            "timeout": 600,
+            "statusMessage": "Overwatch: checking for external changes"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$PLUGIN_ROOT/hooks/codex.py\"",
+            "timeout": 600,
+            "statusMessage": "Overwatch: confirming the project is green"
+          }
+        ]
+      }
+    ]
+  }
+}

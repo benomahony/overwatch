@@ -49,7 +49,7 @@ export const CHECKERS: readonly Watcher[] = [
     name: 'zanity',
     marker: 'zanity',
     argv: ['zanity', 'check', '.', '--watch', '--no-color'],
-    summary: /^zanity: (?:\d+ errors?, \d+ warnings? in .*|checked .*, no issues found\.)$/m,
+    summary: /^zanity: (?:\d+ errors?(?:,| and) \d+ warnings? in .*|checked .*, no issues found\.?)$/m,
     failed: /\b[1-9]\d* (?:errors?|warnings?)\b/,
   },
 ]
