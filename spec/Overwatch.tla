@@ -1,9 +1,8 @@
 ---------------------------- MODULE Overwatch ----------------------------
-EXTENDS Naturals, FiniteSets
+EXTENDS Naturals, FiniteSets, TLC
 
-CONSTANTS SlotCount, TaskIds, ProcIds, MaxSessions, GiveUp, HasBaseline, CanDisable, LateAppendIsRead
+CONSTANTS Slots, TaskIds, ProcIds, MaxSessions, GiveUp, HasBaseline, CanDisable, LateAppendIsRead
 
-Slots == 1..SlotCount
 None == "none"
 Verdicts == {"pass", "fail"}
 NoPrompt == [slot |-> 0, msg |-> None]
@@ -283,6 +282,8 @@ Next ==
     \/ \E p \in ProcIds : ProcPrints(p) \/ FlushFires(p) \/ ProcExits(p)
 
 Spec == Init /\ [][Next]_vars
+
+Symmetry == Permutations(Slots) \union Permutations(TaskIds) \union Permutations(ProcIds)
 
 OneWatcherPerSlot ==
     \A s \in Slots : Cardinality({p \in ProcIds : proc[p].state = "alive" /\ proc[p].slot = s}) <= 1
