@@ -1,3 +1,5 @@
 .claude-plugin/types/
 __pycache__/
 *.py[cod]
+spec/states/
+spec/*_TTrace_*

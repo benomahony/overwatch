@@ -116,3 +116,12 @@ claude plugin test .
 claude --plugin-dir .
 nvim --headless -l tests/overwatch_spec.lua
 ```
+
+### Model
+
+`spec/Overwatch.tla` is a TLA+ model of `hooks/register.ts`, one action per step between `await`s, so TLC can try every order in which the session, the turn, the watcher processes and their timers can interleave. Each invariant at its end states one promise overwatch makes, and a violation comes back as the shortest sequence of events that breaks it. `LateAppendIsRead` says whether a message appended after the agent's last step is still read in that turn, which is up to Claude Code.
+
+```sh
+curl -sLO https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar
+java -cp tla2tools.jar tlc2.TLC -workers auto -metadir spec/states -config spec/Overwatch.cfg spec/Overwatch.tla
+```
