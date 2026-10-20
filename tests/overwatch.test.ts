@@ -225,8 +225,9 @@ test('a marker created during a turn starts its watcher as the turn completes', 
   expect(spawned).toEqual([ZIG_WATCH])
 })
 
-test('a watcher that exits is restarted on a later turn', async ($, on) => {
+test('a watcher that exits is restarted at once, and the agent told', async ($, on) => {
   const clock = mock.clock(on)
+  const session = mock.session(on)
   const spawned: string[][] = []
   const statuses: (string | undefined)[] = []
   on('fs.read', () => ({ deny: 'no such file' }))
@@ -244,20 +245,20 @@ test('a watcher that exits is restarted on a later turn', async ($, on) => {
   on('session.start', ($, e) => ({ cwd: e.cwd }))
   turnHooks(on)
   await $.session.start(start)
-  await clock.advance(1000)
   await $.turn.start({ text: 'go', turnId: 't1' })
   await clock.advance(1000)
   expect(spawned.length).toBe(1)
-  await clock.advance(60_000)
-  expect(statuses.at(-1)).toContain('exited, restarting at the next turn')
-  await $.turn.start({ text: 'go', turnId: 't2' })
-  await clock.advance(1000)
+  await clock.advance(59_500)
   expect(spawned).toEqual([ZIG_WATCH, ZIG_WATCH])
+  expect(statuses).toContain(`overwatch zig: ${ZIG_WATCH.join(' ')} exited, restarting now`)
+  const texts = session.appended().map(row => JSON.stringify(row.message.content))
+  expect(texts.some(text => text.includes('exited, so build failures are not reported until it restarts now'))).toBe(true)
 })
 
-test('a watcher that cannot start is retried no sooner than 30s after each failure', async ($, on) => {
+test('a watcher that keeps exiting backs off, then gives up and wakes the agent', async ($, on) => {
   const clock = mock.clock(on)
   let attempts = 0
+  const prompts: string[] = []
   const statuses: (string | undefined)[] = []
   on('fs.read', () => ({ deny: 'no such file' }))
   on('fs.exists', ($, e) => ({ value: e.path.endsWith('/build.zig') }))
@@ -265,29 +266,42 @@ test('a watcher that cannot start is retried no sooner than 30s after each failu
     attempts += 1
     throw new Error('zig: command not found')
   })
+  on('prompt.submit', ($, e) => {
+    prompts.push(e.text)
+    return { text: e.text }
+  })
   on('ui.status', ($, e, next) => {
     statuses.push(e.text)
     return next(e)
   })
   on('session.start', ($, e) => ({ cwd: e.cwd }))
   turnHooks(on)
-  const turn = async (turnId: string, ms: number) => {
-    await $.turn.start({ text: 'go', turnId })
-    await clock.advance(ms)
-  }
   await $.session.start(start)
   await clock.advance(1000)
   expect(attempts).toBe(1)
-  expect(statuses.at(-1)).toContain('could not start zig build')
-  expect(statuses.at(-1)).toContain('retrying at the first turn after 30s')
-  await turn('t1', 30_000)
+  expect(statuses.at(-1)).toBe(`overwatch zig: could not start ${ZIG_WATCH.join(' ')}, restarting in 30s`)
+  await clock.advance(28_000)
   expect(attempts).toBe(1)
-  await turn('t2', 20_000)
+  await clock.advance(2000)
   expect(attempts).toBe(2)
-  await turn('t3', 10_000)
+  expect(statuses.at(-1)).toContain('restarting in 60s')
+  await clock.advance(58_000)
   expect(attempts).toBe(2)
-  await turn('t4', 1000)
+  await clock.advance(2000)
   expect(attempts).toBe(3)
+  expect(statuses.at(-1)).toContain('3 times in a row; retrying at the first turn after 30s')
+  expect(prompts.length).toBe(1)
+  expect(prompts[0]).toContain('stopped restarting it on its own')
+  expect(prompts[0]).toContain('What it printed last:')
+  await clock.advance(600_000)
+  expect(attempts).toBe(3)
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await clock.advance(1000)
+  expect(attempts).toBe(4)
+  expect(prompts.length).toBe(1)
+  await $.turn.start({ text: 'go', turnId: 't2' })
+  await clock.advance(1000)
+  expect(attempts).toBe(4)
 })
 
 test('enabled: false keeps the watcher off, read afresh at each turn', async ($, on) => {

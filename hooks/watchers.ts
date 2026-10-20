@@ -107,6 +107,28 @@ export function recoveryMessage(watcher: Watcher, report: Report): string {
   return `overwatch: \`${commandLine(watcher)}\` is green again. ${report.summary}`
 }
 
+/** Cuts what a command printed to REPORT_LIMIT, keeping its end, where the reason it stopped is. */
+function tail(output: string): string {
+  const text = output.trim()
+  return text.length > REPORT_LIMIT ? `… ${text.length - REPORT_LIMIT} earlier characters cut\n${text.slice(-REPORT_LIMIT)}` : text
+}
+
+/** Tells the agent the watcher stopped and when it comes back, so it knows a quiet build is not a passing one. */
+export function exitMessage(watcher: Watcher, restartsInMs: number): string {
+  const when = restartsInMs === 0 ? 'now' : `in ${restartsInMs / 1000}s`
+  return `overwatch: \`${commandLine(watcher)}\` exited, so build failures are not reported until it restarts ${when}.`
+}
+
+/** Tells the agent the watcher keeps exiting as it starts, with what it last printed, so the cause can be fixed. */
+export function gaveUpMessage(watcher: Watcher, exits: number, retryMs: number, output: string): string {
+  const text = tail(output)
+  return [
+    `overwatch: \`${commandLine(watcher)}\` stopped ${exits} times in a row within ${retryMs / 1000}s of starting, so overwatch stopped restarting it on its own.`,
+    `Build failures are not reported until it runs again; overwatch tries again as turns start, at most every ${retryMs / 1000}s.`,
+    ...(text === '' ? [] : ['', 'What it printed last:', '', '```', text, '```']),
+  ].join('\n')
+}
+
 export function statusLine(watcher: Watcher, report: Report): string {
   const mark = report.isFailed ? '✗' : '✓'
   return `overwatch ${watcher.name} ${mark} ${report.summary.replace(/^Build Summary:\s*|^zanity:\s*|^=+\s*|\s*=+$/g, '')}`

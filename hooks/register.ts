@@ -5,7 +5,9 @@ import {
   WATCHERS,
   applyOverride,
   commandLine,
+  exitMessage,
   failureMessage,
+  gaveUpMessage,
   overrideWatcher,
   readReport,
   recoveryMessage,
@@ -17,8 +19,14 @@ import {
 
 const QUIET_MS = 400
 
-/** A watcher that ends within this long of its start is not started again until it has passed. */
+/**
+ * A watcher that ends within this long of its start counts as a quick exit and
+ * waits before it restarts: this long after the first, doubling after each further one.
+ */
 const RETRY_MS = 30_000
+
+/** After this many quick exits in a row, a watcher is no longer restarted on a timer, only as turns start. */
+const GIVE_UP_AFTER = 3
 
 /** Tools whose call may change the project's files; a watcher that is no long-running command reruns after each. */
 const EDITING_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Bash'])
@@ -33,6 +41,8 @@ type Slot = {
   isWatching: boolean
   /** When a watcher that ended soon after its start may be started again. */
   retryAt: number
+  /** How many times in a row the watcher ended within RETRY_MS of its start. */
+  quickExits: number
   kill: (() => Promise<unknown>) | undefined
   changed: (() => void) | undefined
   wasFailing: boolean
@@ -60,19 +70,24 @@ function setStatus($: EngineInterface, state: State, slot: Slot, text: string | 
   $.ui.status(parts.length === 0 ? undefined : parts.join(' · '))
 }
 
+/** Joins the running turn; with none, starts one only when `isWaking`. */
+async function tell($: EngineInterface, state: State, text: string, isWaking: boolean) {
+  if (state.isTurnRunning) {
+    await $.session.append({ message: { type: 'user', content: [{ type: 'text', text }] } })
+    return
+  }
+  if (!isWaking || state.isPromptQueued) return
+  state.isPromptQueued = true
+  await $.prompt.submit({ text })
+}
+
 async function deliver($: EngineInterface, { state, slot, watcher }: Run, report: Report) {
   setStatus($, state, slot, statusLine(watcher, report))
   const isRecovery = !report.isFailed && slot.wasFailing
   slot.wasFailing = report.isFailed
   if (!report.isFailed && !isRecovery) return
   const text = report.isFailed ? failureMessage(watcher, report) : recoveryMessage(watcher, report)
-  if (state.isTurnRunning) {
-    await $.session.append({ message: { type: 'user', content: [{ type: 'text', text }] } })
-    return
-  }
-  if (!report.isFailed || state.isPromptQueued) return
-  state.isPromptQueued = true
-  await $.prompt.submit({ text })
+  await tell($, state, text, report.isFailed)
 }
 
 /** Runs a command to its end and reports what it printed. */
@@ -123,8 +138,8 @@ function rerunOnChange($: EngineInterface, run: Run, argv: readonly string[]) {
   }
 }
 
-/** How a watcher ended of itself, its process exited or never started, and when. */
-type Ending = { isStarted: boolean; startedAt: number; endedAt: number }
+/** How a watcher ended of itself, its process exited or never started, when, and what it printed after its last report. */
+type Ending = { isStarted: boolean; startedAt: number; endedAt: number; output: string }
 
 /** Watches until the watcher ends of itself, resolving how; a watcher with no command never ends. */
 async function watch($: EngineInterface, run: Run): Promise<Ending | undefined> {
@@ -158,16 +173,22 @@ async function watch($: EngineInterface, run: Run): Promise<Ending | undefined> 
         void deliver($, run, report)
       })
     }
+    flush?.cancel()
     if (!slot.isWatching) return undefined
+    // A report printed just before the exit is delivered now, before the status line says it exited.
+    const report = readReport(watcher, output)
+    if (report !== undefined) await deliver($, run, report)
     $.ui.toast(`overwatch: ${commandLine(watcher)} exited`)
   } catch (error) {
+    flush?.cancel()
     if (!slot.isWatching) return undefined
     $.ui.log(`overwatch: ${String(error)}`, { to: 'debug' })
     isStarted = false
+    output += String(error)
   } finally {
     slot.kill = undefined
   }
-  return { isStarted, startedAt, endedAt: await $.clock.now() }
+  return { isStarted, startedAt, endedAt: await $.clock.now(), output }
 }
 
 async function readOverride($: EngineInterface, cwd: string): Promise<Override> {
@@ -210,7 +231,7 @@ async function lookFor($: EngineInterface, slot: Slot, cwd: string): Promise<Wat
 /**
  * Starts the slot's watcher unless one runs or a check is in flight, reading the
  * marker and the override afresh, so a project scaffolded mid-session gets its
- * watcher. One that could not start, or exited within RETRY_MS, waits that long.
+ * watcher. One that exits is restarted, see `restart`.
  */
 async function ensureWatching($: EngineInterface, state: State, slot: Slot) {
   const { cwd, epoch } = state
@@ -233,13 +254,39 @@ async function ensureWatching($: EngineInterface, state: State, slot: Slot) {
   slot.retryAt = 0
   const ending = await watch($, { state, slot, watcher, cwd })
   if (ending === undefined || state.epoch !== epoch) return
-  const { isStarted, startedAt, endedAt } = ending
+  await restart($, state, slot, watcher, ending)
+}
+
+/**
+ * After a watcher ends of itself: one that ran RETRY_MS or longer restarts at
+ * once; a quick exit waits RETRY_MS, doubling with each one in a row, until
+ * GIVE_UP_AFTER of them, when only a turn starts it again, still RETRY_MS
+ * apart. The status line says it is down and the agent is told, woken only
+ * once overwatch gives up, since until then the watcher comes back on its own.
+ */
+async function restart($: EngineInterface, state: State, slot: Slot, watcher: Watcher, ending: Ending) {
+  const { epoch } = state
+  const { isStarted, startedAt, endedAt, output } = ending
   const isQuick = !isStarted || endedAt - startedAt < RETRY_MS
-  slot.retryAt = isQuick ? endedAt + RETRY_MS : 0
-  const what = isStarted ? `${commandLine(watcher)} exited` : `could not start ${commandLine(watcher)}`
-  const when = isQuick ? `retrying at the first turn after ${RETRY_MS / 1000}s` : 'restarting at the next turn'
-  setStatus($, state, slot, `overwatch ${watcher.name}: ${what}, ${when}`)
+  slot.quickExits = isQuick ? slot.quickExits + 1 : 0
   slot.isWatching = false
+  const what = isStarted ? `${commandLine(watcher)} exited` : `could not start ${commandLine(watcher)}`
+  if (slot.quickExits >= GIVE_UP_AFTER) {
+    slot.retryAt = endedAt + RETRY_MS
+    const status = `${what} ${slot.quickExits} times in a row; retrying at the first turn after ${RETRY_MS / 1000}s`
+    setStatus($, state, slot, `overwatch ${watcher.name}: ${status}`)
+    if (slot.quickExits === GIVE_UP_AFTER) await tell($, state, gaveUpMessage(watcher, slot.quickExits, RETRY_MS, output), true)
+    return
+  }
+  const delay = isQuick ? RETRY_MS * 2 ** (slot.quickExits - 1) : 0
+  slot.retryAt = endedAt + delay
+  setStatus($, state, slot, `overwatch ${watcher.name}: ${what}, restarting ${delay === 0 ? 'now' : `in ${delay / 1000}s`}`)
+  if (delay === 0) void ensureWatching($, state, slot)
+  else
+    $.clock.after(delay, () => {
+      if (state.epoch === epoch) void ensureWatching($, state, slot)
+    })
+  await tell($, state, exitMessage(watcher, delay), false)
 }
 
 const slot = (checker?: Watcher): Slot => ({
@@ -248,6 +295,7 @@ const slot = (checker?: Watcher): Slot => ({
   isRecheckDue: false,
   isWatching: false,
   retryAt: 0,
+  quickExits: 0,
   kill: undefined,
   changed: undefined,
   wasFailing: false,
