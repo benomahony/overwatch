@@ -1,5 +1,5 @@
--- overwatch for Neovim: runs the project's test watcher beside the editor, shows the latest result
--- in the status line and loads each failing build into the quickfix list.
+-- overwatch for Neovim: runs the project's test watchers beside the editor, one for each language it
+-- has, shows the latest results in the status line and loads each failing build into the quickfix list.
 local M = {}
 
 M.OVERRIDE_PATH = '.overwatch.json'
@@ -7,6 +7,49 @@ M.OVERRIDE_PATH = '.overwatch.json'
 local QUIET_MS = 400
 
 -- Patterns are JavaScript regexes, as in hooks/watchers.ts and .overwatch.json; vim_regex translates them.
+local VITEST = {
+  name = 'vitest',
+  language = 'js',
+  marker = 'node_modules/.bin/vitest',
+  argv = { 'npx', '--no', '--', 'vitest', 'watch' },
+  summary = '^ +Test Files +.*$',
+  failed = [[\bfailed\b]],
+  failure = [[^ FAIL {2}(\S+\.\w+(?: .*)?)$]],
+}
+
+local JEST = {
+  name = 'jest',
+  language = 'js',
+  marker = 'node_modules/.bin/jest',
+  argv = { 'npx', '--no', '--', 'jest', '--watchAll' },
+  summary = '^Test Suites: .*total$',
+  failed = [[\bfailed\b]],
+  failure = [[^(?:FAIL (\S+)| {2}● (.+))$]],
+}
+
+local BUN = {
+  name = 'bun',
+  language = 'js',
+  marker = 'bun.lock',
+  argv = { 'bun', 'test', '--watch' },
+  summary = [[^ \d+ fail$]],
+  failed = [[^[1-9]\d* fail$]],
+  failure = [[^\(fail\) (.+?)(?: \[[0-9.]+m?s\])?$]],
+}
+
+local DENO = {
+  name = 'deno',
+  marker = 'deno.json',
+  argv = { 'deno', 'test', '--watch' },
+  summary = [[^Watcher \w+ (?:finished|failed)\..*$]],
+  failed = 'failed',
+  result = [[^(?:ok|FAILED) \| .*$]],
+  failure = [[^(\S.* => \S+:\d+:\d+)$]],
+}
+
+local GO_FAILURE = [[^(?:\s*--- FAIL: (\S+).*|=== FAIL: (.+?)(?: \([0-9.]+s\))?|(\S+\.go:\d+:\d+: .+))$]]
+
+-- Alternatives of one language are tried in order: the first whose marker, and `requires` if it names one, are present runs.
 M.WATCHERS = {
   {
     name = 'zig',
@@ -14,6 +57,7 @@ M.WATCHERS = {
     argv = { 'zig', 'build', '-Doptimize=fast', 'test', '--watch' },
     summary = '^Build Summary:.*$',
     failed = 'failed',
+    failure = [[^(?:error: '(.+)' failed:|(\S+\.zig:\d+:\d+: error: .+))$]],
   },
   {
     name = 'python',
@@ -22,7 +66,26 @@ M.WATCHERS = {
     baseline = { 'uv', 'run', '--with', 'pytest', '--with', 'pytest-testmon', 'pytest', '--testmon-noselect' },
     summary = [[^=+ .+ in \d+(?:\.\d+)?s(?: \([^)]*\))? =+$]],
     failed = [[\b(?:failed|errors?)\b]],
+    failure = [[^(?:FAILED|ERROR) (\S+)]],
   },
+  VITEST,
+  JEST,
+  BUN,
+  vim.tbl_extend('force', BUN, { marker = 'bun.lockb' }),
+  DENO,
+  vim.tbl_extend('force', DENO, { marker = 'deno.jsonc' }),
+  {
+    name = 'go',
+    marker = 'go.mod',
+    requires = 'gotestsum',
+    argv = { 'gotestsum', '--watch' },
+    baseline = { 'gotestsum', '--', './...' },
+    summary = [[^DONE \d+ tests?.*$]],
+    failed = [[\b(?:failures?|errors?)\b]],
+    failure = GO_FAILURE,
+  },
+  { name = 'go', marker = 'go.mod', baseline = { 'go', 'test', './...' }, failure = GO_FAILURE },
+  { name = 'rust', marker = 'Cargo.toml', baseline = { 'cargo', 'test' }, failure = [[^test (\S+) \.\.\. FAILED$]] },
 }
 
 local LAZY = { ['*'] = '{-}', ['+'] = '{-1,}', ['?'] = '{-,1}' }
@@ -68,19 +131,27 @@ function M.vim_regex(js)
   return table.concat(out)
 end
 
+local function language_of(watcher)
+  return watcher.language or watcher.name
+end
+
 local function apply_override(watcher, override)
   return {
     name = override.name or watcher.name,
+    language = language_of(watcher),
     marker = watcher.marker,
     argv = override.argv or watcher.argv,
     baseline = override.baseline or watcher.baseline,
     summary = override.summary or watcher.summary,
     failed = override.failed or watcher.failed,
+    result = watcher.result,
+    failure = watcher.failure,
   }
 end
 
---- The project's watcher, or nil when it has none or its override turns overwatch off.
-function M.find_watcher(cwd)
+--- The project's watchers, one for each language it has; empty when it has none or its override turns overwatch off.
+--- The override applies to the first language found, and is the watcher when none is.
+function M.find_watchers(cwd)
   local override = {}
   local file = io.open(cwd .. '/' .. M.OVERRIDE_PATH)
   if file then
@@ -88,59 +159,126 @@ function M.find_watcher(cwd)
     file:close()
     if ok and type(decoded) == 'table' then override = decoded end
   end
-  if override.enabled == false then return nil end
+  if override.enabled == false then return {} end
+  local found, languages = {}, {}
   for _, watcher in ipairs(M.WATCHERS) do
-    if vim.uv.fs_stat(cwd .. '/' .. watcher.marker) then return apply_override(watcher, override) end
-  end
-  local has_command = override.argv ~= nil or (override.baseline ~= nil and #override.baseline > 0)
-  if not has_command or override.summary == nil or override.failed == nil then return nil end
-  return apply_override({ name = 'project', marker = M.OVERRIDE_PATH }, override)
-end
-
---- Reads one build's output; nil until the summary line has arrived.
-function M.read_report(watcher, output)
-  local summary_re, summary = vim.regex(M.vim_regex(watcher.summary)), nil
-  for line in vim.gsplit(output, '\n', { plain = true }) do
-    local from, to = summary_re:match_str(line)
-    if from then
-      summary = vim.trim(line:sub(from + 1, to))
-      break
+    local language = language_of(watcher)
+    if not languages[language]
+      and vim.uv.fs_stat(cwd .. '/' .. watcher.marker)
+      and (watcher.requires == nil or vim.fn.executable(watcher.requires) == 1)
+    then
+      languages[language] = true
+      found[#found + 1] = apply_override(watcher, #found == 0 and override or {})
     end
   end
-  if summary == nil then return nil end
-  return { summary = summary, is_failed = vim.regex(M.vim_regex(watcher.failed)):match_str(summary) ~= nil, text = vim.trim(output) }
+  if #found > 0 then return found end
+  local has_command = override.argv ~= nil or (override.baseline ~= nil and #override.baseline > 0)
+  if not has_command or override.summary == nil or override.failed == nil then return {} end
+  return { apply_override({ name = 'project', language = 'project', marker = M.OVERRIDE_PATH }, override) }
 end
+
+--- The first line of output the pattern matches, trimmed; nil when none does.
+local function first_line(pattern, output)
+  local re = vim.regex(M.vim_regex(pattern))
+  for line in vim.gsplit(output, '\n', { plain = true }) do
+    local from, to = re:match_str(line)
+    if from then return vim.trim(line:sub(from + 1, to)) end
+  end
+  return nil
+end
+
+--- Each failing test or error the output names, once each, in order.
+local function failures_in(watcher, output)
+  if watcher.failure == nil then return {} end
+  local pattern, names, seen = M.vim_regex(watcher.failure), {}, {}
+  for line in vim.gsplit(output, '\n', { plain = true }) do
+    local groups = vim.fn.matchlist(line, pattern)
+    if #groups > 0 then
+      local name = ''
+      for i = 2, 10 do
+        if groups[i] ~= '' then
+          name = vim.trim(groups[i])
+          break
+        end
+      end
+      if name ~= '' and not seen[name] then
+        seen[name] = true
+        names[#names + 1] = name
+      end
+    end
+  end
+  return names
+end
+
+--- Reads one build's output: nil until its summary line has arrived. A run that has exited, given its `code`,
+--- is read by its exit code when the watcher has no summary, and as failed when it gave none and exited nonzero.
+function M.read_report(watcher, output, code)
+  local clean = output:gsub('\27%[[%d;?]*%a', '')
+  local failures = failures_in(watcher, clean)
+  local line = watcher.summary and first_line(watcher.summary, clean)
+  local summary, is_failed
+  if line then
+    summary = (watcher.result and first_line(watcher.result, clean)) or line
+    is_failed = watcher.failed ~= nil and vim.regex(M.vim_regex(watcher.failed)):match_str(line) ~= nil
+  elseif code == nil or (code == 0 and watcher.summary ~= nil) then
+    return nil
+  else
+    is_failed = code ~= 0
+    summary = not is_failed and 'passed' or (#failures > 0 and ('%d failed'):format(#failures) or ('exited with code %d'):format(code))
+  end
+  return { summary = summary, is_failed = is_failed, text = vim.trim(clean), failures = is_failed and failures or {} }
+end
+
+local DECORATION = { '^Build Summary:%s*', '^zanity:%s*', '^=+%s*', '%s*=+$', '^Test Files%s+', '^Test Suites:%s*', '^DONE%s+', '^ok | ', '^FAILED | ' }
 
 function M.status_line(watcher, report)
-  local summary = report.summary:gsub('^Build Summary:%s*', ''):gsub('^=+%s*', ''):gsub('%s*=+$', '')
-  return ('overwatch %s %s %s'):format(watcher.name, report.is_failed and '✗' or '✓', summary)
+  local summary = report.summary
+  for _, decoration in ipairs(DECORATION) do
+    summary = summary:gsub(decoration, '')
+  end
+  local failing = ''
+  if #report.failures > 0 then
+    failing = ' — ' .. report.failures[1] .. (#report.failures > 1 and (' +%d more'):format(#report.failures - 1) or '')
+  end
+  return ('overwatch %s %s %s%s'):format(watcher.name, report.is_failed and '✗' or '✓', summary, failing)
 end
 
-local state = { watcher = nil, cwd = nil, status = '', process = nil, was_failing = false, rerun = nil }
+-- Each run is one watcher at work: its process, its part of the status line, and its rerun after saves.
+local state = { cwd = nil, runs = {} }
 
---- The latest result, for a status line component.
+--- The latest results, for a status line component.
 function M.status()
-  return state.status
+  local parts = {}
+  for _, run in ipairs(state.runs) do
+    if run.status ~= '' then parts[#parts + 1] = run.status end
+  end
+  return table.concat(parts, ' · ')
 end
 
-local function set_status(text)
-  state.status = text
+local function set_status(run, text)
+  run.status = text
   vim.cmd.redrawstatus()
 end
 
-local function deliver(watcher, report)
-  set_status(M.status_line(watcher, report))
-  local is_recovery = not report.is_failed and state.was_failing
-  state.was_failing = report.is_failed
+local function is_running(run)
+  return state.runs[run.index] == run
+end
+
+local function deliver(run, report)
+  local watcher = run.watcher
+  set_status(run, M.status_line(watcher, report))
+  local is_recovery = not report.is_failed and run.was_failing
+  run.was_failing = report.is_failed
   if report.is_failed then
     vim.fn.setqflist({}, 'r', {
       title = 'overwatch ' .. watcher.name,
       lines = vim.split(report.text, '\n', { plain = true }),
       efm = vim.o.errorformat,
     })
-    vim.notify(('overwatch: %s — :copen for the report'):format(report.summary), vim.log.levels.ERROR)
+    local failing = #report.failures > 0 and (' (%s)'):format(table.concat(vim.list_slice(report.failures, 1, 3), ', ')) or ''
+    vim.notify(('overwatch %s: %s%s — :copen for the report'):format(watcher.name, report.summary, failing), vim.log.levels.ERROR)
   elseif is_recovery then
-    vim.notify('overwatch: green again. ' .. report.summary, vim.log.levels.INFO)
+    vim.notify(('overwatch %s: green again. %s'):format(watcher.name, report.summary), vim.log.levels.INFO)
   end
 end
 
@@ -149,15 +287,15 @@ local function command_line(argv)
 end
 
 --- Tells the user a command gave no result, with the last lines it printed.
-local function report_broken(argv, why, output)
+local function report_broken(run, argv, why, output)
   local lines = vim.split(vim.trim(output), '\n', { plain = true })
   local tail = table.concat(vim.list_slice(lines, math.max(1, #lines - 9)), '\n')
-  set_status(('overwatch %s: %s %s'):format(state.watcher.name, command_line(argv), why))
+  set_status(run, ('overwatch %s: %s %s'):format(run.watcher.name, command_line(argv), why))
   vim.notify(('overwatch: %s %s\n%s'):format(command_line(argv), why, tail), vim.log.levels.ERROR)
 end
 
 --- Starts argv, handing each chunk of output to on_output on the main loop.
-local function spawn(argv, on_output, on_exit)
+local function spawn(run, argv, on_output, on_exit)
   local function read(_, data)
     if data then vim.schedule(function() on_output(data) end) end
   end
@@ -165,102 +303,113 @@ local function spawn(argv, on_output, on_exit)
     vim.schedule(function() on_exit(result) end)
   end)
   if not ok then
-    set_status(('overwatch %s: could not start %s'):format(state.watcher.name, command_line(argv)))
+    set_status(run, ('overwatch %s: could not start %s'):format(run.watcher.name, command_line(argv)))
     return nil
   end
-  state.process = process
+  run.process = process
   return process
 end
 
 --- Runs a command to its end and reports what it printed.
-local function run_once(watcher, argv, done)
+local function run_once(run, argv, done)
   local output = ''
-  spawn(argv, function(data) output = output .. data end, function()
-    state.process = nil
-    if state.watcher ~= watcher then return end
-    local report = M.read_report(watcher, output)
+  spawn(run, argv, function(data) output = output .. data end, function(result)
+    run.process = nil
+    if not is_running(run) then return end
+    local report = M.read_report(run.watcher, output, result.code)
     if report then
-      deliver(watcher, report)
+      deliver(run, report)
     else
-      report_broken(argv, 'gave no summary', output)
+      report_broken(run, argv, 'gave no summary', output)
     end
     if done then done() end
   end)
 end
 
 --- Reruns the suite once saves go quiet, one run at a time.
-local function rerun_on_save(watcher)
-  local timer, is_running, is_pending = vim.uv.new_timer(), false, false
-  local function run()
-    if state.watcher ~= watcher then return end
-    if is_running then
+local function rerun_on_save(run)
+  local timer, is_busy, is_pending = vim.uv.new_timer(), false, false
+  local function rerun()
+    if not is_running(run) then return end
+    if is_busy then
       is_pending = true
       return
     end
-    is_running = true
-    run_once(watcher, watcher.baseline, function()
-      is_running = false
+    is_busy = true
+    run_once(run, run.watcher.baseline, function()
+      is_busy = false
       if not is_pending then return end
       is_pending = false
-      run()
+      rerun()
     end)
   end
-  state.rerun = function()
-    timer:start(QUIET_MS, 0, vim.schedule_wrap(run))
+  run.rerun = function()
+    timer:start(QUIET_MS, 0, vim.schedule_wrap(rerun))
   end
 end
 
-local function watch(watcher)
+local function watch(run)
+  local watcher = run.watcher
   local output, recent, flush = '', '', vim.uv.new_timer()
-  set_status(('overwatch %s: starting %s'):format(watcher.name, command_line(watcher.argv)))
-  spawn(watcher.argv, function(data)
+  set_status(run, ('overwatch %s: starting %s'):format(watcher.name, command_line(watcher.argv)))
+  spawn(run, watcher.argv, function(data)
     output, recent = output .. data, (recent .. data):sub(-4000)
     flush:start(QUIET_MS, 0, vim.schedule_wrap(function()
       local report = M.read_report(watcher, output)
       if report == nil then return end
       output = ''
-      deliver(watcher, report)
+      deliver(run, report)
     end))
   end, function(result)
-    if state.watcher == watcher then report_broken(watcher.argv, ('exited with code %d'):format(result.code), recent) end
+    if is_running(run) then report_broken(run, watcher.argv, ('exited with code %d'):format(result.code), recent) end
   end)
 end
 
---- Starts watching cwd (default: the current directory); does nothing when it has no watcher.
-function M.start(cwd)
-  M.stop()
-  cwd = cwd or vim.fn.getcwd()
-  local watcher = M.find_watcher(cwd)
-  if watcher == nil then return end
-  state.watcher, state.cwd, state.was_failing = watcher, cwd, false
+--- Runs one watcher: its full suite first, then its watch command, or its suite again after each save.
+local function begin(run)
+  local watcher = run.watcher
   local function after_baseline()
-    if state.watcher ~= watcher then return end
+    if not is_running(run) then return end
     if watcher.argv then
-      watch(watcher)
+      watch(run)
     elseif watcher.baseline then
-      rerun_on_save(watcher)
+      rerun_on_save(run)
     end
   end
   if watcher.baseline and #watcher.baseline > 0 then
-    set_status(('overwatch %s: running the full suite with %s'):format(watcher.name, command_line(watcher.baseline)))
-    run_once(watcher, watcher.baseline, after_baseline)
+    set_status(run, ('overwatch %s: running the full suite with %s'):format(watcher.name, command_line(watcher.baseline)))
+    run_once(run, watcher.baseline, after_baseline)
   else
     after_baseline()
   end
 end
 
-function M.stop()
-  state.watcher, state.rerun = nil, nil
-  if state.process then
-    state.process:kill(15)
-    state.process = nil
+--- Starts watching cwd (default: the current directory); does nothing when it has no watcher.
+function M.start(cwd)
+  M.stop()
+  state.cwd = cwd or vim.fn.getcwd()
+  for index, watcher in ipairs(M.find_watchers(state.cwd)) do
+    state.runs[index] = { index = index, watcher = watcher, status = '', was_failing = false }
   end
-  set_status('')
+  for _, run in ipairs(state.runs) do
+    begin(run)
+  end
 end
 
---- Called after a buffer is written; reruns a watcher that has no watch command of its own.
+function M.stop()
+  local runs = state.runs
+  state.runs = {}
+  for _, run in ipairs(runs) do
+    if run.process then run.process:kill(15) end
+  end
+  vim.cmd.redrawstatus()
+end
+
+--- Called after a buffer is written; reruns each watcher that has no watch command of its own.
 function M.changed()
-  if state.rerun then state.rerun() end
+  for _, run in ipairs(state.runs) do
+    if run.rerun then run.rerun() end
+  end
 end
 
 return M

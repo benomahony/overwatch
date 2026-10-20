@@ -346,15 +346,23 @@ test('a turn that starts while the session is still looking spawns one watcher',
   })
   on('session.start', ($, e) => ({ cwd: e.cwd }))
   turnHooks(on)
+  /** Answers every look in flight, and the looks those lead to, until none is left. */
+  const answerAll = async () => {
+    while (looking.length > 0) {
+      looking.splice(0).forEach(resolve => resolve())
+      await clock.settle()
+    }
+  }
   await $.session.start(start)
   await $.turn.start({ text: 'go', turnId: 't1' })
   await $.turn.complete(ended)
   await clock.settle()
-  expect(looking.length).toBe(1)
+  const firstLooks = looking.length
+  expect(firstLooks).toBeGreaterThan(0)
   looking.splice(0).forEach(resolve => resolve())
   await $.turn.start({ text: 'go', turnId: 't2' })
   await clock.advance(1000)
-  looking.splice(0).forEach(resolve => resolve())
+  await answerAll()
   await clock.advance(1000)
   expect(spawned).toEqual([ZIG_WATCH])
 })
@@ -418,7 +426,7 @@ test('zanity on PATH runs beside the project watcher', async ($, on) => {
   on('session.start', ($, e) => ({ cwd: e.cwd }))
   await $.session.start(start)
   await clock.advance(1000)
-  expect(spawned).toEqual([ZIG_WATCH, ['zanity', 'check', '.', '--watch', '--no-color']])
+  expect(sorted(spawned)).toEqual([['zanity', 'check', '.', '--watch', '--no-color'], ZIG_WATCH])
   expect(prompts.length).toBe(1)
   expect(prompts[0]).toContain("'while True' has an empty body")
   expect(statuses.at(-1)).toBe(
@@ -511,7 +519,218 @@ test('the pytest summary line decides pass or fail', () => {
   expect(readReport(python, '=== test session starts ===\ncollected 3 items')).toBeUndefined()
 })
 
-test('the status line drops the summary decoration', () => {
-  expect(statusLine(python, readReport(python, PYTEST_FAILING)!)).toBe('overwatch python ✗ 1 failed, 2 passed in 0.03s')
+test('the status line drops the summary decoration and names the first failing test', () => {
+  expect(statusLine(python, readReport(python, PYTEST_FAILING)!)).toBe(
+    'overwatch python ✗ 1 failed, 2 passed in 0.03s — tests/test_add.py::test_add',
+  )
   expect(statusLine(zig, readReport(zig, PASSING)!)).toBe('overwatch zig ✓ 4/4 steps succeeded; 48/48 tests passed')
+  expect(statusLine(zig, readReport(zig, FAILING)!)).toBe(
+    'overwatch zig ✗ 3/5 steps succeeded (1 failed); 2/3 tests passed (1 failed) — root.test.basic add functionality',
+  )
+})
+
+const watcherNamed = (name: string, marker?: string) =>
+  WATCHERS.find(watcher => watcher.name === name && (marker === undefined || watcher.marker === marker))!
+
+const VITEST_FAILING = `
+ ❯ calc.test.js (2 tests | 1 failed) 4ms
+   × adds 4ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  calc.test.js > adds
+AssertionError: expected 10 to be 11 // Object.is equality
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 passed (2)
+   Start at  17:00:40
+   Duration  99ms
+ FAIL  Tests failed. Watching for file changes...
+`
+
+const VITEST_BROKEN = `
+ FAIL  calc.test.js [ calc.test.js ]
+Error: Failed to parse source for import analysis because the content contains invalid JS syntax.
+ Test Files  1 failed (1)
+      Tests  no tests
+ FAIL  Tests failed. Watching for file changes...
+`
+
+const JEST_FAILING = `FAIL ./calc.test.js
+  ● adds
+    expect(received).toBe(expected) // Object.is equality
+Test Suites: 1 failed, 1 total
+Tests:       1 failed, 1 passed, 2 total
+Ran all test suites.
+`
+
+const BUN_FAILING = `calc.test.ts:
+error: expect(received).toBe(expected)
+(fail) adds [0.53ms]
+
+ 1 pass
+ 1 fail
+ 1 expect() calls
+Ran 2 tests across 1 file. [18.00ms]
+`
+
+const DENO_FAILING = `\x1b[0m\x1b[38;5;245mrunning 2 tests from ./calc_test.ts\x1b[0m
+adds ... \x1b[0m\x1b[31mFAILED\x1b[0m \x1b[0m\x1b[38;5;245m(0ms)\x1b[0m
+ ERRORS
+adds \x1b[0m\x1b[38;5;245m=> ./calc_test.ts:1:6\x1b[0m
+error: Error: 3 + 7 = 10
+ FAILURES
+adds \x1b[0m\x1b[38;5;245m=> ./calc_test.ts:1:6\x1b[0m
+\x1b[0m\x1b[31mFAILED\x1b[0m | 1 passed | 1 failed \x1b[0m\x1b[38;5;245m(2ms)\x1b[0m
+error: Test failed
+\x1b[0m\x1b[38;5;12mWatcher\x1b[0m Test failed. Restarting on file change...
+`
+
+const DENO_BROKEN = `error: The module's source code could not be parsed: Expected ';', '}' or <eof> at file:///p/calc_test.ts:3:8
+Watcher Test failed. Restarting on file change...
+`
+
+const GOTESTSUM_FAILING = `=== Failed
+=== FAIL: . TestAdd (0.00s)
+    calc_test.go:3: Add(3, 7) = 10
+
+DONE 2 tests, 1 failure in 0.184s
+`
+
+const GO_FAILING = `--- FAIL: TestAdd (0.00s)
+    calc_test.go:3: Add(3, 7) = 10
+FAIL
+FAIL	example.com/calc	0.343s
+FAIL
+`
+
+const GO_BROKEN = `# example.com/calc
+./calc_test.go:5:1: expected declaration, found syntax
+FAIL	example.com/calc [setup failed]
+`
+
+const CARGO_FAILING = `running 2 tests
+test tests::ok ... ok
+test tests::adds ... FAILED
+
+failures:
+    tests::adds
+
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+`
+
+test('each language reads its runner’s report and names what failed', () => {
+  const read = (watcher: (typeof WATCHERS)[number], output: string, code?: number) => {
+    const report = readReport(watcher, output, code)!
+    return [statusLine(watcher, report), report.failures]
+  }
+  expect(read(watcherNamed('vitest'), VITEST_FAILING)).toEqual(['overwatch vitest ✗ 1 failed (1) — calc.test.js > adds', ['calc.test.js > adds']])
+  expect(read(watcherNamed('vitest'), VITEST_BROKEN)[1]).toEqual(['calc.test.js [ calc.test.js ]'])
+  expect(readReport(watcherNamed('vitest'), ' Test Files  1 passed (1)\n')?.isFailed).toBe(false)
+  expect(read(watcherNamed('jest'), JEST_FAILING)).toEqual(['overwatch jest ✗ 1 failed, 1 total — ./calc.test.js +1 more', ['./calc.test.js', 'adds']])
+  expect(read(watcherNamed('bun'), BUN_FAILING)).toEqual(['overwatch bun ✗ 1 fail — adds', ['adds']])
+  expect(readReport(watcherNamed('bun'), ' 2 pass\n 0 fail\n')?.isFailed).toBe(false)
+  expect(read(watcherNamed('deno'), DENO_FAILING)).toEqual(['overwatch deno ✗ 1 passed | 1 failed (2ms) — adds => ./calc_test.ts:1:6', ['adds => ./calc_test.ts:1:6']])
+  expect(readReport(watcherNamed('deno'), DENO_BROKEN)?.isFailed).toBe(true)
+  expect(readReport(watcherNamed('deno'), 'ok | 2 passed | 0 failed (2ms)\nWatcher Test finished. Restarting on file change...\n')?.summary).toBe(
+    'ok | 2 passed | 0 failed (2ms)',
+  )
+  const gotestsum = WATCHERS.find(watcher => watcher.requires === 'gotestsum')!
+  expect(read(gotestsum, GOTESTSUM_FAILING)).toEqual(['overwatch go ✗ 2 tests, 1 failure in 0.184s — . TestAdd', ['. TestAdd']])
+  const go = WATCHERS.find(watcher => watcher.name === 'go' && watcher.requires === undefined)!
+  expect(readReport(go, GO_FAILING)).toBeUndefined()
+  expect(read(go, GO_FAILING, 1)).toEqual(['overwatch go ✗ 1 failed — TestAdd', ['TestAdd']])
+  expect(read(go, GO_BROKEN, 1)[1]).toEqual(['./calc_test.go:5:1: expected declaration, found syntax'])
+  expect(read(go, 'ok  \texample.com/calc\t0.2s\n', 0)).toEqual(['overwatch go ✓ passed', []])
+  expect(read(watcherNamed('rust'), CARGO_FAILING, 101)).toEqual(['overwatch rust ✗ 1 failed — tests::adds', ['tests::adds']])
+  expect(read(watcherNamed('rust'), 'error[E0308]: mismatched types\n', 101)).toEqual(['overwatch rust ✗ exited with code 101', []])
+})
+
+test('a one-shot run that gives no summary but exits nonzero fails', () => {
+  expect(readReport(python, 'error: Failed to parse uv.lock', 2)?.summary).toBe('exited with code 2')
+  expect(readReport(python, 'nothing to see', 0)).toBeUndefined()
+})
+
+test('the agent is told which tests failed', async ($, on) => {
+  const clock = mock.clock(on)
+  const spawned: string[][] = []
+  const prompts: string[] = []
+  project(on, { files: ['pyproject.toml'], output: PYTEST_FAILING, spawned })
+  on('prompt.submit', ($, e) => {
+    prompts.push(e.text)
+    return { text: e.text }
+  })
+  await $.session.start(start)
+  await clock.advance(1000)
+  expect(prompts[0]).toContain('Failing: `tests/test_add.py::test_add`.')
+})
+
+/** A project whose commands exit with `code`, printing `output` for each by its executable. */
+const commands = (on: On, spawned: string[][], output: Record<string, string>, code = 1) => {
+  on('process.spawn', async function* ($, e) {
+    spawned.push([...e.argv])
+    const text = output[e.argv[0]!]
+    if (text !== undefined) yield { stream: 'stdout' as const, text }
+    return { value: { code, signal: null } }
+  })
+  on('prompt.submit', ($, e) => ({ text: e.text }))
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+}
+
+/** Slots look for their watchers side by side, so the order they start in is not fixed. */
+const sorted = (argvs: string[][]) => [...argvs].sort((a, b) => a.join(' ').localeCompare(b.join(' ')))
+
+test('every language in a polyglot project gets its own watcher', async ($, on) => {
+  const clock = mock.clock(on)
+  const spawned: string[][] = []
+  const statuses: (string | undefined)[] = []
+  on('fs.read', () => ({ deny: 'no such file' }))
+  on('fs.exists', ($, e) => ({ value: ['/repo/build.zig', '/repo/go.mod', '/repo/Cargo.toml'].includes(e.path) }))
+  on('ui.status', ($, e, next) => {
+    statuses.push(e.text)
+    return next(e)
+  })
+  commands(on, spawned, { zig: PASSING, go: GO_FAILING, cargo: CARGO_FAILING }, 1)
+  await $.session.start(start)
+  await clock.advance(1000)
+  expect(sorted(spawned)).toEqual([['cargo', 'test'], ['go', 'test', './...'], ZIG_WATCH])
+  expect(statuses).toContain(
+    'overwatch zig ✓ 4/4 steps succeeded; 48/48 tests passed · overwatch go ✗ 1 failed — TestAdd · overwatch rust ✗ 1 failed — tests::adds',
+  )
+})
+
+test('a JS project runs the test runner it has installed, and only that one', async ($, on) => {
+  const clock = mock.clock(on)
+  const spawned: string[][] = []
+  on('fs.read', () => ({ deny: 'no such file' }))
+  const files = ['/repo/package.json', '/repo/bun.lock', '/repo/node_modules/.bin/jest']
+  on('fs.exists', ($, e) => ({ value: files.includes(e.path) }))
+  commands(on, spawned, {}, 0)
+  await $.session.start(start)
+  await clock.advance(1000)
+  expect(spawned).toEqual([['npx', '--no', '--', 'jest', '--watchAll']])
+})
+
+test('Go uses gotestsum’s watcher when it is on PATH, else reruns go test after edits', async ($, on) => {
+  const clock = mock.clock(on)
+  const spawned: string[][] = []
+  let path = '/usr/bin'
+  on('env.get', ($, e) => ({ value: e.name === 'PATH' ? path : undefined }))
+  on('fs.read', () => ({ deny: 'no such file' }))
+  on('fs.exists', ($, e) => ({ value: e.path === '/repo/go.mod' || e.path === '/home/me/go/bin/gotestsum' }))
+  on('tool.call', () => ({ result: 'ok' }))
+  on('session.end', ($, e) => ({ sessionId: e.sessionId }))
+  commands(on, spawned, { go: GO_FAILING }, 1)
+  await $.session.start(start)
+  await clock.advance(1000)
+  expect(spawned).toEqual([['go', 'test', './...']])
+  await $.tool.call({ tool: 'Edit', file_path: '/repo/calc.go', old_string: 'a', new_string: 'b' })
+  await clock.advance(1000)
+  expect(spawned).toEqual([['go', 'test', './...'], ['go', 'test', './...']])
+  path = '/usr/bin:/home/me/go/bin'
+  await $.session.end({ reason: 'prompt_input_exit', sessionId: 's1', resume: { id: 's1' } })
+  spawned.length = 0
+  await $.session.start(start)
+  await clock.advance(1000)
+  expect(spawned.slice(0, 2)).toEqual([
+    ['gotestsum', '--', './...'],
+    ['gotestsum', '--watch'],
+  ])
 })

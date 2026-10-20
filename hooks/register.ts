@@ -1,6 +1,7 @@
 import type { EngineInterface, Register, Timer } from 'claude-code'
 import {
   CHECKERS,
+  LANGUAGES,
   OVERRIDE_PATH,
   WATCHERS,
   applyOverride,
@@ -8,6 +9,7 @@ import {
   exitMessage,
   failureMessage,
   gaveUpMessage,
+  languageOf,
   overrideWatcher,
   readReport,
   recoveryMessage,
@@ -31,9 +33,11 @@ const GIVE_UP_AFTER = 3
 /** Tools whose call may change the project's files; a watcher that is no long-running command reruns after each. */
 const EDITING_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Bash'])
 
-/** One watcher's place beside the others: the project's test watcher, or a checker such as zanity. */
+/** One watcher's place beside the others: one of the project's languages, or a checker such as zanity. */
 type Slot = {
-  /** The checker this slot runs; undefined for the project's test watcher. */
+  /** The language whose test watcher this slot runs; `project` for an override's own watcher. */
+  language: string | undefined
+  /** The checker this slot runs, in place of a language's watcher. */
   checker: Watcher | undefined
   isChecking: boolean
   /** A check was asked for while one was in flight, which may have read the project before it changed. */
@@ -96,8 +100,10 @@ async function runOnce($: EngineInterface, run: Run, argv: readonly string[]) {
   const child = $.process.spawn({ argv, cwd })
   slot.kill = () => child.return({ code: null, signal: null })
   let output = ''
+  let code: number | null
   try {
     for await (const { text } of child) output += text
+    ;({ code } = await child.result)
   } catch (error) {
     setStatus($, state, slot, `overwatch ${watcher.name}: could not start ${commandLine(watcher, argv)}`)
     $.ui.log(`overwatch: ${String(error)}`, { to: 'debug' })
@@ -106,7 +112,7 @@ async function runOnce($: EngineInterface, run: Run, argv: readonly string[]) {
     slot.kill = undefined
   }
   if (!slot.isWatching) return
-  const report = readReport(watcher, output)
+  const report = readReport(watcher, output, code)
   if (report === undefined) {
     $.ui.log(`overwatch: ${commandLine(watcher, argv)} gave no summary:\n${output}`, { to: 'debug' })
     return
@@ -198,12 +204,22 @@ async function readOverride($: EngineInterface, cwd: string): Promise<Override> 
     .catch(() => ({}))
 }
 
-/** The project's test watcher: the first whose marker it has, or its override's own. */
-async function findWatcher($: EngineInterface, cwd: string, override: Override): Promise<Watcher | undefined> {
+/**
+ * The project's test watchers, one for each language it has: the first of
+ * that language's whose marker, and tool if it needs one, are present. The
+ * override applies to the first language found; with none, it is the watcher.
+ */
+async function findWatchers($: EngineInterface, cwd: string, override: Override): Promise<Watcher[]> {
+  const found: Watcher[] = []
   for (const watcher of WATCHERS) {
-    if (await $.fs.exists(`${cwd}/${watcher.marker}`)) return applyOverride(watcher, override)
+    if (found.some(each => languageOf(each) === languageOf(watcher))) continue
+    if (!(await $.fs.exists(`${cwd}/${watcher.marker}`))) continue
+    if (watcher.requires !== undefined && !(await isOnPath($, watcher.requires))) continue
+    found.push(found.length === 0 ? applyOverride(watcher, override) : watcher)
   }
-  return overrideWatcher(override)
+  if (found.length > 0) return found
+  const project = overrideWatcher(override)
+  return project === undefined ? [] : [project]
 }
 
 /** Whether `name` is an executable in a directory on PATH. */
@@ -225,7 +241,8 @@ async function lookFor($: EngineInterface, slot: Slot, cwd: string): Promise<Wat
   if (slot.retryAt > 0 && (await $.clock.now()) < slot.retryAt) return undefined
   const override = await readOverride($, cwd)
   if (override.enabled === false) return undefined
-  return slot.checker === undefined ? findWatcher($, cwd, override) : findChecker($, slot.checker)
+  if (slot.checker !== undefined) return findChecker($, slot.checker)
+  return (await findWatchers($, cwd, override)).find(watcher => languageOf(watcher) === slot.language)
 }
 
 /**
@@ -289,7 +306,8 @@ async function restart($: EngineInterface, state: State, slot: Slot, watcher: Wa
   await tell($, state, exitMessage(watcher, delay), false)
 }
 
-const slot = (checker?: Watcher): Slot => ({
+const slot = ({ language, checker }: { language?: string; checker?: Watcher }): Slot => ({
+  language,
   checker,
   isChecking: false,
   isRecheckDue: false,
@@ -312,7 +330,7 @@ export const register: Register = on => {
     epoch: 0,
     isTurnRunning: false,
     isPromptQueued: false,
-    slots: [slot(), ...CHECKERS.map(checker => slot(checker))],
+    slots: [...[...LANGUAGES, 'project'].map(language => slot({ language })), ...CHECKERS.map(checker => slot({ checker }))],
   }
 
   on('session.start', async ($, e, next) => {

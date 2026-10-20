@@ -24,7 +24,53 @@ from typing import Any
 OVERRIDE_PATH = ".overwatch.json"
 REPORT_LIMIT = 8_000
 COMMAND_TIMEOUT = 540
+FAILURE_LIMIT = 10
+# Colour codes, which some tools (deno) print even into a pipe.
+ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 
+VITEST: dict[str, Any] = {
+    "name": "vitest",
+    "language": "js",
+    "marker": "node_modules/.bin/vitest",
+    "argv": ["npx", "--no", "--", "vitest", "watch"],
+    "summary": r"^ +Test Files +.*$",
+    "failed": r"\bfailed\b",
+    "failure": r"^ FAIL {2}(\S+\.\w+(?: .*)?)$",
+}
+
+JEST: dict[str, Any] = {
+    "name": "jest",
+    "language": "js",
+    "marker": "node_modules/.bin/jest",
+    "argv": ["npx", "--no", "--", "jest", "--watchAll"],
+    "summary": r"^Test Suites: .*total$",
+    "failed": r"\bfailed\b",
+    "failure": r"^(?:FAIL (\S+)| {2}● (.+))$",
+}
+
+BUN: dict[str, Any] = {
+    "name": "bun",
+    "language": "js",
+    "marker": "bun.lock",
+    "argv": ["bun", "test", "--watch"],
+    "summary": r"^ \d+ fail$",
+    "failed": r"^[1-9]\d* fail$",
+    "failure": r"^\(fail\) (.+?)(?: \[[0-9.]+m?s\])?$",
+}
+
+DENO: dict[str, Any] = {
+    "name": "deno",
+    "marker": "deno.json",
+    "argv": ["deno", "test", "--watch"],
+    "summary": r"^Watcher \w+ (?:finished|failed)\..*$",
+    "failed": r"failed",
+    "result": r"^(?:ok|FAILED) \| .*$",
+    "failure": r"^(\S.* => \S+:\d+:\d+)$",
+}
+
+GO_FAILURE = r"^(?:\s*--- FAIL: (\S+).*|=== FAIL: (.+?)(?: \([0-9.]+s\))?|(\S+\.go:\d+:\d+: .+))$"
+
+# The same watchers as hooks/watchers.ts: alternatives of one language are tried in order.
 WATCHERS: tuple[dict[str, Any], ...] = (
     {
         "name": "zig",
@@ -32,6 +78,7 @@ WATCHERS: tuple[dict[str, Any], ...] = (
         "argv": ["zig", "build", "-Doptimize=fast", "test", "--watch"],
         "summary": r"^Build Summary:.*$",
         "failed": r"failed",
+        "failure": r"^(?:error: '(.+)' failed:|(\S+\.zig:\d+:\d+: error: .+))$",
     },
     {
         "name": "python",
@@ -46,7 +93,26 @@ WATCHERS: tuple[dict[str, Any], ...] = (
         ],
         "summary": r"^=+ .+ in \d+(?:\.\d+)?s(?: \([^)]*\))? =+$",
         "failed": r"\b(?:failed|errors?)\b",
+        "failure": r"^(?:FAILED|ERROR) (\S+)",
     },
+    VITEST,
+    JEST,
+    BUN,
+    {**BUN, "marker": "bun.lockb"},
+    DENO,
+    {**DENO, "marker": "deno.jsonc"},
+    {
+        "name": "go",
+        "marker": "go.mod",
+        "requires": "gotestsum",
+        "argv": ["gotestsum", "--watch"],
+        "baseline": ["gotestsum", "--", "./..."],
+        "summary": r"^DONE \d+ tests?.*$",
+        "failed": r"\b(?:failures?|errors?)\b",
+        "failure": GO_FAILURE,
+    },
+    {"name": "go", "marker": "go.mod", "baseline": ["go", "test", "./..."], "failure": GO_FAILURE},
+    {"name": "rust", "marker": "Cargo.toml", "baseline": ["cargo", "test"], "failure": r"^test (\S+) \.\.\. FAILED$"},
 )
 
 CHECKERS: tuple[dict[str, Any], ...] = (
@@ -97,6 +163,7 @@ def string_list(value: Any, field: str) -> list[str] | None:
 
 def apply_override(watcher: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     result = dict(watcher)
+    result["language"] = watcher.get("language", watcher["name"])
     for field in ("name", "summary", "failed"):
         if field in override:
             value = override[field]
@@ -107,8 +174,11 @@ def apply_override(watcher: dict[str, Any], override: dict[str, Any]) -> dict[st
         if field in override:
             result[field] = string_list(override[field], field)
     try:
-        re.compile(result["summary"], re.MULTILINE)
-        re.compile(result["failed"])
+        for field in ("summary", "result", "failure"):
+            if field in result:
+                re.compile(result[field], re.MULTILINE)
+        if "failed" in result:
+            re.compile(result["failed"])
     except re.error as error:
         raise ConfigurationError(f"invalid regular expression in {OVERRIDE_PATH}: {error}") from error
     return result
@@ -121,22 +191,27 @@ def find_watchers(cwd: Path) -> list[dict[str, Any]]:
     if "enabled" in override and not isinstance(override["enabled"], bool):
         raise ConfigurationError(f"{OVERRIDE_PATH} field 'enabled' must be a boolean")
 
-    project: dict[str, Any] | None = None
+    # One watcher for each language the project has; the override applies to the first.
+    found: list[dict[str, Any]] = []
     for watcher in WATCHERS:
-        if (cwd / watcher["marker"]).exists():
-            project = apply_override(watcher, override)
-            break
-    if project is None:
+        language = watcher.get("language", watcher["name"])
+        if any(each["language"] == language for each in found):
+            continue
+        if not (cwd / watcher["marker"]).exists():
+            continue
+        if "requires" in watcher and not shutil.which(watcher["requires"]):
+            continue
+        found.append(apply_override(watcher, override if not found else {}))
+    if not found:
         argv = string_list(override.get("argv"), "argv")
         baseline = string_list(override.get("baseline"), "baseline")
         complete = isinstance(override.get("summary"), str) and isinstance(override.get("failed"), str)
         if (argv is not None or baseline) and complete:
-            project = apply_override(
-                {"name": "project", "marker": OVERRIDE_PATH, "summary": r"$^", "failed": r"$^"},
+            found.append(apply_override(
+                {"name": "project", "language": "project", "marker": OVERRIDE_PATH, "summary": r"$^", "failed": r"$^"},
                 override,
-            )
+            ))
 
-    found = [] if project is None else [project]
     for checker in CHECKERS:
         if shutil.which(checker["marker"]):
             found.append(dict(checker))
@@ -175,7 +250,10 @@ def read_available(selector: selectors.BaseSelector) -> bytes:
     return os.read(key.fd, 65_536)
 
 
-def run_command(cwd: Path, watcher: dict[str, Any], argv: list[str], stop_after_report: bool) -> str:
+def run_command(
+    cwd: Path, watcher: dict[str, Any], argv: list[str], stop_after_report: bool,
+) -> tuple[str, int | None]:
+    """Runs argv, returning what it printed and its exit code; None when stopped after its report."""
     command = command_line(argv)
     try:
         process = subprocess.Popen(
@@ -195,7 +273,7 @@ def run_command(cwd: Path, watcher: dict[str, Any], argv: list[str], stop_after_
         except subprocess.TimeoutExpired:
             terminate(process)
             raise ConfigurationError(f"{command} did not finish within {COMMAND_TIMEOUT}s")
-        return output.decode(errors="replace")
+        return output.decode(errors="replace"), process.returncode
 
     summary = re.compile(watcher["summary"], re.MULTILINE)
     selector = selectors.DefaultSelector()
@@ -207,25 +285,47 @@ def run_command(cwd: Path, watcher: dict[str, Any], argv: list[str], stop_after_
             chunk = read_available(selector)
             if chunk:
                 chunks.append(chunk)
-                text = b"".join(chunks).decode(errors="replace")
+                text = ANSI.sub("", b"".join(chunks).decode(errors="replace"))
                 if summary.search(text):
                     chunks.append(terminate(process))
-                    return b"".join(chunks).decode(errors="replace")
+                    return b"".join(chunks).decode(errors="replace"), None
             if process.poll() is not None:
                 chunks.append(process.stdout.read() or b"")
-                return b"".join(chunks).decode(errors="replace")
+                return b"".join(chunks).decode(errors="replace"), process.returncode
     finally:
         selector.close()
     terminate(process)
     raise ConfigurationError(f"{command} gave no report within {COMMAND_TIMEOUT}s")
 
 
-def read_report(watcher: dict[str, Any], output: str) -> dict[str, Any] | None:
-    match = re.search(watcher["summary"], output, re.MULTILINE)
-    if match is None:
+def failures_in(watcher: dict[str, Any], output: str) -> list[str]:
+    """Each failing test or error the output names, once each, in order."""
+    if "failure" not in watcher:
+        return []
+    names: list[str] = []
+    for match in re.finditer(watcher["failure"], output, re.MULTILINE):
+        name = next((group for group in match.groups() if group is not None), "").strip()
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
+def read_report(watcher: dict[str, Any], output: str, code: int | None = None) -> dict[str, Any] | None:
+    """Reads one build's output; a run with no summary line is read by its exit code."""
+    clean = ANSI.sub("", output)
+    failures = failures_in(watcher, clean)
+    match = re.search(watcher["summary"], clean, re.MULTILINE) if "summary" in watcher else None
+    if match is not None:
+        line = match.group(0).strip()
+        shown = re.search(watcher["result"], clean, re.MULTILINE) if "result" in watcher else None
+        summary = shown.group(0).strip() if shown else line
+        failed = "failed" in watcher and re.search(watcher["failed"], line) is not None
+    elif code is None or (code == 0 and "summary" in watcher):
         return None
-    summary = match.group(0).strip()
-    text = output.strip()
+    else:
+        failed = code != 0
+        summary = (f"{len(failures)} failed" if failures else f"exited with code {code}") if failed else "passed"
+    text = clean.strip()
     if len(text) > REPORT_LIMIT:
         text = f"{text[:REPORT_LIMIT]}\n… {len(text) - REPORT_LIMIT} more characters cut"
     selected = command_for(watcher)
@@ -234,7 +334,8 @@ def read_report(watcher: dict[str, Any], output: str) -> dict[str, Any] | None:
         "name": watcher["name"],
         "command": command_line(selected[0]),
         "summary": summary,
-        "failed": re.search(watcher["failed"], summary) is not None,
+        "failed": failed,
+        "failures": failures if failed else [],
         "text": text,
     }
 
@@ -246,8 +347,8 @@ def run_checks(cwd: Path, watchers: list[dict[str, Any]]) -> list[dict[str, Any]
         if selected is None:
             continue
         argv, stop_after_report = selected
-        output = run_command(cwd, watcher, argv, stop_after_report)
-        report = read_report(watcher, output)
+        output, code = run_command(cwd, watcher, argv, stop_after_report)
+        report = read_report(watcher, output, code)
         if report is None:
             tail = output.strip()[-2_000:]
             detail = f"\n\n{tail}" if tail else ""
@@ -311,19 +412,38 @@ def save_state(event: dict[str, Any], cwd: Path, value: dict[str, Any]) -> None:
     temporary.replace(path)
 
 
+def failing_line(failures: list[str]) -> str:
+    """Names the failing tests, the first FAILURE_LIMIT of them, for the agent."""
+    if not failures:
+        return ""
+    named = ", ".join(f"`{name}`" for name in failures[:FAILURE_LIMIT])
+    more = f", and {len(failures) - FAILURE_LIMIT} more" if len(failures) > FAILURE_LIMIT else ""
+    return f"Failing: {named}{more}.\n"
+
+
 def failure_message(reports: list[dict[str, Any]]) -> str:
     failures = [report for report in reports if report["failed"]]
     return "\n\n".join(
         f"overwatch: `{report['command']}` failed after the latest change.\n"
+        f"{failing_line(report.get('failures', []))}"
         "Fix it before carrying on. If you are midway through a change that touches several files, finish it first.\n\n"
         f"```\n{report['text']}\n```"
         for report in failures
     )
 
 
+def failing_suffix(failures: list[str]) -> str:
+    if not failures:
+        return ""
+    more = f" +{len(failures) - 1} more" if len(failures) > 1 else ""
+    return f" — {failures[0]}{more}"
+
+
 def failure_status(reports: list[dict[str, Any]]) -> str:
     summaries = " · ".join(
-        f"{report['name']} ✗ {report['summary']}" for report in reports if report["failed"]
+        f"{report['name']} ✗ {report['summary']}{failing_suffix(report.get('failures', []))}"
+        for report in reports
+        if report["failed"]
     )
     return f"Overwatch: {summaries}"
 

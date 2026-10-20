@@ -10,6 +10,9 @@ import textwrap
 import time
 import unittest
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "hooks"))
+import codex  # noqa: E402
+
 
 ROOT = Path(__file__).resolve().parents[1]
 HOOK = ROOT / "hooks" / "codex.py"
@@ -33,6 +36,14 @@ class CodexHookTests(unittest.TestCase):
         self.cwd = Path(self.temporary.name) / "project"
         self.data = Path(self.temporary.name) / "data"
         self.cwd.mkdir()
+        self.bin = Path(self.temporary.name) / "bin"
+        self.bin.mkdir()
+
+    def tool(self, name: str, output: str, code: int) -> None:
+        """Puts a fake `name` on PATH that prints `output` and exits with `code`."""
+        script = self.bin / name
+        script.write_text(f"#!/bin/sh\ncat <<'EOF'\n{output}\nEOF\nexit {code}\n")
+        script.chmod(0o755)
 
     def configure(self, *, watch: bool = False) -> tuple[Path, Path]:
         result = self.cwd / "result.txt"
@@ -70,7 +81,7 @@ class CodexHookTests(unittest.TestCase):
         }
         environment = {
             **os.environ,
-            "PATH": "/usr/bin:/bin",
+            "PATH": f"{self.bin}:/usr/bin:/bin",
             "PLUGIN_DATA": str(self.data),
         }
         started = time.monotonic()
@@ -134,6 +145,38 @@ class CodexHookTests(unittest.TestCase):
         output, _ = self.call("Stop", stop_hook_active=False)
         self.assertIn("systemMessage", output)
         self.assertNotIn("decision", output)
+
+    def test_every_language_in_a_polyglot_project_is_checked_by_exit_code(self) -> None:
+        write(self.cwd / "go.mod", "module example.com/calc\n")
+        write(self.cwd / "Cargo.toml", "[package]\n")
+        self.tool("go", "--- FAIL: TestAdd (0.00s)\n    calc_test.go:3: Add(3, 7) = 10\nFAIL", 1)
+        self.tool("cargo", "test tests::adds ... ok\ntest result: ok. 1 passed", 0)
+
+        started, _ = self.call("SessionStart", source="startup")
+        self.assertEqual(started["systemMessage"], "Overwatch: go ✗ 1 failed — TestAdd")
+        self.assertIn("Failing: `TestAdd`.", started["hookSpecificOutput"]["additionalContext"])
+
+    def test_go_uses_gotestsum_when_it_is_on_path(self) -> None:
+        write(self.cwd / "go.mod", "module example.com/calc\n")
+        self.tool("go", "", 0)
+        self.tool("gotestsum", "=== FAIL: . TestAdd (0.00s)\n\nDONE 2 tests, 1 failure in 0.184s", 1)
+
+        started, _ = self.call("SessionStart", source="startup")
+        self.assertEqual(started["systemMessage"], "Overwatch: go ✗ DONE 2 tests, 1 failure in 0.184s — . TestAdd")
+
+    def test_colour_codes_are_read_through(self) -> None:
+        output = "\x1b[0m\x1b[31mFAILED\x1b[0m | 1 passed | 1 failed\n\x1b[0m\x1b[38;5;12mWatcher\x1b[0m Test failed. Restarting..."
+        report = codex.read_report(codex.DENO, output)
+        assert report is not None
+        self.assertTrue(report["failed"])
+        self.assertEqual(report["summary"], "FAILED | 1 passed | 1 failed")
+
+    def test_a_run_with_no_summary_that_exits_nonzero_fails(self) -> None:
+        python = codex.WATCHERS[1]
+        report = codex.read_report(python, "error: Failed to parse uv.lock", 2)
+        assert report is not None
+        self.assertEqual((report["failed"], report["summary"]), (True, "exited with code 2"))
+        self.assertIsNone(codex.read_report(python, "nothing", 0))
 
     def test_every_codex_hook_has_a_branded_status_message(self) -> None:
         config = json.loads(read(HOOKS_CONFIG))

@@ -17,14 +17,27 @@ The watcher starts with an interactive session, survives `/clear`, and stops whe
 
 ## Watchers
 
-| Project marker | Full run first | Watcher |
-| --- | --- | --- |
-| `build.zig` | the watcher's first build | `zig build -Doptimize=fast test --watch` |
-| `pyproject.toml` | `uv run --with pytest --with pytest-testmon pytest --testmon-noselect` | `uv run --with pytest --with pytest-watcher --with pytest-testmon ptw . --testmon` |
+| Language | Project marker | Full run first | Watcher |
+| --- | --- | --- | --- |
+| zig | `build.zig` | the watcher's first build | `zig build -Doptimize=fast test --watch` |
+| python | `pyproject.toml` | `uv run --with pytest --with pytest-testmon pytest --testmon-noselect` | `uv run --with pytest --with pytest-watcher --with pytest-testmon ptw . --testmon` |
+| js | `node_modules/.bin/vitest` | the watcher's first run | `npx --no -- vitest watch` |
+| js | `node_modules/.bin/jest` | the watcher's first run | `npx --no -- jest --watchAll` |
+| js | `bun.lock` or `bun.lockb` | the watcher's first run | `bun test --watch` |
+| deno | `deno.json` or `deno.jsonc` | the watcher's first run | `deno test --watch` |
+| go | `go.mod`, with `gotestsum` on `PATH` | `gotestsum -- ./...` | `gotestsum --watch` |
+| go | `go.mod` | `go test ./...` | none: reruns the full run after edits |
+| rust | `Cargo.toml` | `cargo test` | none: reruns the full run after edits |
+
+Each language's rows are alternatives, tried in order: the first whose marker, and tool if it names one, is present runs. So a JS project runs the vitest or jest it has installed, ahead of `bun test`, and Go uses gotestsum's watcher when it is installed. A polyglot project runs a watcher for every language it has, side by side, each with its own part of the status line, for example `overwatch go ✗ 1 failed — TestAdd · overwatch rust ✓ passed`.
+
+A command with no watcher of its own is read by its exit code, so a compile error fails it as surely as a failing test. Any full run that exits nonzero without printing its summary line counts as failed too, rather than going unreported. Colour codes are stripped before anything is read, since some tools (deno) print them even into a pipe.
+
+When a build fails, overwatch names the failing tests (or compile errors, where the tool prints them on one line) at the top of the agent's report, and the first of them in the status line: `overwatch python ✗ 1 failed, 2 passed in 0.03s — tests/test_add.py::test_add`.
 
 In every project, whatever its marker, zanity runs beside the test watcher whenever `zanity` is on `PATH`, as `zanity check . --watch --no-color` (zanity 0.1.12 or later). Any error or warning it reports counts as a failure, handed to the agent like a failing build, and the status line shows both results, for example `overwatch zig ✓ 4/4 steps succeeded; 48/48 tests passed · overwatch zanity ✓ checked 12 files, no issues found.`. Codex runs the equivalent one-shot check after a change. Add another checker to `CHECKERS` in both `hooks/watchers.ts` and `hooks/codex.py`, its `marker` naming the executable to look for on `PATH`.
 
-Add a language by adding an entry to `WATCHERS` in `hooks/watchers.ts`, `hooks/codex.py`, and `lua/overwatch/init.lua`: its marker file, its command, optionally a command that runs the whole suite once first, the line that closes one build's report, and the pattern on that line that means it failed. When no baseline is configured, Codex runs the watch command through its first complete report and then stops it.
+Add a language by adding an entry to `WATCHERS` in `hooks/watchers.ts`, `hooks/codex.py`, and `lua/overwatch/init.lua`: its marker file, its command, optionally a command that runs the whole suite once first, the line that closes one build's report, and the pattern on that line that means it failed. Optionally: `language`, to make it an alternative to the entries before it with the same one; `requires`, an executable that must be on `PATH`; `result`, the line to show when the build's result comes before the line that closes its report; and `failure`, a pattern matching each failing test, named by its first group that matched. An entry with no watch command may leave out the summary and be read by its exit code. When no baseline is configured, Codex runs the watch command through its first complete report and then stops it.
 
 ## Per-project override
 
@@ -40,7 +53,7 @@ Add a language by adding an entry to `WATCHERS` in `hooks/watchers.ts`, `hooks/c
 }
 ```
 
-`"enabled": false` turns overwatch off for that project, zanity included; `"baseline": []` skips the full run first. The other fields apply to the test watcher alone.
+`"enabled": false` turns overwatch off for that project, zanity included; `"baseline": []` skips the full run first. The other fields apply to one test watcher alone: in a polyglot project, the first language in the table above that the project has.
 
 A project with no marker file is watched when its override names `summary`, `failed`, and `argv` or `baseline`; `name` labels it in the status line. With no `argv`, overwatch needs no watch tool: it reruns `baseline` itself after the agent's edits (Edit, Write, MultiEdit, NotebookEdit or Bash calls) go quiet. Edits made outside the session are picked up at the agent's next edit. This repository watches its own tests that way:
 
@@ -86,7 +99,7 @@ claude plugin install overwatch@overwatch
 
 ## Neovim
 
-The same test watchers run beside Neovim (zanity does not; its own `zanity lsp` gives Neovim its findings on save): the full suite first, then the watcher, with no agent involved. The latest result is in `require('overwatch').status()`, each failing build goes into the quickfix list (`:copen`), and a watcher with no `argv` reruns `baseline` after every save. It starts with Neovim in a project that has a watcher; `:OverwatchStart` and `:OverwatchStop` start and stop it.
+The same test watchers run beside Neovim (zanity does not; its own `zanity lsp` gives Neovim its findings on save): the full suite first, then the watcher, with no agent involved. The latest result of each language's watcher is in `require('overwatch').status()`, each failing build goes into the quickfix list (`:copen`), and a watcher with no `argv` reruns `baseline` after every save. It starts with Neovim in a project that has a watcher; `:OverwatchStart` and `:OverwatchStop` start and stop it.
 
 ```lua
 vim.pack.add({ "https://github.com/benomahony/overwatch" })
@@ -97,6 +110,7 @@ require("lualine").setup({ sections = { lualine_x = { require("overwatch").statu
 
 ```sh
 python3 -m unittest tests.test_codex
+nvim --headless -l tests/overwatch_spec.lua
 claude plugin validate .
 claude plugin test .
 claude --plugin-dir .
