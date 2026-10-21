@@ -6,9 +6,7 @@
 ---
 
 
-Watchers for agentic engineering. overwatch runs your project's tests beside Codex, Claude Code, or Neovim and hands failures back immediately, so the agent fixes what it broke before it moves on. The [site](https://benomahony.github.io/overwatch/) has this README as pages.
-
-With Codex, overwatch runs the full suite when a session starts, checks again after tools change the workspace, and prevents the turn from stopping while the latest result is red. A change made outside Codex is picked up with the next prompt. Overwatch supplies transient status text while each check runs, though not every Codex surface renders it, and a concise visible warning when one fails; the full report goes to the agent. Codex's status line does not currently accept persistent plugin-defined fields. Codex does not currently let a plugin start a new turn in an idle session, so that is the one difference from the Claude Code behavior below.
+Watchers for agentic engineering. overwatch runs your project's tests beside Claude Code, Codex, or Neovim and hands failures back immediately, so the agent fixes what it broke before it moves on. The [site](https://benomahony.github.io/overwatch/) has this README as pages.
 
 With Claude Code:
 
@@ -16,6 +14,8 @@ With Claude Code:
 - **Running turn:** the failure joins that turn, read at the agent's next step.
 - **Back to green:** the agent is told during a turn; otherwise the status line shows it.
 - The status line always shows the latest result, for example `overwatch zig ✓ 4/4 steps succeeded; 48/48 tests passed`.
+
+With Codex, overwatch runs the full suite when a session starts, checks again after tools change the workspace, and prevents the turn from stopping while the latest result is red. A change made outside Codex is picked up with the next prompt. Overwatch supplies transient status text while each check runs, though not every Codex surface renders it, and a concise visible warning when one fails; the full report goes to the agent. Codex's status line does not currently accept persistent plugin-defined fields. Codex does not currently let a plugin start a new turn in an idle session, so that is the one difference from the Claude Code behavior above.
 
 Before it starts watching, overwatch runs the whole suite once, so you see every test green (or the agent gets the failures) before any change is made.
 

@@ -4,7 +4,7 @@
 		<meta charset="utf-8">
 		<meta name="viewport" content="width=device-width, initial-scale=1">
 		<title :text="$page.title.suffix(' · overwatch')"></title>
-		<meta name="description" content="overwatch runs your project’s tests beside Codex, Claude Code, or Neovim and hands failures back immediately">
+		<meta name="description" content="overwatch runs your project’s tests beside Claude Code, Codex, or Neovim and hands failures back immediately">
 		<meta name="theme-color" content="#6557e8">
 		<link rel="icon" type="image/svg+xml" href="$site.asset('logo.svg').link()">
 		<link rel="preconnect" href="https://fonts.googleapis.com">
@@ -36,7 +36,7 @@
 					<img src="$site.asset('logo.svg').link()" alt="" width="24" height="24">
 					<span>overwatch</span>
 				</div>
-				<p>Test watchers for Codex, Claude Code, and Neovim. <a href="https://github.com/benomahony/overwatch">Source on GitHub</a>.</p>
+				<p>Test watchers for Claude Code, Codex, and Neovim. <a href="https://github.com/benomahony/overwatch">Source on GitHub</a>.</p>
 			</div>
 		</footer>
 	</body>

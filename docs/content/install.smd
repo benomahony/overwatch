@@ -1,10 +1,23 @@
 ---
 .title = "Install",
-.description = "Adding overwatch to Codex or Claude Code.",
+.description = "Adding overwatch to Claude Code or Codex.",
 .date = .date("2026-10-21T00:00:03"),
 .layout = "page.shtml",
 ---
 
+
+# [Claude Code]($heading.id('claude-code'))
+
+```sh
+/plugin install overwatch --marketplace benomahony/overwatch
+```
+
+From a local checkout:
+
+```sh
+claude plugin marketplace add ~/Code/open_source/overwatch
+claude plugin install overwatch@overwatch
+```
 
 # [Codex]($heading.id('codex'))
 
@@ -20,17 +33,4 @@ From a local checkout:
 ```sh
 codex plugin marketplace add /absolute/path/to/overwatch
 codex plugin add overwatch@overwatch
-```
-
-# [Claude Code]($heading.id('claude-code'))
-
-```sh
-/plugin install overwatch --marketplace benomahony/overwatch
-```
-
-From a local checkout:
-
-```sh
-claude plugin marketplace add ~/Code/open_source/overwatch
-claude plugin install overwatch@overwatch
 ```
