@@ -1,5 +1,19 @@
 // Generated from watchers.json by `python3 scripts/table.py`. Edit that file, not this one.
 export const TABLE = {
+  "search": {
+    "depth": 2,
+    "skip": [
+      "node_modules",
+      "target",
+      "vendor",
+      "dist",
+      "build",
+      "venv",
+      "__pycache__",
+      "zig-cache",
+      "zig-out"
+    ]
+  },
   "watchers": [
     {
       "name": "zig",

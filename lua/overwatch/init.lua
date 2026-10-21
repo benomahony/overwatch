@@ -15,7 +15,16 @@ local GIVE_UP_AFTER = 3
 -- .overwatch.json; vim_regex translates them. Alternatives of one language are tried in order: the first whose
 -- marker, and `requires` if it names one, are present runs.
 local ROOT = vim.fn.fnamemodify(debug.getinfo(1, 'S').source:sub(2), ':p:h:h:h')
-M.WATCHERS = vim.json.decode(table.concat(vim.fn.readfile(ROOT .. '/watchers.json'), '\n')).watchers
+local TABLE = vim.json.decode(table.concat(vim.fn.readfile(ROOT .. '/watchers.json'), '\n'))
+M.WATCHERS = TABLE.watchers
+
+-- A language the project's root lacks is looked for in the directories this many levels down, leaving out hidden
+-- ones and these.
+local SEARCH_DEPTH = TABLE.search.depth
+local SEARCH_SKIP = {}
+for _, name in ipairs(TABLE.search.skip) do
+  SEARCH_SKIP[name] = true
+end
 
 local LAZY = { ['*'] = '{-}', ['+'] = '{-1,}', ['?'] = '{-,1}' }
 
@@ -75,11 +84,42 @@ local function apply_override(watcher, override)
     failed = override.failed or watcher.failed,
     result = watcher.result,
     failure = watcher.failure,
+    dir = watcher.dir,
   }
 end
 
---- The project's watchers, one for each language it has; empty when it has none or its override turns overwatch off.
---- The override applies to the first language found, and is the watcher when none is.
+--- The first of a language's alternatives whose marker is in dir and whose tool, if it needs one, is on PATH.
+local function first_present(alternatives, dir)
+  for _, watcher in ipairs(alternatives) do
+    if vim.uv.fs_stat(dir .. '/' .. watcher.marker) and (watcher.requires == nil or vim.fn.executable(watcher.requires) == 1) then
+      return watcher
+    end
+  end
+  return nil
+end
+
+--- The directories SEARCH_DEPTH levels down, relative to cwd, nearest and then alphabetically first.
+local function find_subprojects(cwd)
+  local found, parents = {}, { '' }
+  for _ = 1, SEARCH_DEPTH do
+    local level = {}
+    for _, parent in ipairs(parents) do
+      for name, kind in vim.fs.dir(parent == '' and cwd or (cwd .. '/' .. parent)) do
+        if kind == 'directory' and not vim.startswith(name, '.') and not SEARCH_SKIP[name] then
+          level[#level + 1] = parent == '' and name or (parent .. '/' .. name)
+        end
+      end
+    end
+    table.sort(level)
+    vim.list_extend(found, level)
+    parents = level
+  end
+  return found
+end
+
+--- The project's watchers, one for each language it has, or else for each sub-project that has it, one not inside
+--- another that does; empty when it has none or its override turns overwatch off. The override applies to the first
+--- watcher found, and is the watcher when none is.
 function M.find_watchers(cwd)
   local override = {}
   local file = io.open(cwd .. '/' .. M.OVERRIDE_PATH)
@@ -89,15 +129,28 @@ function M.find_watchers(cwd)
     if ok and type(decoded) == 'table' then override = decoded end
   end
   if override.enabled == false then return {} end
-  local found, languages = {}, {}
+  local found, languages, subprojects = {}, {}, nil
   for _, watcher in ipairs(M.WATCHERS) do
     local language = language_of(watcher)
-    if not languages[language]
-      and vim.uv.fs_stat(cwd .. '/' .. watcher.marker)
-      and (watcher.requires == nil or vim.fn.executable(watcher.requires) == 1)
-    then
+    if not languages[language] then
       languages[language] = true
-      found[#found + 1] = apply_override(watcher, #found == 0 and override or {})
+      local alternatives = vim.tbl_filter(function(each) return language_of(each) == language end, M.WATCHERS)
+      local at_root = first_present(alternatives, cwd)
+      if at_root then
+        found[#found + 1] = apply_override(at_root, #found == 0 and override or {})
+      else
+        subprojects = subprojects or find_subprojects(cwd)
+        local claimed = {}
+        for _, dir in ipairs(subprojects) do
+          local is_inside = vim.iter(claimed):any(function(parent) return vim.startswith(dir, parent .. '/') end)
+          local present = not is_inside and first_present(alternatives, cwd .. '/' .. dir)
+          if present then
+            claimed[#claimed + 1] = dir
+            local labelled = vim.tbl_extend('force', present, { language = language, name = present.name .. ' ' .. dir, dir = dir })
+            found[#found + 1] = apply_override(labelled, #found == 0 and override or {})
+          end
+        end
+      end
     end
   end
   if #found > 0 then return found end
@@ -240,7 +293,8 @@ local function spawn(run, argv, on_output, on_exit)
   local function read(_, data)
     if data then vim.schedule(function() on_output(data) end) end
   end
-  local ok, process = pcall(vim.system, argv, { cwd = state.cwd, stdout = read, stderr = read }, function(result)
+  local cwd = run.watcher.dir and (state.cwd .. '/' .. run.watcher.dir) or state.cwd
+  local ok, process = pcall(vim.system, argv, { cwd = cwd, stdout = read, stderr = read }, function(result)
     vim.schedule(function() on_exit(result) end)
   end)
   if not ok then

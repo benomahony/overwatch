@@ -1,8 +1,9 @@
-import type { EngineInterface, Register, Timer } from 'claude-code'
+import type { EngineInterface, FsEntry, Register, Timer } from 'claude-code'
 import {
   CHECKERS,
   LANGUAGES,
   OVERRIDE_PATH,
+  SEARCH,
   WATCHERS,
   applyOverride,
   commandLine,
@@ -33,15 +34,10 @@ const GIVE_UP_AFTER = 3
 /** Tools whose call may change the project's files; a watcher that is no long-running command reruns after each. */
 const EDITING_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Bash'])
 
-/** One watcher's place beside the others: one of the project's languages, or a checker such as zanity. */
+/** One watcher's place beside the others: a language in the project or one of its sub-projects, or a checker such as zanity. */
 type Slot = {
-  /** The language whose test watcher this slot runs; `project` for an override's own watcher. */
-  language: string | undefined
-  /** The checker this slot runs, in place of a language's watcher. */
-  checker: Watcher | undefined
-  isChecking: boolean
-  /** A check was asked for while one was in flight, which may have read the project before it changed. */
-  isRecheckDue: boolean
+  /** The watcher's language and sub-project, which stay the same while the watcher run there may change. */
+  key: string
   isWatching: boolean
   /** When a watcher that ended soon after its start may be started again. */
   retryAt: number
@@ -61,7 +57,11 @@ type State = {
   epoch: number
   isTurnRunning: boolean
   isPromptQueued: boolean
-  slots: readonly Slot[]
+  /** Whether the project is being searched for watchers, and whether it should be again once that is done. */
+  isFinding: boolean
+  isFindDue: boolean
+  /** One for each watcher found so far, in the order found, which is the status line's order. */
+  slots: Slot[]
 }
 
 /** One watcher running in its slot: what each step of a run needs. */
@@ -209,20 +209,75 @@ async function readOverride($: EngineInterface, cwd: string): Promise<Override> 
     .catch(() => ({}))
 }
 
+/** Whether `marker`, a path, is in `dir`, whose own entries are `names`. */
+async function hasMarker($: EngineInterface, dir: string, names: ReadonlySet<string>, marker: string): Promise<boolean> {
+  const [first = '', ...rest] = marker.split('/')
+  return names.has(first) && (rest.length === 0 || $.fs.exists(`${dir}/${marker}`))
+}
+
+/** A directory below the project's root, relative to it, and its entries' names. */
+type Subproject = { dir: string; names: ReadonlySet<string> }
+
+/** The directories SEARCH.depth levels down, nearest and then alphabetically first, leaving out hidden and SEARCH.skip ones. */
+async function findSubprojects($: EngineInterface, cwd: string): Promise<Subproject[]> {
+  const found: Subproject[] = []
+  let parents = ['']
+  for (let depth = 0; depth < SEARCH.depth && parents.length > 0; depth += 1) {
+    const level: string[] = []
+    for (const parent of parents) {
+      const entries: readonly FsEntry[] = await $.fs.list(parent === '' ? cwd : `${cwd}/${parent}`).catch(() => [])
+      for (const { name, kind } of entries) {
+        if (kind === 'dir' && !name.startsWith('.') && !SEARCH.skip.has(name)) level.push(parent === '' ? name : `${parent}/${name}`)
+      }
+    }
+    level.sort()
+    for (const dir of level) {
+      const entries: readonly FsEntry[] = await $.fs.list(`${cwd}/${dir}`).catch(() => [])
+      found.push({ dir, names: new Set(entries.map(({ name }) => name)) })
+    }
+    parents = level
+  }
+  return found
+}
+
+/** The first of a language's alternatives whose marker `has` finds and whose tool, if it needs one, is on PATH. */
+async function firstPresent($: EngineInterface, alternatives: readonly Watcher[], has: (marker: string) => Promise<boolean>) {
+  for (const watcher of alternatives) {
+    if (!(await has(watcher.marker))) continue
+    if (watcher.requires === undefined || (await isOnPath($, watcher.requires))) return watcher
+  }
+  return undefined
+}
+
 /**
  * The project's test watchers, one for each language it has: the first of
- * that language's whose marker, and tool if it needs one, are present. The
- * override applies to the first language found; with none, it is the watcher.
+ * that language's whose marker, and tool if it needs one, are present. A
+ * language the root lacks is looked for in each sub-project, one not inside
+ * another that has it. The override applies to the first watcher found; with
+ * none, it is the watcher.
  */
 async function findWatchers($: EngineInterface, cwd: string, override: Override): Promise<Watcher[]> {
   const found: Watcher[] = []
-  for (const watcher of WATCHERS) {
-    if (found.some(each => languageOf(each) === languageOf(watcher))) continue
-    if (!(await $.fs.exists(`${cwd}/${watcher.marker}`))) continue
-    if (watcher.requires !== undefined && !(await isOnPath($, watcher.requires))) continue
-    found.push(found.length === 0 ? applyOverride(watcher, override) : watcher)
+  let subprojects: Subproject[] | undefined
+  for (const language of LANGUAGES) {
+    const alternatives = WATCHERS.filter(watcher => languageOf(watcher) === language)
+    const atRoot = await firstPresent($, alternatives, marker => $.fs.exists(`${cwd}/${marker}`))
+    if (atRoot !== undefined) {
+      found.push(atRoot)
+      continue
+    }
+    subprojects ??= await findSubprojects($, cwd)
+    const claimed: string[] = []
+    for (const { dir, names } of subprojects) {
+      if (claimed.some(parent => dir.startsWith(`${parent}/`))) continue
+      const watcher = await firstPresent($, alternatives, marker => hasMarker($, `${cwd}/${dir}`, names, marker))
+      if (watcher === undefined) continue
+      claimed.push(dir)
+      found.push({ ...watcher, name: `${watcher.name} ${dir}`, dir })
+    }
   }
-  if (found.length > 0) return found
+  const [first, ...rest] = found
+  if (first !== undefined) return [applyOverride(first, override), ...rest]
   const project = overrideWatcher(override)
   return project === undefined ? [] : [project]
 }
@@ -236,45 +291,55 @@ async function isOnPath($: EngineInterface, name: string): Promise<boolean> {
   return false
 }
 
-/** A checker runs in any project, as long as its executable is installed. */
-async function findChecker($: EngineInterface, checker: Watcher): Promise<Watcher | undefined> {
-  return (await isOnPath($, checker.marker)) ? checker : undefined
+/** Every watcher the project has, read afresh, then each checker installed; none while overwatch is off. */
+async function findAll($: EngineInterface, cwd: string): Promise<Watcher[]> {
+  const override = await readOverride($, cwd)
+  if (override.enabled === false) return []
+  const checkers: Watcher[] = []
+  for (const checker of CHECKERS) if (await isOnPath($, checker.marker)) checkers.push(checker)
+  return [...(await findWatchers($, cwd, override)), ...checkers]
 }
 
-/** This slot's watcher, read afresh; undefined while it waits out a retry or overwatch is off. */
-async function lookFor($: EngineInterface, slot: Slot, cwd: string): Promise<Watcher | undefined> {
-  if (slot.retryAt > 0 && (await $.clock.now()) < slot.retryAt) return undefined
-  const override = await readOverride($, cwd)
-  if (override.enabled === false) return undefined
-  if (slot.checker !== undefined) return findChecker($, slot.checker)
-  return (await findWatchers($, cwd, override)).find(watcher => languageOf(watcher) === slot.language)
-}
+const keyOf = (watcher: Watcher) => `${languageOf(watcher)}:${watcher.dir ?? ''}`
 
 /**
- * Starts the slot's watcher unless one runs or a check is in flight, reading the
- * marker and the override afresh, so a project scaffolded mid-session gets its
- * watcher. One that exits is restarted, see `restart`.
+ * Finds the project's watchers afresh, reading its markers and override, so a
+ * project scaffolded mid-session gets its watcher, and starts each that is
+ * not running or waiting out a retry. One search runs at a time; asked for
+ * during one, another follows it. A watcher that exits is restarted, see `restart`.
  */
-async function ensureWatching($: EngineInterface, state: State, slot: Slot) {
+async function ensureAll($: EngineInterface, state: State) {
   const { cwd, epoch } = state
-  if (cwd === undefined || slot.isWatching) return
-  if (slot.isChecking) {
-    slot.isRecheckDue = true
+  if (cwd === undefined) return
+  if (state.isFinding) {
+    state.isFindDue = true
     return
   }
-  slot.isChecking = true
-  slot.isRecheckDue = false
-  const watcher = await lookFor($, slot, cwd).finally(() => {
-    slot.isChecking = false
+  state.isFinding = true
+  state.isFindDue = false
+  const watchers = await findAll($, cwd).finally(() => {
+    state.isFinding = false
   })
-  if (slot.isWatching || state.epoch !== epoch) return
-  if (watcher === undefined) {
-    if (slot.isRecheckDue) await ensureWatching($, state, slot)
-    return
+  if (state.epoch !== epoch) return
+  const now = await $.clock.now()
+  for (const watcher of watchers) {
+    const key = keyOf(watcher)
+    let found = state.slots.find(each => each.key === key)
+    if (found === undefined) {
+      found = slot(key)
+      state.slots.push(found)
+    }
+    if (!found.isWatching && now >= found.retryAt) void start($, state, found, watcher)
   }
+  if (state.isFindDue) await ensureAll($, state)
+}
+
+async function start($: EngineInterface, state: State, slot: Slot, watcher: Watcher) {
+  const { cwd, epoch } = state
+  if (cwd === undefined) return
   slot.isWatching = true
   slot.retryAt = 0
-  const ending = await watch($, { state, slot, watcher, cwd })
+  const ending = await watch($, { state, slot, watcher, cwd: watcher.dir === undefined ? cwd : `${cwd}/${watcher.dir}` })
   if (ending === undefined || state.epoch !== epoch) return
   await restart($, state, slot, watcher, ending)
 }
@@ -303,19 +368,16 @@ async function restart($: EngineInterface, state: State, slot: Slot, watcher: Wa
   const delay = isQuick ? RETRY_MS * 2 ** (slot.quickExits - 1) : 0
   slot.retryAt = endedAt + delay
   setStatus($, state, slot, `overwatch ${watcher.name}: ${what}, restarting ${delay === 0 ? 'now' : `in ${delay / 1000}s`}`)
-  if (delay === 0) void ensureWatching($, state, slot)
+  if (delay === 0) void ensureAll($, state)
   else
     $.clock.after(delay, () => {
-      if (state.epoch === epoch) void ensureWatching($, state, slot)
+      if (state.epoch === epoch) void ensureAll($, state)
     })
   await tell($, state, exitMessage(watcher, delay), false)
 }
 
-const slot = ({ language, checker }: { language?: string; checker?: Watcher }): Slot => ({
-  language,
-  checker,
-  isChecking: false,
-  isRecheckDue: false,
+const slot = (key: string): Slot => ({
+  key,
   isWatching: false,
   retryAt: 0,
   quickExits: 0,
@@ -325,24 +387,22 @@ const slot = ({ language, checker }: { language?: string; checker?: Watcher }): 
   status: undefined,
 })
 
-function ensureAll($: EngineInterface, state: State) {
-  for (const each of state.slots) void ensureWatching($, state, each)
-}
-
 export const register: Register = on => {
   const state: State = {
     cwd: undefined,
     epoch: 0,
     isTurnRunning: false,
     isPromptQueued: false,
-    slots: [...[...LANGUAGES, 'project'].map(language => slot({ language })), ...CHECKERS.map(checker => slot({ checker }))],
+    isFinding: false,
+    isFindDue: false,
+    slots: [],
   }
 
   on('session.start', async ($, e, next) => {
     const started = await next(e)
     if (!e.isInteractive) return started
     state.cwd = e.cwd
-    ensureAll($, state)
+    void ensureAll($, state)
     return started
   })
 
@@ -355,13 +415,13 @@ export const register: Register = on => {
   on('turn.start', ($, e, next) => {
     state.isTurnRunning = true
     state.isPromptQueued = false
-    ensureAll($, state)
+    void ensureAll($, state)
     return next(e)
   })
 
   on('turn.complete', ($, e, next) => {
     if (e.agentId === undefined) state.isTurnRunning = false
-    ensureAll($, state)
+    void ensureAll($, state)
     return next(e)
   })
 

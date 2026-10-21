@@ -740,6 +740,57 @@ const commands = (on: On, spawned: string[][], output: Record<string, string>, c
 /** Slots look for their watchers side by side, so the order they start in is not fixed. */
 const sorted = (argvs: string[][]) => [...argvs].sort((a, b) => a.join(' ').localeCompare(b.join(' ')))
 
+test('a language the root lacks is watched in each sub-project that has it', async ($, on) => {
+  const clock = mock.clock(on)
+  const spawned: string[][] = []
+  const statuses: (string | undefined)[] = []
+  const prompts: string[] = []
+  const tree: Record<string, string[]> = {
+    '/repo': ['services/', 'tools/', 'node_modules/', '.git/', 'README.md'],
+    '/repo/services': ['api/', 'web/'],
+    '/repo/services/api': ['go.mod', 'main.go'],
+    '/repo/services/web': ['package.json', 'bun.lock'],
+    '/repo/tools': ['Cargo.toml', 'nested/'],
+    '/repo/tools/nested': ['Cargo.toml'],
+    '/repo/node_modules': ['left-pad/'],
+    '/repo/node_modules/left-pad': ['go.mod'],
+  }
+  const entry = (name: string) => ({
+    name: name.replace(/\/$/, ''),
+    kind: name.endsWith('/') ? ('dir' as const) : ('file' as const),
+    size: 0,
+    mtimeMs: 0,
+    isLink: false,
+  })
+  on('fs.read', () => ({ deny: 'no such file' }))
+  on('fs.exists', () => ({ value: false }))
+  on('fs.list', ($, e) => ({ value: (tree[e.path] ?? []).map(entry) }))
+  on('ui.status', ($, e, next) => {
+    statuses.splice(statuses.length, 0, e.text)
+    return next(e)
+  })
+  on('process.spawn', async function* ($, e) {
+    spawned.splice(spawned.length, 0, [e.cwd ?? '', ...e.argv])
+    if (e.argv[0] === 'go') yield { stream: 'stdout' as const, text: GO_FAILING }
+    return { value: { code: e.argv[0] === 'go' ? 1 : 0, signal: null } }
+  })
+  on('prompt.submit', ($, e) => {
+    prompts.splice(prompts.length, 0, e.text)
+    return { text: e.text }
+  })
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  await $.session.start(start)
+  await clock.advance(1000)
+  expect(sorted(spawned)).toEqual([
+    ['/repo/services/api', 'go', 'test', './...'],
+    ['/repo/services/web', 'bun', 'test', '--watch'],
+    ['/repo/tools', 'cargo', 'test'],
+  ])
+  expect(statuses.at(-1)).toContain('overwatch go services/api ✗ 1 failed — TestAdd')
+  expect(statuses.at(-1)).toContain('overwatch rust tools ✓ passed')
+  expect(prompts[0]).toContain('`go test ./...` in `services/api` failed')
+})
+
 test('every language in a polyglot project gets its own watcher', async ($, on) => {
   const clock = mock.clock(on)
   const spawned: string[][] = []

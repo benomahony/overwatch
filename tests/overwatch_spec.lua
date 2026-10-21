@@ -96,6 +96,18 @@ test('every language in a polyglot project gets its own watcher', function()
   eq(names, { 'deno', 'go', 'rust' })
 end)
 
+test('a language the root lacks is watched in each sub-project that has it', function()
+  local dir = project()
+  for _, path in ipairs({ 'services/api/go.mod', 'tools/Cargo.toml', 'tools/nested/Cargo.toml', 'node_modules/pad/go.mod', '.git/x/go.mod' }) do
+    vim.fn.mkdir(vim.fs.dirname(dir .. '/' .. path), 'p')
+    vim.fn.writefile({}, dir .. '/' .. path)
+  end
+  local found = vim.tbl_map(function(watcher) return { watcher.name, watcher.dir } end, overwatch.find_watchers(dir))
+  eq(found, { { 'go services/api', 'services/api' }, { 'rust tools', 'tools' } })
+  vim.fn.writefile({}, dir .. '/go.mod')
+  eq(vim.tbl_map(function(watcher) return watcher.name end, overwatch.find_watchers(dir)), { 'go', 'rust tools' })
+end)
+
 test('a JS project runs the test runner it has installed, ahead of bun', function()
   local dir = project()
   vim.fn.mkdir(dir .. '/node_modules/.bin', 'p')

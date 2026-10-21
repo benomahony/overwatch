@@ -170,6 +170,20 @@ class CodexHookTests(unittest.TestCase):
         self.assertEqual(started, {})
         self.assertLess(elapsed, 3.5)
 
+    def test_a_language_the_root_lacks_is_checked_in_each_subproject(self) -> None:
+        for directory, marker in (("services/api", "go.mod"), ("tools", "Cargo.toml"), ("node_modules/pad", "go.mod")):
+            (self.cwd / directory).mkdir(parents=True)
+            write(self.cwd / directory / marker, "")
+        go = self.bin / "go"
+        go.write_text('#!/bin/sh\npwd > "$(dirname "$0")/go.cwd"\necho "--- FAIL: TestAdd (0.00s)"\nexit 1\n')
+        go.chmod(0o755)
+        self.tool("cargo", "test result: ok. 1 passed", 0)
+
+        started, _ = self.call("SessionStart", source="startup")
+        self.assertEqual(started["systemMessage"], "Overwatch: go services/api ✗ 1 failed — TestAdd")
+        self.assertIn("`go test ./...` in `services/api` failed", started["hookSpecificOutput"]["additionalContext"])
+        self.assertEqual(Path(read(self.bin / "go.cwd").strip()).resolve(), (self.cwd / "services/api").resolve())
+
     def test_go_uses_gotestsum_when_it_is_on_path(self) -> None:
         write(self.cwd / "go.mod", "module example.com/calc\n")
         self.tool("go", "", 0)

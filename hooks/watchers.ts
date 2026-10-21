@@ -29,6 +29,8 @@ export type Watcher = {
   result?: RegExp
   /** Global and multiline: each match is one failing test or error, named by the first of its groups that took part. */
   failure?: RegExp
+  /** The sub-project the watcher runs in, relative to the project's root; absent, the root. */
+  dir?: string
 }
 
 /** The project's own `.overwatch.json`, shared with the Neovim plugin, every field optional. */
@@ -57,7 +59,17 @@ type Entry = {
   failure?: string
 }
 
-const table: { watchers: readonly Entry[]; checkers: readonly Entry[] } = TABLE
+const table: {
+  search: { depth: number; skip: readonly string[] }
+  watchers: readonly Entry[]
+  checkers: readonly Entry[]
+} = TABLE
+
+/**
+ * A language the project's root lacks is looked for in its sub-projects: the
+ * directories this many levels down, leaving out hidden ones and these.
+ */
+export const SEARCH = { depth: table.search.depth, skip: new Set(table.search.skip) }
 
 function watcherOf({ summary, failed, result, failure, ...entry }: Entry): Watcher {
   return {
@@ -164,6 +176,11 @@ export function commandLine(watcher: Watcher, argv: readonly string[] = watcher.
   return argv.join(' ')
 }
 
+/** The command as the agent is told of it, with the sub-project it runs in. */
+function command(watcher: Watcher): string {
+  return `\`${commandLine(watcher)}\`${watcher.dir === undefined ? '' : ` in \`${watcher.dir}\``}`
+}
+
 /** Names the failing tests, the first FAILURE_LIMIT of them, for the agent. */
 function failingLine(failures: readonly string[]): string[] {
   if (failures.length === 0) return []
@@ -174,7 +191,7 @@ function failingLine(failures: readonly string[]): string[] {
 
 export function failureMessage(watcher: Watcher, report: Report): string {
   return [
-    `overwatch: \`${commandLine(watcher)}\` failed after the latest change.`,
+    `overwatch: ${command(watcher)} failed after the latest change.`,
     ...failingLine(report.failures),
     'Fix it before carrying on. If you are midway through a change that touches several files, finish it first; overwatch reports again after every rebuild.',
     '',
@@ -185,7 +202,7 @@ export function failureMessage(watcher: Watcher, report: Report): string {
 }
 
 export function recoveryMessage(watcher: Watcher, report: Report): string {
-  return `overwatch: \`${commandLine(watcher)}\` is green again. ${report.summary}`
+  return `overwatch: ${command(watcher)} is green again. ${report.summary}`
 }
 
 /** Cuts what a command printed to REPORT_LIMIT, keeping its end, where the reason it stopped is. */
@@ -197,14 +214,14 @@ function tail(output: string): string {
 /** Tells the agent the watcher stopped and when it comes back, so it knows a quiet build is not a passing one. */
 export function exitMessage(watcher: Watcher, restartsInMs: number): string {
   const when = restartsInMs === 0 ? 'now' : `in ${restartsInMs / 1000}s`
-  return `overwatch: \`${commandLine(watcher)}\` exited, so build failures are not reported until it restarts ${when}.`
+  return `overwatch: ${command(watcher)} exited, so build failures are not reported until it restarts ${when}.`
 }
 
 /** Tells the agent the watcher keeps exiting as it starts, with what it last printed, so the cause can be fixed. */
 export function gaveUpMessage(watcher: Watcher, exits: number, retryMs: number, output: string): string {
   const text = tail(output)
   return [
-    `overwatch: \`${commandLine(watcher)}\` stopped ${exits} times in a row within ${retryMs / 1000}s of starting, so overwatch stopped restarting it on its own.`,
+    `overwatch: ${command(watcher)} stopped ${exits} times in a row within ${retryMs / 1000}s of starting, so overwatch stopped restarting it on its own.`,
     `Build failures are not reported until it runs again; overwatch tries again as turns start, at most every ${retryMs / 1000}s.`,
     ...(text === '' ? [] : ['', 'What it printed last:', '', '```', text, '```']),
   ].join('\n')

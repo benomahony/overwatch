@@ -38,6 +38,10 @@ SUMMARY_DECORATION = re.compile(
 TABLE: dict[str, Any] = json.loads((Path(__file__).resolve().parent.parent / "watchers.json").read_text())
 WATCHERS: tuple[dict[str, Any], ...] = tuple(TABLE["watchers"])
 CHECKERS: tuple[dict[str, Any], ...] = tuple(TABLE["checkers"])
+# A language the project's root lacks is looked for in the directories this many levels down, leaving out hidden ones
+# and these.
+SEARCH_DEPTH: int = TABLE["search"]["depth"]
+SEARCH_SKIP: frozenset[str] = frozenset(TABLE["search"]["skip"])
 
 
 class ConfigurationError(Exception):
@@ -98,6 +102,38 @@ def apply_override(watcher: dict[str, Any], override: dict[str, Any]) -> dict[st
     return result
 
 
+def language_of(watcher: dict[str, Any]) -> str:
+    return watcher.get("language", watcher["name"])
+
+
+def first_present(alternatives: list[dict[str, Any]], directory: Path) -> dict[str, Any] | None:
+    """The first of a language's alternatives whose marker is in directory and whose tool, if it needs one, is on PATH."""
+    for watcher in alternatives:
+        if (directory / watcher["marker"]).exists() and ("requires" not in watcher or shutil.which(watcher["requires"])):
+            return watcher
+    return None
+
+
+def find_subprojects(cwd: Path) -> list[str]:
+    """The directories SEARCH_DEPTH levels down, relative to cwd, nearest and then alphabetically first."""
+    found: list[str] = []
+    parents = [""]
+    for _ in range(SEARCH_DEPTH):
+        level: list[str] = []
+        for parent in parents:
+            try:
+                entries = list(os.scandir(cwd / parent))
+            except OSError:
+                continue
+            for entry in entries:
+                if entry.is_dir(follow_symlinks=False) and not entry.name.startswith(".") and entry.name not in SEARCH_SKIP:
+                    level.append(f"{parent}/{entry.name}" if parent else entry.name)
+        level.sort()
+        found.extend(level)
+        parents = level
+    return found
+
+
 def find_watchers(cwd: Path) -> list[dict[str, Any]]:
     override = read_override(cwd)
     if override.get("enabled") is False:
@@ -105,17 +141,28 @@ def find_watchers(cwd: Path) -> list[dict[str, Any]]:
     if "enabled" in override and not isinstance(override["enabled"], bool):
         raise ConfigurationError(f"{OVERRIDE_PATH} field 'enabled' must be a boolean")
 
-    # One watcher for each language the project has; the override applies to the first.
+    # One watcher for each language the project has, or else for each sub-project that has it, one not inside
+    # another that does; the override applies to the first.
     found: list[dict[str, Any]] = []
-    for watcher in WATCHERS:
-        language = watcher.get("language", watcher["name"])
-        if any(each["language"] == language for each in found):
+    subprojects: list[str] | None = None
+    for language in dict.fromkeys(language_of(watcher) for watcher in WATCHERS):
+        alternatives = [watcher for watcher in WATCHERS if language_of(watcher) == language]
+        at_root = first_present(alternatives, cwd)
+        if at_root is not None:
+            found.append(apply_override(at_root, override if not found else {}))
             continue
-        if not (cwd / watcher["marker"]).exists():
-            continue
-        if "requires" in watcher and not shutil.which(watcher["requires"]):
-            continue
-        found.append(apply_override(watcher, override if not found else {}))
+        if subprojects is None:
+            subprojects = find_subprojects(cwd)
+        claimed: list[str] = []
+        for directory in subprojects:
+            if any(directory.startswith(f"{parent}/") for parent in claimed):
+                continue
+            watcher = first_present(alternatives, cwd / directory)
+            if watcher is None:
+                continue
+            claimed.append(directory)
+            labelled = {**watcher, "language": language, "name": f"{watcher['name']} {directory}", "dir": directory}
+            found.append(apply_override(labelled, override if not found else {}))
     if not found:
         argv = string_list(override.get("argv"), "argv")
         baseline = string_list(override.get("baseline"), "baseline")
@@ -257,6 +304,7 @@ def read_report(watcher: dict[str, Any], output: str, code: int | None = None) -
     return {
         "name": watcher["name"],
         "command": command_line(selected[0]),
+        "dir": watcher.get("dir"),
         "summary": summary,
         "failed": failed,
         "failures": failures if failed else [],
@@ -269,7 +317,7 @@ def run_check(cwd: Path, watcher: dict[str, Any]) -> dict[str, Any] | None:
     if selected is None:
         return None
     argv, stop_after_report = selected
-    output, code = run_command(cwd, watcher, argv, stop_after_report)
+    output, code = run_command(cwd / watcher.get("dir", ""), watcher, argv, stop_after_report)
     report = read_report(watcher, output, code)
     if report is None:
         tail = output.strip()[-2_000:]
@@ -351,10 +399,15 @@ def failing_line(failures: list[str]) -> str:
     return f"Failing: {named}{more}.\n"
 
 
+def where(report: dict[str, Any]) -> str:
+    """The sub-project a report's command ran in, for the agent."""
+    return f" in `{report['dir']}`" if report.get("dir") else ""
+
+
 def failure_message(reports: list[dict[str, Any]]) -> str:
     failures = [report for report in reports if report["failed"]]
     return "\n\n".join(
-        f"overwatch: `{report['command']}` failed after the latest change.\n"
+        f"overwatch: `{report['command']}`{where(report)} failed after the latest change.\n"
         f"{failing_line(report.get('failures', []))}"
         "Fix it before carrying on. If you are midway through a change that touches several files, finish it first.\n\n"
         f"```\n{report['text']}\n```"
