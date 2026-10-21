@@ -164,6 +164,41 @@ test('a command that gives no summary and exits nonzero fails', function()
   overwatch.stop()
 end)
 
+test('two languages failing at once share the quickfix list, and one back to green leaves it', function()
+  local dir = project()
+  vim.fn.writefile({}, dir .. '/Cargo.toml')
+  vim.fn.writefile({}, dir .. '/go.mod')
+  local bin = vim.fn.tempname()
+  vim.fn.mkdir(bin, 'p')
+  vim.fn.writefile({ '#!/bin/sh', 'echo "calc_test.go:3: Add(3, 7) = 10"', 'echo "--- FAIL: TestAdd (0.00s)"', 'exit 1' }, bin .. '/go')
+  vim.fn.writefile({ '#!/bin/sh', 'cat "$(dirname "$0")/cargo.out"', 'exit "$(cat "$(dirname "$0")/cargo.code")"' }, bin .. '/cargo')
+  vim.fn.writefile({ 'src/lib.rs:4:5: assertion failed', 'test tests::adds ... FAILED' }, bin .. '/cargo.out')
+  vim.fn.writefile({ '101' }, bin .. '/cargo.code')
+  vim.fn.setfperm(bin .. '/go', 'rwxr-xr-x')
+  vim.fn.setfperm(bin .. '/cargo', 'rwxr-xr-x')
+  local path = vim.env.PATH
+  vim.env.PATH = bin .. ':/usr/bin:/bin'
+  local function files()
+    local names = {}
+    for _, item in ipairs(vim.fn.getqflist()) do
+      if item.valid == 1 then names[#names + 1] = vim.fn.fnamemodify(vim.fn.bufname(item.bufnr), ':t') end
+    end
+    table.sort(names)
+    return names
+  end
+  overwatch.start(dir)
+  vim.wait(5000, function() return #files() == 2 end)
+  eq(files(), { 'calc_test.go', 'lib.rs' })
+  eq(vim.fn.getqflist({ title = 1 }).title, 'overwatch go, rust')
+  vim.fn.writefile({ 'test result: ok.' }, bin .. '/cargo.out')
+  vim.fn.writefile({ '0' }, bin .. '/cargo.code')
+  overwatch.changed()
+  vim.wait(5000, function() return #files() == 1 end)
+  vim.env.PATH = path
+  eq(files(), { 'calc_test.go' })
+  overwatch.stop()
+end)
+
 local function lines(path)
   return vim.fn.filereadable(path) == 1 and #vim.fn.readfile(path) or 0
 end

@@ -193,17 +193,29 @@ local function is_running(run)
   return state.runs[run.index] == run
 end
 
+--- Loads every failing watcher's report into one quickfix list, so two languages failing at once do not overwrite
+--- each other's. A watcher back to green leaves the list, which is only replaced while it is still overwatch's.
+local function update_quickfix(is_failed)
+  local lines, names = {}, {}
+  for _, run in ipairs(state.runs) do
+    if run.failing_lines then
+      vim.list_extend(lines, run.failing_lines)
+      names[#names + 1] = run.watcher.name
+    end
+  end
+  local title = vim.fn.getqflist({ title = 1 }).title
+  if not is_failed and not vim.startswith(title, 'overwatch') then return end
+  vim.fn.setqflist({}, 'r', { title = 'overwatch ' .. table.concat(names, ', '), lines = lines, efm = vim.o.errorformat })
+end
+
 local function deliver(run, report)
   local watcher = run.watcher
   set_status(run, M.status_line(watcher, report))
   local is_recovery = not report.is_failed and run.was_failing
   run.was_failing = report.is_failed
+  run.failing_lines = report.is_failed and vim.split(report.text, '\n', { plain = true }) or nil
+  if report.is_failed or is_recovery then update_quickfix(report.is_failed) end
   if report.is_failed then
-    vim.fn.setqflist({}, 'r', {
-      title = 'overwatch ' .. watcher.name,
-      lines = vim.split(report.text, '\n', { plain = true }),
-      efm = vim.o.errorformat,
-    })
     local failing = #report.failures > 0 and (' (%s)'):format(table.concat(vim.list_slice(report.failures, 1, 3), ', ')) or ''
     vim.notify(('overwatch %s: %s%s — :copen for the report'):format(watcher.name, report.summary, failing), vim.log.levels.ERROR)
   elseif is_recovery then

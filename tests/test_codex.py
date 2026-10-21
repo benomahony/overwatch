@@ -158,6 +158,18 @@ class CodexHookTests(unittest.TestCase):
         self.assertEqual(started["systemMessage"], "Overwatch: go ✗ 1 failed — TestAdd")
         self.assertIn("Failing: `TestAdd`.", started["hookSpecificOutput"]["additionalContext"])
 
+    def test_each_language_is_checked_at_once(self) -> None:
+        write(self.cwd / "go.mod", "module example.com/calc\n")
+        write(self.cwd / "Cargo.toml", "[package]\n")
+        for name, output in (("go", "ok  example.com/calc 0.1s"), ("cargo", "test result: ok. 1 passed")):
+            script = self.bin / name
+            script.write_text(f"#!/bin/sh\nsleep 2\necho '{output}'\n")
+            script.chmod(0o755)
+
+        started, elapsed = self.call("SessionStart", source="startup")
+        self.assertEqual(started, {})
+        self.assertLess(elapsed, 3.5)
+
     def test_go_uses_gotestsum_when_it_is_on_path(self) -> None:
         write(self.cwd / "go.mod", "module example.com/calc\n")
         self.tool("go", "", 0)

@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 
@@ -263,21 +264,27 @@ def read_report(watcher: dict[str, Any], output: str, code: int | None = None) -
     }
 
 
+def run_check(cwd: Path, watcher: dict[str, Any]) -> dict[str, Any] | None:
+    selected = command_for(watcher)
+    if selected is None:
+        return None
+    argv, stop_after_report = selected
+    output, code = run_command(cwd, watcher, argv, stop_after_report)
+    report = read_report(watcher, output, code)
+    if report is None:
+        tail = output.strip()[-2_000:]
+        detail = f"\n\n{tail}" if tail else ""
+        raise ConfigurationError(f"{command_line(argv)} gave no matching summary{detail}")
+    return report
+
+
 def run_checks(cwd: Path, watchers: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    reports: list[dict[str, Any]] = []
-    for watcher in watchers:
-        selected = command_for(watcher)
-        if selected is None:
-            continue
-        argv, stop_after_report = selected
-        output, code = run_command(cwd, watcher, argv, stop_after_report)
-        report = read_report(watcher, output, code)
-        if report is None:
-            tail = output.strip()[-2_000:]
-            detail = f"\n\n{tail}" if tail else ""
-            raise ConfigurationError(f"{command_line(argv)} gave no matching summary{detail}")
-        reports.append(report)
-    return reports
+    """Runs every watcher's check at once, so a polyglot project waits for its slowest suite, not the sum of them."""
+    if not watchers:
+        return []
+    with ThreadPoolExecutor(max_workers=len(watchers)) as pool:
+        reports = list(pool.map(lambda watcher: run_check(cwd, watcher), watchers))
+    return [report for report in reports if report is not None]
 
 
 def fingerprint(cwd: Path) -> str:
