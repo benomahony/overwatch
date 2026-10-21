@@ -6,6 +6,11 @@ M.OVERRIDE_PATH = '.overwatch.json'
 
 local QUIET_MS = 400
 
+-- A watcher that ends within this long of its start counts as a quick exit and waits before it restarts: this long
+-- after the first, doubling after each further one. After GIVE_UP_AFTER in a row, only :OverwatchStart restarts it.
+M.RETRY_MS = 30000
+local GIVE_UP_AFTER = 3
+
 -- The table every runtime reads, watchers.json at the repository's root. Patterns are JavaScript regexes, as in
 -- .overwatch.json; vim_regex translates them. Alternatives of one language are tried in order: the first whose
 -- marker, and `requires` if it names one, are present runs.
@@ -234,49 +239,73 @@ local function spawn(run, argv, on_output, on_exit)
   return process
 end
 
---- Runs a command to its end and reports what it printed.
-local function run_once(run, argv, done)
+--- Runs a command to its end and reports what it printed, unless it was stopped for a newer run first.
+local function run_once(run, argv, done, is_stale)
   local output = ''
-  spawn(run, argv, function(data) output = output .. data end, function(result)
+  local process = spawn(run, argv, function(data) output = output .. data end, function(result)
     run.process = nil
     if not is_running(run) then return end
-    local report = M.read_report(run.watcher, output, result.code)
-    if report then
-      deliver(run, report)
-    else
-      report_broken(run, argv, 'gave no summary', output)
+    if not (is_stale and is_stale()) then
+      local report = M.read_report(run.watcher, output, result.code)
+      if report then
+        deliver(run, report)
+      else
+        report_broken(run, argv, 'gave no summary', output)
+      end
     end
-    if done then done() end
+    done()
   end)
+  if process == nil then done() end
 end
 
---- Reruns the suite once saves go quiet, one run at a time.
+--- Reruns the suite once saves go quiet, one run at a time. A save made while it runs stops that run, whose result
+--- would already be out of date, and starts another.
 local function rerun_on_save(run)
   local timer, is_busy, is_pending = vim.uv.new_timer(), false, false
   local function rerun()
     if not is_running(run) then return end
     if is_busy then
       is_pending = true
+      if run.process then run.process:kill(15) end
       return
     end
-    is_busy = true
+    is_busy, is_pending = true, false
     run_once(run, run.watcher.baseline, function()
       is_busy = false
-      if not is_pending then return end
-      is_pending = false
-      rerun()
-    end)
+      if is_pending then rerun() end
+    end, function() return is_pending end)
   end
   run.rerun = function()
     timer:start(QUIET_MS, 0, vim.schedule_wrap(rerun))
   end
 end
 
+local begin
+
+--- After a watcher ends of itself: one that ran RETRY_MS or longer restarts at once; a quick exit waits RETRY_MS,
+--- doubling with each one in a row, until GIVE_UP_AFTER of them, when it is left stopped with what it last printed.
+local function restart(run, started_at, what, output)
+  local is_quick = vim.uv.now() - started_at < M.RETRY_MS
+  run.quick_exits = is_quick and run.quick_exits + 1 or 0
+  if run.quick_exits >= GIVE_UP_AFTER then
+    report_broken(run, run.watcher.argv, ('%s %d times in a row; :OverwatchStart to retry'):format(what, run.quick_exits), output)
+    return
+  end
+  local delay = is_quick and M.RETRY_MS * 2 ^ (run.quick_exits - 1) or 0
+  local when = delay == 0 and 'now' or ('in %ds'):format(delay / 1000)
+  set_status(run, ('overwatch %s: %s, restarting %s'):format(run.watcher.name, what, when))
+  vim.notify(('overwatch: %s %s, restarting %s'):format(command_line(run.watcher.argv), what, when), vim.log.levels.WARN)
+  vim.defer_fn(function()
+    if is_running(run) then begin(run) end
+  end, delay)
+end
+
 local function watch(run)
   local watcher = run.watcher
   local output, recent, flush = '', '', vim.uv.new_timer()
+  local started_at = vim.uv.now()
   set_status(run, ('overwatch %s: starting %s'):format(watcher.name, command_line(watcher.argv)))
-  spawn(run, watcher.argv, function(data)
+  local process = spawn(run, watcher.argv, function(data)
     output, recent = output .. data, (recent .. data):sub(-4000)
     flush:start(QUIET_MS, 0, vim.schedule_wrap(function()
       local report = M.read_report(watcher, output)
@@ -285,12 +314,18 @@ local function watch(run)
       deliver(run, report)
     end))
   end, function(result)
-    if is_running(run) then report_broken(run, watcher.argv, ('exited with code %d'):format(result.code), recent) end
+    flush:stop()
+    if not is_running(run) then return end
+    run.process = nil
+    local report = M.read_report(watcher, output)
+    if report then deliver(run, report) end
+    restart(run, started_at, ('exited with code %d'):format(result.code), recent)
   end)
+  if process == nil then restart(run, started_at, 'could not start', '') end
 end
 
 --- Runs one watcher: its full suite first, then its watch command, or its suite again after each save.
-local function begin(run)
+function begin(run)
   local watcher = run.watcher
   local function after_baseline()
     if not is_running(run) then return end
@@ -313,7 +348,7 @@ function M.start(cwd)
   M.stop()
   state.cwd = cwd or vim.fn.getcwd()
   for index, watcher in ipairs(M.find_watchers(state.cwd)) do
-    state.runs[index] = { index = index, watcher = watcher, status = '', was_failing = false }
+    state.runs[index] = { index = index, watcher = watcher, status = '', was_failing = false, quick_exits = 0 }
   end
   for _, run in ipairs(state.runs) do
     begin(run)

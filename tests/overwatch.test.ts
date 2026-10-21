@@ -172,6 +172,41 @@ test('a project with no watch command reruns its suite after each edit', async (
   expect(prompts[0]).toContain('(fail) adds')
 })
 
+test('an edit made while the suite reruns stops that run and starts another', async ($, on) => {
+  const clock = mock.clock(on)
+  const spawned: string[][] = []
+  const prompts: string[] = []
+  const override = { name: 'cargo', baseline: ['cargo', 'test'], summary: '^test result: .*$', failed: 'FAILED' }
+  let output = 'test result: ok.\n'
+  on('fs.read', ($, e) => (e.path === '/repo/.overwatch.json' ? { value: JSON.stringify(override) } : { deny: 'no such file' }))
+  on('fs.exists', () => ({ value: false }))
+  on('process.spawn', async function* ($, e) {
+    spawned.splice(spawned.length, 0, [...e.argv])
+    const text = output
+    if (spawned.length > 1) await clock.sleep(10_000)
+    yield { stream: 'stdout' as const, text }
+    return { value: { code: 0, signal: null } }
+  })
+  on('prompt.submit', ($, e) => {
+    prompts.splice(prompts.length, 0, e.text)
+    return { text: e.text }
+  })
+  on('tool.call', () => ({ result: 'ok' }))
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  await $.session.start(start)
+  await clock.advance(1000)
+  output = 'test result: FAILED. stale\n'
+  await $.tool.call({ tool: 'Edit', file_path: '/repo/src/lib.rs', old_string: 'a', new_string: 'b' })
+  await clock.advance(1000)
+  output = 'test result: FAILED. latest\n'
+  await $.tool.call({ tool: 'Edit', file_path: '/repo/src/lib.rs', old_string: 'b', new_string: 'c' })
+  await clock.advance(30_000)
+  expect(spawned.length).toBe(3)
+  expect(prompts.length).toBe(1)
+  expect(prompts[0]).toContain('latest')
+  expect(prompts[0]).not.toContain('stale')
+})
+
 test('an override with no command starts nothing in a project with no marker', async ($, on) => {
   const clock = mock.clock(on)
   const spawned: string[][] = []

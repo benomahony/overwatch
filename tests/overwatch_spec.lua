@@ -164,4 +164,50 @@ test('a command that gives no summary and exits nonzero fails', function()
   overwatch.stop()
 end)
 
+local function lines(path)
+  return vim.fn.filereadable(path) == 1 and #vim.fn.readfile(path) or 0
+end
+
+test('a watcher that keeps exiting backs off, then is left stopped', function()
+  overwatch.RETRY_MS = 50
+  local dir = project({ name = 'sh', argv = { 'sh', '-c', 'echo run >> starts; exit 1' }, baseline = {}, summary = '^SUMMARY$', failed = 'y' })
+  overwatch.start(dir)
+  vim.wait(3000, function() return overwatch.status():find('in a row', 1, true) ~= nil end)
+  eq(overwatch.status(), 'overwatch sh: sh -c echo run >> starts; exit 1 exited with code 1 3 times in a row; :OverwatchStart to retry')
+  eq(lines(dir .. '/starts'), 3)
+  overwatch.stop()
+end)
+
+test('a watcher that ran a while is restarted at once, every time', function()
+  overwatch.RETRY_MS = 100
+  local dir = project({ name = 'sh', argv = { 'sh', '-c', 'echo run >> starts; exec sleep 0.2' }, baseline = {}, summary = '^SUMMARY$', failed = 'y' })
+  overwatch.start(dir)
+  vim.wait(3000, function() return lines(dir .. '/starts') >= 4 end)
+  eq(lines(dir .. '/starts') >= 4, true)
+  overwatch.stop()
+  overwatch.RETRY_MS = 30000
+end)
+
+test('a save made while the suite reruns stops that run and starts another', function()
+  local dir = project({ name = 'sh', baseline = { 'sh', '-c', 'cat result; exec sleep "$(cat delay)"' }, summary = '^result: .*$', failed = 'FAILED' })
+  local function set(result, delay)
+    vim.fn.writefile({ result }, dir .. '/result')
+    vim.fn.writefile({ delay }, dir .. '/delay')
+  end
+  local notified = {}
+  vim.notify = function(text) notified[#notified + 1] = text end
+  set('result: ok', '0')
+  overwatch.start(dir)
+  vim.wait(2000, function() return overwatch.status():find('✓') ~= nil end)
+  set('result: FAILED stale', '5')
+  overwatch.changed()
+  vim.wait(600)
+  set('result: FAILED latest', '0')
+  overwatch.changed()
+  vim.wait(2000, function() return overwatch.status():find('✗') ~= nil end)
+  eq(overwatch.status(), 'overwatch sh ✗ result: FAILED latest')
+  eq(vim.tbl_filter(function(text) return text:find('stale', 1, true) ~= nil end, notified), {})
+  overwatch.stop()
+end)
+
 os.exit(failures == 0 and 0 or 1)

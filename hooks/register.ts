@@ -94,8 +94,8 @@ async function deliver($: EngineInterface, { state, slot, watcher }: Run, report
   await tell($, state, text, report.isFailed)
 }
 
-/** Runs a command to its end and reports what it printed. */
-async function runOnce($: EngineInterface, run: Run, argv: readonly string[]) {
+/** Runs a command to its end and reports what it printed, unless it was stopped for a newer run first. */
+async function runOnce($: EngineInterface, run: Run, argv: readonly string[], isStale = () => false) {
   const { state, slot, watcher, cwd } = run
   const child = $.process.spawn({ argv, cwd })
   slot.kill = () => child.return({ code: null, signal: null })
@@ -105,13 +105,14 @@ async function runOnce($: EngineInterface, run: Run, argv: readonly string[]) {
     for await (const { text } of child) output += text
     ;({ code } = await child.result)
   } catch (error) {
+    if (isStale()) return
     setStatus($, state, slot, `overwatch ${watcher.name}: could not start ${commandLine(watcher, argv)}`)
     $.ui.log(`overwatch: ${String(error)}`, { to: 'debug' })
     return
   } finally {
     slot.kill = undefined
   }
-  if (!slot.isWatching) return
+  if (!slot.isWatching || isStale()) return
   const report = readReport(watcher, output, code)
   if (report === undefined) {
     $.ui.log(`overwatch: ${commandLine(watcher, argv)} gave no summary:\n${output}`, { to: 'debug' })
@@ -120,7 +121,11 @@ async function runOnce($: EngineInterface, run: Run, argv: readonly string[]) {
   await deliver($, run, report)
 }
 
-/** Reruns the suite once the agent's edits go quiet, one run at a time. */
+/**
+ * Reruns the suite once the agent's edits go quiet, one run at a time. An edit
+ * made while it runs stops that run, whose result would already be out of
+ * date, and starts another.
+ */
 function rerunOnChange($: EngineInterface, run: Run, argv: readonly string[]) {
   let timer: Timer | undefined
   let isRunning = false
@@ -129,14 +134,14 @@ function rerunOnChange($: EngineInterface, run: Run, argv: readonly string[]) {
     if (!run.slot.isWatching) return
     if (isRunning) {
       isPending = true
+      await run.slot.kill?.()
       return
     }
     isRunning = true
-    await runOnce($, run, argv)
-    isRunning = false
-    if (!isPending) return
     isPending = false
-    await rerun()
+    await runOnce($, run, argv, () => isPending)
+    isRunning = false
+    if (isPending) await rerun()
   }
   run.slot.changed = () => {
     timer?.cancel()
