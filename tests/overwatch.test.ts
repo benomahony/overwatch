@@ -1,6 +1,6 @@
 import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
-import { CHECKERS, WATCHERS, readReport, statusLine } from '../hooks/watchers'
+import { CHECKERS, REPORT_LIMIT, WATCHERS, clip, readReport, statusLine } from '../hooks/watchers'
 
 const zig = WATCHERS[0]!
 const python = WATCHERS[1]!
@@ -693,6 +693,17 @@ test('each language reads its runner’s report and names what failed', () => {
     'overwatch rust ✗ 1 failed — error[E0308]: mismatched types',
     ['error[E0308]: mismatched types'],
   ])
+})
+
+test('a long report keeps its start and its end, cut at line ends', () => {
+  const lines = Array.from({ length: 2000 }, (_, i) => `test tests::case_${i} ... ok`)
+  const text = ['running 2001 tests', ...lines, 'test tests::adds ... FAILED', 'test result: FAILED.'].join('\n')
+  const clipped = clip(text)
+  expect(clipped.length).toBeLessThan(REPORT_LIMIT + 100)
+  expect(clipped.startsWith('running 2001 tests\n')).toBe(true)
+  expect(clipped.endsWith('test tests::adds ... FAILED\ntest result: FAILED.')).toBe(true)
+  expect(clipped).toMatch(/\nt[^\n]*\n… \d+ characters cut …\ntest /)
+  expect(clip('short')).toBe('short')
 })
 
 test('a one-shot run that gives no summary but exits nonzero fails', () => {

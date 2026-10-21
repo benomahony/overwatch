@@ -176,6 +176,15 @@ class CodexHookTests(unittest.TestCase):
         started, _ = self.call("SessionStart", source="startup")
         self.assertEqual(started["systemMessage"], "Overwatch: python ✗ 1 failed, 2 passed in 0.03s — tests/test_add.py::test_add")
 
+    def test_a_long_report_keeps_its_start_and_its_end(self) -> None:
+        lines = [f"test tests::case_{i} ... ok" for i in range(2000)]
+        text = "\n".join(["running 2001 tests", *lines, "test tests::adds ... FAILED", "test result: FAILED."])
+        clipped = codex.clip(text)
+        self.assertLess(len(clipped), codex.REPORT_LIMIT + 100)
+        self.assertTrue(clipped.startswith("running 2001 tests\n"))
+        self.assertTrue(clipped.endswith("test tests::adds ... FAILED\ntest result: FAILED."))
+        self.assertRegex(clipped, r"\nt[^\n]*\n… \d+ characters cut …\ntest ")
+
     def test_colour_codes_are_read_through(self) -> None:
         output = "\x1b[0m\x1b[31mFAILED\x1b[0m | 1 passed | 1 failed\n\x1b[0m\x1b[38;5;12mWatcher\x1b[0m Test failed. Restarting..."
         report = codex.read_report(next(w for w in codex.WATCHERS if w["name"] == "deno"), output)

@@ -223,6 +223,17 @@ def failures_in(watcher: dict[str, Any], output: str) -> list[str]:
     return names
 
 
+def clip(text: str) -> str:
+    """Cuts a report to about REPORT_LIMIT, at line ends: its first quarter, and the rest from its end, where most
+    tools (cargo, go, pytest) print what failed and why."""
+    if len(text) <= REPORT_LIMIT:
+        return text
+    head = text[: text.rfind("\n", 0, REPORT_LIMIT // 4 + 1) + 1 or REPORT_LIMIT // 4]
+    start = len(text) - (REPORT_LIMIT - len(head))
+    tail = text.find("\n", start) + 1 or start
+    return f"{head}… {tail - len(head)} characters cut …\n{text[tail:]}"
+
+
 def read_report(watcher: dict[str, Any], output: str, code: int | None = None) -> dict[str, Any] | None:
     """Reads one build's output; a run with no summary line is read by its exit code."""
     clean = ANSI.sub("", output)
@@ -239,8 +250,7 @@ def read_report(watcher: dict[str, Any], output: str, code: int | None = None) -
         failed = code != 0
         summary = (f"{len(failures)} failed" if failures else f"exited with code {code}") if failed else "passed"
     text = clean.strip()
-    if len(text) > REPORT_LIMIT:
-        text = f"{text[:REPORT_LIMIT]}\n… {len(text) - REPORT_LIMIT} more characters cut"
+    text = clip(text)
     selected = command_for(watcher)
     assert selected is not None
     return {

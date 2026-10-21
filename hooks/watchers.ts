@@ -77,6 +77,18 @@ export const CHECKERS: readonly Watcher[] = table.checkers.map(watcherOf)
 
 export const REPORT_LIMIT = 8000
 
+/**
+ * Cuts a report to about REPORT_LIMIT, at line ends: its first quarter, where
+ * the run starts, and the rest from its end, where most tools (cargo, go,
+ * pytest) print what failed and why.
+ */
+export function clip(text: string): string {
+  if (text.length <= REPORT_LIMIT) return text
+  const head = text.slice(0, text.lastIndexOf('\n', REPORT_LIMIT / 4) + 1 || REPORT_LIMIT / 4)
+  const from = text.indexOf('\n', text.length - (REPORT_LIMIT - head.length)) + 1 || text.length - (REPORT_LIMIT - head.length)
+  return `${head}… ${from - head.length} characters cut …\n${text.slice(from)}`
+}
+
 /** How many failing tests a message names before it says how many more there are. */
 export const FAILURE_LIMIT = 10
 
@@ -143,7 +155,7 @@ export function readReport(watcher: Watcher, output: string, code?: number | nul
   return {
     summary,
     isFailed,
-    text: text.length > REPORT_LIMIT ? `${text.slice(0, REPORT_LIMIT)}\n… ${text.length - REPORT_LIMIT} more characters cut` : text,
+    text: clip(text),
     failures: isFailed ? failures : [],
   }
 }
