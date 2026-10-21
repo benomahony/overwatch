@@ -13,7 +13,7 @@ With Claude Code:
 
 Before it starts watching, overwatch runs the whole suite once, so you see every test green (or the agent gets the failures) before any change is made.
 
-The watcher starts with an interactive session, survives `/clear`, and stops when the session ends. Until one runs, overwatch looks again as each turn starts and completes, so a project scaffolded mid-session (`uv init`, `zig init`) is watched by its next turn at the latest. A watcher that exits is restarted at once, and the status line says so instead of keeping the last result; one that could not start, or exited within 30 seconds of starting, waits 30 seconds first, then 60. After three such quick exits in a row overwatch stops restarting it on its own and tries again only as turns start, at most every 30 seconds. The agent is told during a turn whenever the watcher exits, and woken with what the watcher last printed when overwatch gives up. Setting `"enabled": false` in `.overwatch.json` takes effect at the next check, with no restart.
+The watcher starts with an interactive session, survives `/clear`, and stops when the session ends. overwatch looks for watchers again as each turn starts and completes, so a project scaffolded mid-session (`uv init`, `zig init`), or a sub-project added to one, is watched by its next turn at the latest. A watcher that exits is restarted at once, and the status line says so instead of keeping the last result; one that could not start, or exited within 30 seconds of starting, waits 30 seconds first, then 60. After three such quick exits in a row overwatch stops restarting it on its own and tries again only as turns start, at most every 30 seconds. The agent is told during a turn whenever the watcher exits, and woken with what the watcher last printed when overwatch gives up. Setting `"enabled": false` in `.overwatch.json` takes effect at the next check, with no restart.
 
 ## Watchers
 
@@ -38,7 +38,7 @@ A command with no watcher of its own is read by its exit code, so a compile erro
 
 When a build fails, overwatch names the failing tests (or compile errors, where the tool prints them on one line, such as Rust's `error[E0308]: mismatched types`) at the top of the agent's report, and the first of them in the status line: `overwatch python ✗ 1 failed, 2 passed in 0.03s — tests/test_add.py::test_add`. A report longer than about 8,000 characters keeps its first quarter and the rest from its end, where cargo, go and pytest print what failed and why.
 
-In every project, whatever its marker, zanity runs beside the test watcher whenever `zanity` is on `PATH`, as `zanity check . --watch --no-color` (zanity 0.1.12 or later). Any error or warning it reports counts as a failure, handed to the agent like a failing build, and the status line shows both results, for example `overwatch zig ✓ 4/4 steps succeeded; 48/48 tests passed · overwatch zanity ✓ checked 12 files, no issues found.`. Codex runs the equivalent one-shot check after a change, at the same time as each language's suite. Add another checker to `checkers` in `watchers.json`, its `marker` naming the executable to look for on `PATH`.
+In every project, whatever its marker, zanity runs beside the test watcher whenever `zanity` is on `PATH`, as `zanity check . --watch --no-color` (zanity 0.1.12 or later). Any error or warning it reports counts as a failure, handed to the agent like a failing build, and the status line shows both results, for example `overwatch zig ✓ 4/4 steps succeeded; 48/48 tests passed · overwatch zanity ✓ checked 12 files, no issues found.`. Codex runs the same command after a change, at the same time as each language's suite, and stops it after its first report. Add another checker to `checkers` in `watchers.json`, its `marker` naming the executable to look for on `PATH`.
 
 Add a language by adding an entry to `watchers` in `watchers.json`, the one table Codex, Claude Code and Neovim all read, then run `python3 scripts/table.py`, which copies it into `hooks/table.ts` for Claude Code (whose plugins cannot import JSON); the tests fail while the two differ. An entry names its marker file, its command, optionally a command that runs the whole suite once first, the line that closes one build's report, and the pattern on that line that means it failed. Optionally: `language`, to make it an alternative to the entries before it with the same one; `requires`, an executable that must be on `PATH`; `result`, the line to show when the build's result comes before the line that closes its report; and `failure`, a pattern matching each failing test, named by its first group that matched. An entry with no watch command may leave out the summary and be read by its exit code. Patterns are JavaScript regexes, written as JSON strings. When no baseline is configured, Codex runs the watch command through its first complete report and then stops it.
 
@@ -56,7 +56,7 @@ Add a language by adding an entry to `watchers` in `watchers.json`, the one tabl
 }
 ```
 
-`"enabled": false` turns overwatch off for that project, zanity included; `"baseline": []` skips the full run first. The other fields apply to one test watcher alone: in a polyglot project, the first language in the table above that the project has.
+`"enabled": false` turns overwatch off for that project, zanity included; `"baseline": []` skips the full run first. The other fields apply to one test watcher alone: in a polyglot project or a monorepo, the first language in the table above that the project has, at its root or in a sub-project. The override is read only at the project's root.
 
 A project with no marker file is watched when its override names `summary`, `failed`, and `argv` or `baseline`; `name` labels it in the status line. With no `argv`, overwatch needs no watch tool: it reruns `baseline` itself after the agent's edits (Edit, Write, MultiEdit, NotebookEdit or Bash calls) go quiet. An edit made while the suite runs stops that run and starts another, so the agent never hears a result its later edits have already overtaken. Edits made outside the session are picked up at the agent's next edit. This repository watches its own tests that way:
 
@@ -102,7 +102,7 @@ claude plugin install overwatch@overwatch
 
 ## Neovim
 
-The same test watchers run beside Neovim (zanity does not; its own `zanity lsp` gives Neovim its findings on save): the full suite first, then the watcher, with no agent involved. The latest result of each language's watcher is in `require('overwatch').status()`, every failing build goes into one quickfix list (`:copen`), titled with the watchers whose builds failed and cleared of each one as it goes green,, and a watcher with no `argv` reruns `baseline` after every save, stopping a run that a newer save has overtaken. A watcher that exits is restarted as it is in Claude Code, at once or after 30 and then 60 seconds; after three quick exits in a row it stays stopped, with what it last printed, until `:OverwatchStart`. It starts with Neovim in a project that has a watcher; `:OverwatchStart` and `:OverwatchStop` start and stop it.
+The same test watchers run beside Neovim (zanity does not; its own `zanity lsp` gives Neovim its findings on save): the full suite first, then the watcher, with no agent involved. The latest result of each language's watcher is in `require('overwatch').status()`, every failing build goes into one quickfix list (`:copen`), titled with the watchers whose builds failed and cleared of each one as it goes green. A watcher with no `argv` reruns `baseline` after every save, stopping a run that a newer save has overtaken. A watcher that exits is restarted as it is in Claude Code, at once or after 30 and then 60 seconds; after three quick exits in a row it stays stopped, with what it last printed, until `:OverwatchStart`. It starts with Neovim in a project that has a watcher; `:OverwatchStart` and `:OverwatchStop` start and stop it.
 
 ```lua
 vim.pack.add({ "https://github.com/benomahony/overwatch" })
@@ -112,7 +112,7 @@ require("lualine").setup({ sections = { lualine_x = { require("overwatch").statu
 ## Develop
 
 ```sh
-python3 scripts/table.py
+python3 scripts/table.py  # after editing watchers.json
 python3 -m unittest tests.test_codex
 nvim --headless -l tests/overwatch_spec.lua
 claude plugin validate .
