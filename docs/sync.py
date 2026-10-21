@@ -49,9 +49,10 @@ def heading(line: str) -> str:
     return f"{hashes} [{title}]($heading.id('{slug}'))"
 
 
-def page(title: str, description: str, layout: str, body: list[str], order: int) -> str:
+def page(metadata: tuple[str, str, str], body: list[str], order: int) -> str:
     """A SuperMD page: its title, description and layout, then body. order sets the date, which orders the pages,
     newest first, so the first page has the latest."""
+    title, description, layout = metadata
     assert '"' not in title + description, f"a quote in {title!r} or {description!r} would end the frontmatter string early"
     front = ["---", f'.title = "{title}",', f'.description = "{description}",', f'.date = .date("2026-10-21T00:00:{len(PAGES) - order:02}"),', f'.layout = "{layout}",', "---", ""]
     return "\n".join(front + body).rstrip() + "\n"
@@ -61,7 +62,8 @@ def main() -> None:
     readme = (REPO / "README.md").read_text().splitlines()
     assert readme[0] == "# overwatch", "README.md must start with its '# overwatch' title"
     for order, (name, (title, description, layout, start, end)) in enumerate(PAGES.items()):
-        (CONTENT / name).write_text(page(title, description, layout, section(readme, start, end), order))
+        metadata = (title, description, layout)
+        (CONTENT / name).write_text(page(metadata, section(readme, start, end), order))
         print(CONTENT / name)
 
 

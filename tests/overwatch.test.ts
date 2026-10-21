@@ -291,7 +291,7 @@ test('a watcher that exits is restarted at once, and the agent told', async ($, 
   expect(texts.some(text => text.includes('exited, so build failures are not reported until it restarts now'))).toBe(true)
 })
 
-test('a watcher that keeps exiting backs off, then gives up and wakes the agent', async ($, on) => {
+const quickExitWatcher = (on: On) => {
   const clock = mock.clock(on)
   let attempts = 0
   const prompts: string[] = []
@@ -312,32 +312,43 @@ test('a watcher that keeps exiting backs off, then gives up and wakes the agent'
   })
   on('session.start', ($, e) => ({ cwd: e.cwd }))
   turnHooks(on)
+  return { clock, attempts: () => attempts, prompts, statuses }
+}
+
+test('a watcher that keeps exiting backs off, then gives up and wakes the agent', async ($, on) => {
+  const { clock, attempts, prompts, statuses } = quickExitWatcher(on)
   await $.session.start(start)
   await clock.advance(1000)
-  expect(attempts).toBe(1)
+  expect(attempts()).toBe(1)
   expect(statuses.at(-1)).toBe(`overwatch zig: could not start ${ZIG_WATCH.join(' ')}, restarting in 30s`)
   await clock.advance(28_000)
-  expect(attempts).toBe(1)
+  expect(attempts()).toBe(1)
   await clock.advance(2000)
-  expect(attempts).toBe(2)
+  expect(attempts()).toBe(2)
   expect(statuses.at(-1)).toContain('restarting in 60s')
   await clock.advance(58_000)
-  expect(attempts).toBe(2)
+  expect(attempts()).toBe(2)
   await clock.advance(2000)
-  expect(attempts).toBe(3)
+  expect(attempts()).toBe(3)
   expect(statuses.at(-1)).toContain('3 times in a row; retrying at the first turn after 30s')
-  expect(prompts.length).toBe(1)
   expect(prompts[0]).toContain('stopped restarting it on its own')
   expect(prompts[0]).toContain('What it printed last:')
+})
+
+test('a watcher given up on retries only on a later turn', async ($, on) => {
+  const { clock, attempts, prompts } = quickExitWatcher(on)
+  await $.session.start(start)
+  await clock.advance(91_000)
+  expect(attempts()).toBe(3)
   await clock.advance(600_000)
-  expect(attempts).toBe(3)
+  expect(attempts()).toBe(3)
   await $.turn.start({ text: 'go', turnId: 't1' })
   await clock.advance(1000)
-  expect(attempts).toBe(4)
+  expect(attempts()).toBe(4)
   expect(prompts.length).toBe(1)
   await $.turn.start({ text: 'go', turnId: 't2' })
   await clock.advance(1000)
-  expect(attempts).toBe(4)
+  expect(attempts()).toBe(4)
 })
 
 test('enabled: false keeps the watcher off, read afresh at each turn', async ($, on) => {
@@ -665,31 +676,38 @@ error: could not compile \`calc\` (lib) due to 1 previous error
 error: could not compile \`calc\` (lib test) due to 1 previous error
 `
 
-test('each language reads its runner’s report and names what failed', () => {
-  const read = (watcher: (typeof WATCHERS)[number], output: string, code?: number) => {
-    const report = readReport(watcher, output, code)!
-    return [statusLine(watcher, report), report.failures]
-  }
-  expect(read(watcherNamed('vitest'), VITEST_FAILING)).toEqual(['overwatch vitest ✗ 1 failed (1) — calc.test.js > adds', ['calc.test.js > adds']])
-  expect(read(watcherNamed('vitest'), VITEST_BROKEN)[1]).toEqual(['calc.test.js [ calc.test.js ]'])
+const readResult = (watcher: (typeof WATCHERS)[number], output: string, code?: number) => {
+  const report = readReport(watcher, output, code)!
+  return [statusLine(watcher, report), report.failures]
+}
+
+test('JavaScript runners report what failed', () => {
+  expect(readResult(watcherNamed('vitest'), VITEST_FAILING)).toEqual(['overwatch vitest ✗ 1 failed (1) — calc.test.js > adds', ['calc.test.js > adds']])
+  expect(readResult(watcherNamed('vitest'), VITEST_BROKEN)[1]).toEqual(['calc.test.js [ calc.test.js ]'])
   expect(readReport(watcherNamed('vitest'), ' Test Files  1 passed (1)\n')?.isFailed).toBe(false)
-  expect(read(watcherNamed('jest'), JEST_FAILING)).toEqual(['overwatch jest ✗ 1 failed, 1 total — ./calc.test.js +1 more', ['./calc.test.js', 'adds']])
-  expect(read(watcherNamed('bun'), BUN_FAILING)).toEqual(['overwatch bun ✗ 1 fail — adds', ['adds']])
+  expect(readResult(watcherNamed('jest'), JEST_FAILING)).toEqual(['overwatch jest ✗ 1 failed, 1 total — ./calc.test.js +1 more', ['./calc.test.js', 'adds']])
+  expect(readResult(watcherNamed('bun'), BUN_FAILING)).toEqual(['overwatch bun ✗ 1 fail — adds', ['adds']])
   expect(readReport(watcherNamed('bun'), ' 2 pass\n 0 fail\n')?.isFailed).toBe(false)
-  expect(read(watcherNamed('deno'), DENO_FAILING)).toEqual(['overwatch deno ✗ 1 passed | 1 failed (2ms) — adds => ./calc_test.ts:1:6', ['adds => ./calc_test.ts:1:6']])
+  expect(readResult(watcherNamed('deno'), DENO_FAILING)).toEqual(['overwatch deno ✗ 1 passed | 1 failed (2ms) — adds => ./calc_test.ts:1:6', ['adds => ./calc_test.ts:1:6']])
   expect(readReport(watcherNamed('deno'), DENO_BROKEN)?.isFailed).toBe(true)
   expect(readReport(watcherNamed('deno'), 'ok | 2 passed | 0 failed (2ms)\nWatcher Test finished. Restarting on file change...\n')?.summary).toBe(
     'ok | 2 passed | 0 failed (2ms)',
   )
+})
+
+test('Go runners report what failed', () => {
   const gotestsum = WATCHERS.find(watcher => watcher.requires === 'gotestsum')!
-  expect(read(gotestsum, GOTESTSUM_FAILING)).toEqual(['overwatch go ✗ 2 tests, 1 failure in 0.184s — . TestAdd', ['. TestAdd']])
+  expect(readResult(gotestsum, GOTESTSUM_FAILING)).toEqual(['overwatch go ✗ 2 tests, 1 failure in 0.184s — . TestAdd', ['. TestAdd']])
   const go = WATCHERS.find(watcher => watcher.name === 'go' && watcher.requires === undefined)!
   expect(readReport(go, GO_FAILING)).toBeUndefined()
-  expect(read(go, GO_FAILING, 1)).toEqual(['overwatch go ✗ 1 failed — TestAdd', ['TestAdd']])
-  expect(read(go, GO_BROKEN, 1)[1]).toEqual(['./calc_test.go:5:1: expected declaration, found syntax'])
-  expect(read(go, 'ok  \texample.com/calc\t0.2s\n', 0)).toEqual(['overwatch go ✓ passed', []])
-  expect(read(watcherNamed('rust'), CARGO_FAILING, 101)).toEqual(['overwatch rust ✗ 1 failed — tests::adds', ['tests::adds']])
-  expect(read(watcherNamed('rust'), CARGO_BROKEN, 101)).toEqual([
+  expect(readResult(go, GO_FAILING, 1)).toEqual(['overwatch go ✗ 1 failed — TestAdd', ['TestAdd']])
+  expect(readResult(go, GO_BROKEN, 1)[1]).toEqual(['./calc_test.go:5:1: expected declaration, found syntax'])
+  expect(readResult(go, 'ok  \texample.com/calc\t0.2s\n', 0)).toEqual(['overwatch go ✓ passed', []])
+})
+
+test('Rust reports compile and test failures', () => {
+  expect(readResult(watcherNamed('rust'), CARGO_FAILING, 101)).toEqual(['overwatch rust ✗ 1 failed — tests::adds', ['tests::adds']])
+  expect(readResult(watcherNamed('rust'), CARGO_BROKEN, 101)).toEqual([
     'overwatch rust ✗ 1 failed — error[E0308]: mismatched types',
     ['error[E0308]: mismatched types'],
   ])
@@ -726,12 +744,14 @@ test('the agent is told which tests failed', async ($, on) => {
 })
 
 /** A project whose commands exit with `code`, printing `output` for each by its executable. */
-const commands = (on: On, spawned: string[][], output: Record<string, string>, code = 1) => {
+type Commands = { spawned: string[][]; output: Record<string, string>; code?: number }
+
+const commands = (on: On, run: Commands) => {
   on('process.spawn', async function* ($, e) {
-    spawned.push([...e.argv])
-    const text = output[e.argv[0]!]
+    run.spawned.push([...e.argv])
+    const text = run.output[e.argv[0]!]
     if (text !== undefined) yield { stream: 'stdout' as const, text }
-    return { value: { code, signal: null } }
+    return { value: { code: run.code ?? 1, signal: null } }
   })
   on('prompt.submit', ($, e) => ({ text: e.text }))
   on('session.start', ($, e) => ({ cwd: e.cwd }))
@@ -740,31 +760,33 @@ const commands = (on: On, spawned: string[][], output: Record<string, string>, c
 /** Slots look for their watchers side by side, so the order they start in is not fixed. */
 const sorted = (argvs: string[][]) => [...argvs].sort((a, b) => a.join(' ').localeCompare(b.join(' ')))
 
+const SUBPROJECT_TREE: Record<string, string[]> = {
+  '/repo': ['services/', 'tools/', 'node_modules/', '.git/', 'README.md'],
+  '/repo/services': ['api/', 'web/'],
+  '/repo/services/api': ['go.mod', 'main.go'],
+  '/repo/services/web': ['package.json', 'bun.lock'],
+  '/repo/tools': ['Cargo.toml', 'nested/'],
+  '/repo/tools/nested': ['Cargo.toml'],
+  '/repo/node_modules': ['left-pad/'],
+  '/repo/node_modules/left-pad': ['go.mod'],
+}
+
+const treeEntry = (name: string) => ({
+  name: name.replace(/\/$/, ''),
+  kind: name.endsWith('/') ? ('dir' as const) : ('file' as const),
+  size: 0,
+  mtimeMs: 0,
+  isLink: false,
+})
+
 test('a language the root lacks is watched in each sub-project that has it', async ($, on) => {
   const clock = mock.clock(on)
   const spawned: string[][] = []
   const statuses: (string | undefined)[] = []
   const prompts: string[] = []
-  const tree: Record<string, string[]> = {
-    '/repo': ['services/', 'tools/', 'node_modules/', '.git/', 'README.md'],
-    '/repo/services': ['api/', 'web/'],
-    '/repo/services/api': ['go.mod', 'main.go'],
-    '/repo/services/web': ['package.json', 'bun.lock'],
-    '/repo/tools': ['Cargo.toml', 'nested/'],
-    '/repo/tools/nested': ['Cargo.toml'],
-    '/repo/node_modules': ['left-pad/'],
-    '/repo/node_modules/left-pad': ['go.mod'],
-  }
-  const entry = (name: string) => ({
-    name: name.replace(/\/$/, ''),
-    kind: name.endsWith('/') ? ('dir' as const) : ('file' as const),
-    size: 0,
-    mtimeMs: 0,
-    isLink: false,
-  })
   on('fs.read', () => ({ deny: 'no such file' }))
   on('fs.exists', () => ({ value: false }))
-  on('fs.list', ($, e) => ({ value: (tree[e.path] ?? []).map(entry) }))
+  on('fs.list', ($, e) => ({ value: (SUBPROJECT_TREE[e.path] ?? []).map(treeEntry) }))
   on('ui.status', ($, e, next) => {
     statuses.splice(statuses.length, 0, e.text)
     return next(e)
@@ -801,7 +823,7 @@ test('every language in a polyglot project gets its own watcher', async ($, on) 
     statuses.push(e.text)
     return next(e)
   })
-  commands(on, spawned, { zig: PASSING, go: GO_FAILING, cargo: CARGO_FAILING }, 1)
+  commands(on, { spawned, output: { zig: PASSING, go: GO_FAILING, cargo: CARGO_FAILING }, code: 1 })
   await $.session.start(start)
   await clock.advance(1000)
   expect(sorted(spawned)).toEqual([['cargo', 'test'], ['go', 'test', './...'], ZIG_WATCH])
@@ -816,7 +838,7 @@ test('a JS project runs the test runner it has installed, and only that one', as
   on('fs.read', () => ({ deny: 'no such file' }))
   const files = ['/repo/package.json', '/repo/bun.lock', '/repo/node_modules/.bin/jest']
   on('fs.exists', ($, e) => ({ value: files.includes(e.path) }))
-  commands(on, spawned, {}, 0)
+  commands(on, { spawned, output: {}, code: 0 })
   await $.session.start(start)
   await clock.advance(1000)
   expect(spawned).toEqual([['npx', '--no', '--', 'jest', '--watchAll']])
@@ -831,7 +853,7 @@ test('Go uses gotestsum’s watcher when it is on PATH, else reruns go test afte
   on('fs.exists', ($, e) => ({ value: e.path === '/repo/go.mod' || e.path === '/home/me/go/bin/gotestsum' }))
   on('tool.call', () => ({ result: 'ok' }))
   on('session.end', ($, e) => ({ sessionId: e.sessionId }))
-  commands(on, spawned, { go: GO_FAILING }, 1)
+  commands(on, { spawned, output: { go: GO_FAILING }, code: 1 })
   await $.session.start(start)
   await clock.advance(1000)
   expect(spawned).toEqual([['go', 'test', './...']])

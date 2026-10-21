@@ -31,6 +31,10 @@ def read(path: Path) -> str:
     return path.read_text()
 
 
+def mkdir(path: Path) -> None:
+    path.mkdir(parents=True)
+
+
 class CodexHookTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
@@ -163,7 +167,7 @@ class CodexHookTests(unittest.TestCase):
         write(self.cwd / "Cargo.toml", "[package]\n")
         for name, output in (("go", "ok  example.com/calc 0.1s"), ("cargo", "test result: ok. 1 passed")):
             script = self.bin / name
-            script.write_text(f"#!/bin/sh\nsleep 2\necho '{output}'\n")
+            write(script, f"#!/bin/sh\nsleep 2\necho '{output}'\n")
             script.chmod(0o755)
 
         started, elapsed = self.call("SessionStart", source="startup")
@@ -172,10 +176,10 @@ class CodexHookTests(unittest.TestCase):
 
     def test_a_language_the_root_lacks_is_checked_in_each_subproject(self) -> None:
         for directory, marker in (("services/api", "go.mod"), ("tools", "Cargo.toml"), ("node_modules/pad", "go.mod")):
-            (self.cwd / directory).mkdir(parents=True)
+            mkdir(self.cwd / directory)
             write(self.cwd / directory / marker, "")
         go = self.bin / "go"
-        go.write_text('#!/bin/sh\npwd > "$(dirname "$0")/go.cwd"\necho "--- FAIL: TestAdd (0.00s)"\nexit 1\n')
+        write(go, '#!/bin/sh\npwd > "$(dirname "$0")/go.cwd"\necho "--- FAIL: TestAdd (0.00s)"\nexit 1\n')
         go.chmod(0o755)
         self.tool("cargo", "test result: ok. 1 passed", 0)
 
@@ -193,7 +197,7 @@ class CodexHookTests(unittest.TestCase):
         self.assertEqual(started["systemMessage"], "Overwatch: go ✗ 2 tests, 1 failure in 0.184s — . TestAdd")
 
     def test_the_typescript_table_is_generated_from_watchers_json(self) -> None:
-        self.assertEqual(table.TARGET.read_text(), table.render(), "run python3 scripts/table.py")
+        self.assertEqual(read(table.TARGET), table.render(), "run python3 scripts/table.py")
 
     def test_python_without_uv_reruns_pytest_from_path(self) -> None:
         write(self.cwd / "pyproject.toml", "[project]\n")

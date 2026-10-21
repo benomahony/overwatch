@@ -134,13 +134,7 @@ def find_subprojects(cwd: Path) -> list[str]:
     return found
 
 
-def find_watchers(cwd: Path) -> list[dict[str, Any]]:
-    override = read_override(cwd)
-    if override.get("enabled") is False:
-        return []
-    if "enabled" in override and not isinstance(override["enabled"], bool):
-        raise ConfigurationError(f"{OVERRIDE_PATH} field 'enabled' must be a boolean")
-
+def find_project_watchers(cwd: Path, override: dict[str, Any]) -> list[dict[str, Any]]:
     # One watcher for each language the project has, or else for each sub-project that has it, one not inside
     # another that does; the override applies to the first.
     found: list[dict[str, Any]] = []
@@ -163,6 +157,17 @@ def find_watchers(cwd: Path) -> list[dict[str, Any]]:
             claimed.append(directory)
             labelled = {**watcher, "language": language, "name": f"{watcher['name']} {directory}", "dir": directory}
             found.append(apply_override(labelled, override if not found else {}))
+    return found
+
+
+def find_watchers(cwd: Path) -> list[dict[str, Any]]:
+    override = read_override(cwd)
+    if override.get("enabled") is False:
+        return []
+    if "enabled" in override and not isinstance(override["enabled"], bool):
+        raise ConfigurationError(f"{OVERRIDE_PATH} field 'enabled' must be a boolean")
+
+    found = find_project_watchers(cwd, override)
     if not found:
         argv = string_list(override.get("argv"), "argv")
         baseline = string_list(override.get("baseline"), "baseline")

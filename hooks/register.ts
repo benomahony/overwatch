@@ -67,6 +67,9 @@ type State = {
 /** One watcher running in its slot: what each step of a run needs. */
 type Run = { state: State; slot: Slot; watcher: Watcher; cwd: string }
 
+/** Everything needed to decide whether and when a watcher should restart. */
+type Restart = { state: State; slot: Slot; watcher: Watcher; ending: Ending }
+
 /** Sets this slot's part of the status line, which shows every running watcher's. */
 function setStatus($: EngineInterface, state: State, slot: Slot, text: string | undefined) {
   slot.status = text
@@ -341,7 +344,7 @@ async function start($: EngineInterface, state: State, slot: Slot, watcher: Watc
   slot.retryAt = 0
   const ending = await watch($, { state, slot, watcher, cwd: watcher.dir === undefined ? cwd : `${cwd}/${watcher.dir}` })
   if (ending === undefined || state.epoch !== epoch) return
-  await restart($, state, slot, watcher, ending)
+  await restart($, { state, slot, watcher, ending })
 }
 
 /**
@@ -351,7 +354,7 @@ async function start($: EngineInterface, state: State, slot: Slot, watcher: Watc
  * apart. The status line says it is down and the agent is told, woken only
  * once overwatch gives up, since until then the watcher comes back on its own.
  */
-async function restart($: EngineInterface, state: State, slot: Slot, watcher: Watcher, ending: Ending) {
+async function restart($: EngineInterface, { state, slot, watcher, ending }: Restart) {
   const { epoch } = state
   const { isStarted, startedAt, endedAt, output } = ending
   const isQuick = !isStarted || endedAt - startedAt < RETRY_MS

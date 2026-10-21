@@ -1,0 +1,23 @@
+{
+  "schema_version": 2,
+  "id": "HDR-002",
+  "history": [
+    {
+      "date": "2026-10-21",
+      "title": "Register HDR checks for every lifecycle event",
+      "rationale": "Every supported lifecycle event must reach the deterministic checker.",
+      "check": {
+        "kind": "hdr_hooks",
+        "harnesses": [
+          "codex"
+        ],
+        "events": [
+          "SessionStart",
+          "PreToolUse",
+          "PostToolUse",
+          "Stop"
+        ]
+      }
+    }
+  ]
+}

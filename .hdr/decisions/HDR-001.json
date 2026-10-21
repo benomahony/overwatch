@@ -1,0 +1,15 @@
+{
+  "schema_version": 2,
+  "id": "HDR-001",
+  "history": [
+    {
+      "date": "2026-10-21",
+      "title": "Decision records are append-only",
+      "rationale": "Agents may add decisions but never change one; a person changes a decision by appending to its history.",
+      "check": {
+        "kind": "append_only",
+        "path": ".hdr/decisions"
+      }
+    }
+  ]
+}

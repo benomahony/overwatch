@@ -1,15 +1,91 @@
 <extend template="base.shtml">
 <head id="head">
 </head>
-<main id="main">
-	<article>
-		<h1 :text="$page.title"></h1>
-		<div class="content" :html="$page.content()"></div>
-		<footer class="pager">
-			<a class="next" href="$site.page('watchers').link()">
-				<small>Next</small>
-				<span>Watchers</span>
-			</a>
-		</footer>
-	</article>
-</main>
+<body id="body">
+	<main class="home">
+		<section class="hero">
+			<div class="hero-copy">
+				<p class="pill"><span class="pulse"></span> Your test suite is watching</p>
+				<h1>Catch the breakage <em>while the agent is still there.</em></h1>
+				<p class="hero-lede">overwatch runs your project’s tests beside Codex, Claude Code, or Neovim—and hands failures back the instant they happen.</p>
+				<div class="cta-row">
+					<a class="button" href="$site.page('install').link()">Install overwatch →</a>
+					<a class="button ghost" href="$site.page('watchers').link()">Explore watchers</a>
+				</div>
+				<p class="microcopy">Zig · Python · JavaScript · Deno · Go · Rust · <code>zanity</code></p>
+			</div>
+			<figure class="terminal" aria-label="overwatch finding a failing test and reporting its recovery">
+				<div class="terminal-bar">
+					<span></span><span></span><span></span>
+					<p>codex · payments-service</p>
+				</div>
+				<div class="terminal-body">
+					<p class="t-prompt">› Update the retry calculation</p>
+					<p class="t-tool">● edit <span class="t-path">src/retry.py</span></p>
+					<div class="t-failure">
+						<p class="t-red">✕ overwatch python · 1 failed, 42 passed</p>
+						<p class="t-indent">tests/test_retry.py::test_caps_backoff</p>
+					</div>
+					<p class="t-agent">The latest edit broke the backoff cap. I’ll fix the boundary and rerun it.</p>
+					<p class="t-tool">● edit <span class="t-path">src/retry.py</span></p>
+					<div class="t-success">
+						<p class="t-green">✓ overwatch python · 43 passed in 0.31s</p>
+					</div>
+				</div>
+				<figcaption>Failures join the agent’s turn with the test name and full report.</figcaption>
+			</figure>
+		</section>
+
+		<section class="band tint">
+			<div class="section-head">
+				<p class="eyebrow">One tight feedback loop</p>
+				<h2>The agent gets the red build, not you.</h2>
+				<p>No tab switching, no stale status, no discovering the regression after the turn is over.</p>
+			</div>
+			<div class="cards three">
+				<article class="card">
+					<div class="icon">01</div>
+					<h3>Watch continuously</h3>
+					<p>overwatch discovers the runner your project already uses and keeps it beside the session.</p>
+				</article>
+				<article class="card">
+					<div class="icon">02</div>
+					<h3>Report precisely</h3>
+					<p>The agent sees the failing test or compiler error first, followed by the useful edges of the full report.</p>
+				</article>
+				<article class="card">
+					<div class="icon">03</div>
+					<h3>Stay until green</h3>
+					<p>Codex cannot stop on red. Claude Code is woken when an idle watcher fails. Recovery is reported too.</p>
+				</article>
+			</div>
+		</section>
+
+		<section class="band">
+			<div class="section-head">
+				<p class="eyebrow">Bring your runner</p>
+				<h2>Polyglot by default.</h2>
+				<p>Every language gets its own watcher, including services nested inside a monorepo.</p>
+			</div>
+			<div class="language-cloud" aria-label="Supported languages and tools">
+				<span>zig</span><span>pytest</span><span>vitest</span><span>jest</span><span>bun</span><span>deno</span><span>go</span><span>gotestsum</span><span>cargo</span><span>zanity</span>
+			</div>
+		</section>
+
+		<section class="band tint">
+			<div class="story prose">
+				<p class="eyebrow">Behavior by design</p>
+				<div :html="$page.content()"></div>
+			</div>
+		</section>
+
+		<section class="final-cta">
+			<h2>Keep the agent in the loop.</h2>
+			<p>Install the plugin, restart your harness, and let the next failing test introduce itself.</p>
+			<div class="cta-row center">
+				<a class="button" href="$site.page('install').link()">Install overwatch →</a>
+				<a class="button ghost" href="https://github.com/benomahony/overwatch">View source</a>
+			</div>
+		</section>
+	</main>
+</body>

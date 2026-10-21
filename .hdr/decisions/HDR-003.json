@@ -1,0 +1,21 @@
+{
+  "schema_version": 2,
+  "id": "HDR-003",
+  "history": [
+    {
+      "date": "2026-10-21",
+      "title": "Coding agents may not drive native GUI applications",
+      "rationale": "Repository work must use auditable file and shell tools. Denying computer-use tools prevents an agent from opening Visual Studio Code or another native editor as a workaround.",
+      "check": {
+        "kind": "tool_denied",
+        "tools": [
+          "mcp__cua_repl__js",
+          "mcp__cua_repl__js_reset",
+          "mcp__cua_repl.js",
+          "cua_repl.js",
+          "cua_repl"
+        ]
+      }
+    }
+  ]
+}

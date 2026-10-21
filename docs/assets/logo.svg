@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-label="overwatch">
+  <defs>
+    <linearGradient id="g" x1="8" y1="7" x2="41" y2="43" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#9c93ff"/>
+      <stop offset="1" stop-color="#5143d8"/>
+    </linearGradient>
+  </defs>
+  <rect width="48" height="48" rx="14" fill="url(#g)"/>
+  <path d="M8.5 24s5.6-9 15.5-9 15.5 9 15.5 9-5.6 9-15.5 9S8.5 24 8.5 24Z" fill="none" stroke="#fff" stroke-width="3" stroke-linejoin="round"/>
+  <circle cx="24" cy="24" r="5" fill="#fff"/>
+  <circle cx="24" cy="24" r="2" fill="#5143d8"/>
+</svg>
