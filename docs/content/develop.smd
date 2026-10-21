@@ -10,6 +10,7 @@
 python3 scripts/table.py      # after editing watchers.json
 python3 docs/sync.py          # after editing this README: the site's pages come from it
 python3 -m unittest tests.test_codex
+node --test tests/test_integrations.mjs
 nvim --headless -l tests/overwatch_spec.lua
 claude plugin validate .
 claude plugin test .

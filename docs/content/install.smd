@@ -1,6 +1,6 @@
 ---
 .title = "Install",
-.description = "Adding overwatch to Claude Code or Codex.",
+.description = "Adding overwatch to Claude Code, Codex, OpenCode, Pi, or Neovim.",
 .date = .date("2026-10-21T00:00:03"),
 .layout = "page.shtml",
 ---
@@ -34,3 +34,39 @@ From a local checkout:
 codex plugin marketplace add /absolute/path/to/overwatch
 codex plugin add overwatch@overwatch
 ```
+
+# [OpenCode]($heading.id('opencode'))
+
+```sh
+opencode plugin github:benomahony/overwatch
+```
+
+OpenCode 2 uses its expanded plugin command:
+
+```sh
+opencode plugin add github:benomahony/overwatch
+```
+
+From a local checkout, add the checkout to `opencode.json` as a `plugin` entry in OpenCode 1 or a `plugins` entry in OpenCode 2.
+
+# [Pi]($heading.id('pi'))
+
+```sh
+pi install git:github.com/benomahony/overwatch
+```
+
+From a local checkout:
+
+```sh
+pi install /absolute/path/to/overwatch
+```
+
+Pi asks you to trust project-local extensions before loading them. In non-interactive runs, pass `--approve` or save the trust decision.
+
+# [Neovim]($heading.id('neovim'))
+
+```lua
+vim.pack.add({ "https://github.com/benomahony/overwatch" })
+```
+
+The dedicated Neovim guide covers the quickfix list, status line, and commands.

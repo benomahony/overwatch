@@ -1,6 +1,6 @@
 {
   "name": "overwatch",
-  "version": "0.3.3",
+  "version": "0.4.0",
   "description": "Runs your project's test watchers beside the agent and hands it every failing build the moment it happens.",
   "author": {
     "name": "benomahony"

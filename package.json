@@ -1,0 +1,22 @@
+{
+  "name": "overwatch",
+  "version": "0.4.0",
+  "description": "Runs project checks beside coding agents and feeds failures back into their turns.",
+  "type": "module",
+  "exports": "./integrations/opencode.js",
+  "files": [
+    "hooks/codex.py",
+    "integrations",
+    "watchers.json"
+  ],
+  "keywords": [
+    "opencode-plugin",
+    "pi-package"
+  ],
+  "pi": {
+    "extensions": [
+      "./integrations/pi.js"
+    ]
+  }
+}
+

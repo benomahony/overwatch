@@ -7,7 +7,7 @@
 			<div class="hero-copy">
 				<p class="pill"><span class="pulse"></span> Your test suite is watching</p>
 				<h1>Catch the breakage <em>while the agent is still there.</em></h1>
-				<p class="hero-lede">overwatch runs your project’s tests beside Claude Code, Codex, or Neovim. It hands failures back the instant they happen.</p>
+				<p class="hero-lede">overwatch runs your project’s tests beside Claude Code, Codex, OpenCode, Pi, or Neovim. It hands failures back the instant they happen.</p>
 				<div class="cta-row">
 					<a class="button" href="$site.page('install').link()">Install overwatch →</a>
 					<a class="button ghost" href="$site.page('watchers').link()">Explore watchers</a>
@@ -56,7 +56,7 @@
 				<article class="card">
 					<div class="icon">03</div>
 					<h3>Stay until green</h3>
-					<p>Claude Code is woken when an idle watcher fails. Codex cannot stop on red. Recovery is reported too.</p>
+					<p>Claude Code wakes on failure. Codex, OpenCode, and Pi keep red builds in the agent loop. Recovery is reported too.</p>
 				</article>
 			</div>
 		</section>

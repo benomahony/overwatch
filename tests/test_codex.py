@@ -21,6 +21,7 @@ HOOK = ROOT / "hooks" / "codex.py"
 HOOKS_CONFIG = ROOT / "hooks" / "codex-hooks.json"
 CODEX_MANIFEST = ROOT / ".codex-plugin" / "plugin.json"
 CLAUDE_MANIFEST = ROOT / ".claude-plugin" / "plugin.json"
+PACKAGE_MANIFEST = ROOT / "package.json"
 
 
 def write(path: Path, text: str) -> None:
@@ -245,11 +246,15 @@ class CodexHookTests(unittest.TestCase):
     def test_codex_overlay_registers_the_hook_config(self) -> None:
         codex = json.loads(read(CODEX_MANIFEST))
         claude = json.loads(read(CLAUDE_MANIFEST))
+        package = json.loads(read(PACKAGE_MANIFEST))
 
         self.assertFalse((ROOT / "plugin.json").exists(), "a root Agent Plugin manifest suppresses Codex hooks")
         self.assertEqual(codex["version"], claude["version"])
+        self.assertEqual(package["version"], claude["version"])
         self.assertEqual(codex["hooks"], "./hooks/codex-hooks.json")
         self.assertEqual(codex["interface"]["displayName"], "Overwatch")
+        self.assertEqual(package["exports"], "./integrations/opencode.js")
+        self.assertEqual(package["pi"]["extensions"], ["./integrations/pi.js"])
 
 
 if __name__ == "__main__":

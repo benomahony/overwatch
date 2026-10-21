@@ -6,7 +6,7 @@
 ---
 
 
-`.overwatch.json` at the project root, every field optional. Claude Code, Codex, and Neovim all read it; `summary` and `failed` are JavaScript-style regexes, which the Neovim plugin translates.
+`.overwatch.json` at the project root, every field optional. Claude Code, Codex, OpenCode, Pi, and Neovim all read it; `summary` and `failed` are JavaScript-style regexes, which the Neovim plugin translates.
 
 ```json
 {

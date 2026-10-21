@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Codex lifecycle-hook adapter for Overwatch.
+"""One-shot check runner for Overwatch's coding-agent adapters.
 
-Codex command hooks are short lived, so this adapter runs one build whenever
-the workspace changes and caches its result for the Stop hook. A configured
-watch command is stopped after its first complete report.
+Command hooks and in-process plugins call this runner with a Claude-style hook
+event. It runs one build whenever the workspace changes and caches its result
+for later hooks. A configured watch command is stopped after its first complete
+report.
 """
 
 from __future__ import annotations
