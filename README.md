@@ -20,7 +20,8 @@ The watcher starts with an interactive session, survives `/clear`, and stops whe
 | Language | Project marker | Full run first | Watcher |
 | --- | --- | --- | --- |
 | zig | `build.zig` | the watcher's first build | `zig build -Doptimize=fast test --watch` |
-| python | `pyproject.toml` | `uv run --with pytest --with pytest-testmon pytest --testmon-noselect` | `uv run --with pytest --with pytest-watcher --with pytest-testmon ptw . --testmon` |
+| python | `pyproject.toml`, with `uv` on `PATH` | `uv run --with pytest --with pytest-testmon pytest --testmon-noselect` | `uv run --with pytest --with pytest-watcher --with pytest-testmon ptw . --testmon` |
+| python | `pyproject.toml`, with `pytest` on `PATH` | `pytest` | none: reruns the full run after edits |
 | js | `node_modules/.bin/vitest` | the watcher's first run | `npx --no -- vitest watch` |
 | js | `node_modules/.bin/jest` | the watcher's first run | `npx --no -- jest --watchAll` |
 | js | `bun.lock` or `bun.lockb` | the watcher's first run | `bun test --watch` |
@@ -29,15 +30,15 @@ The watcher starts with an interactive session, survives `/clear`, and stops whe
 | go | `go.mod` | `go test ./...` | none: reruns the full run after edits |
 | rust | `Cargo.toml` | `cargo test` | none: reruns the full run after edits |
 
-Each language's rows are alternatives, tried in order: the first whose marker, and tool if it names one, is present runs. So a JS project runs the vitest or jest it has installed, ahead of `bun test`, and Go uses gotestsum's watcher when it is installed. A polyglot project runs a watcher for every language it has, side by side, each with its own part of the status line, for example `overwatch go ✗ 1 failed — TestAdd · overwatch rust ✓ passed`.
+Each language's rows are alternatives, tried in order: the first whose marker, and tool if it names one, is present runs. So a JS project runs the vitest or jest it has installed, ahead of `bun test`, Go uses gotestsum's watcher when it is installed, and a Python project without uv runs the `pytest` on `PATH`. A polyglot project runs a watcher for every language it has, side by side, each with its own part of the status line, for example `overwatch go ✗ 1 failed — TestAdd · overwatch rust ✓ passed`.
 
 A command with no watcher of its own is read by its exit code, so a compile error fails it as surely as a failing test. Any full run that exits nonzero without printing its summary line counts as failed too, rather than going unreported. Colour codes are stripped before anything is read, since some tools (deno) print them even into a pipe.
 
-When a build fails, overwatch names the failing tests (or compile errors, where the tool prints them on one line) at the top of the agent's report, and the first of them in the status line: `overwatch python ✗ 1 failed, 2 passed in 0.03s — tests/test_add.py::test_add`.
+When a build fails, overwatch names the failing tests (or compile errors, where the tool prints them on one line, such as Rust's `error[E0308]: mismatched types`) at the top of the agent's report, and the first of them in the status line: `overwatch python ✗ 1 failed, 2 passed in 0.03s — tests/test_add.py::test_add`.
 
-In every project, whatever its marker, zanity runs beside the test watcher whenever `zanity` is on `PATH`, as `zanity check . --watch --no-color` (zanity 0.1.12 or later). Any error or warning it reports counts as a failure, handed to the agent like a failing build, and the status line shows both results, for example `overwatch zig ✓ 4/4 steps succeeded; 48/48 tests passed · overwatch zanity ✓ checked 12 files, no issues found.`. Codex runs the equivalent one-shot check after a change. Add another checker to `CHECKERS` in both `hooks/watchers.ts` and `hooks/codex.py`, its `marker` naming the executable to look for on `PATH`.
+In every project, whatever its marker, zanity runs beside the test watcher whenever `zanity` is on `PATH`, as `zanity check . --watch --no-color` (zanity 0.1.12 or later). Any error or warning it reports counts as a failure, handed to the agent like a failing build, and the status line shows both results, for example `overwatch zig ✓ 4/4 steps succeeded; 48/48 tests passed · overwatch zanity ✓ checked 12 files, no issues found.`. Codex runs the equivalent one-shot check after a change. Add another checker to `checkers` in `watchers.json`, its `marker` naming the executable to look for on `PATH`.
 
-Add a language by adding an entry to `WATCHERS` in `hooks/watchers.ts`, `hooks/codex.py`, and `lua/overwatch/init.lua`: its marker file, its command, optionally a command that runs the whole suite once first, the line that closes one build's report, and the pattern on that line that means it failed. Optionally: `language`, to make it an alternative to the entries before it with the same one; `requires`, an executable that must be on `PATH`; `result`, the line to show when the build's result comes before the line that closes its report; and `failure`, a pattern matching each failing test, named by its first group that matched. An entry with no watch command may leave out the summary and be read by its exit code. When no baseline is configured, Codex runs the watch command through its first complete report and then stops it.
+Add a language by adding an entry to `watchers` in `watchers.json`, the one table Codex, Claude Code and Neovim all read, then run `python3 scripts/table.py`, which copies it into `hooks/table.ts` for Claude Code (whose plugins cannot import JSON); the tests fail while the two differ. An entry names its marker file, its command, optionally a command that runs the whole suite once first, the line that closes one build's report, and the pattern on that line that means it failed. Optionally: `language`, to make it an alternative to the entries before it with the same one; `requires`, an executable that must be on `PATH`; `result`, the line to show when the build's result comes before the line that closes its report; and `failure`, a pattern matching each failing test, named by its first group that matched. An entry with no watch command may leave out the summary and be read by its exit code. Patterns are JavaScript regexes, written as JSON strings. When no baseline is configured, Codex runs the watch command through its first complete report and then stops it.
 
 ## Per-project override
 
@@ -109,10 +110,10 @@ require("lualine").setup({ sections = { lualine_x = { require("overwatch").statu
 ## Develop
 
 ```sh
+python3 scripts/table.py
 python3 -m unittest tests.test_codex
 nvim --headless -l tests/overwatch_spec.lua
 claude plugin validate .
 claude plugin test .
 claude --plugin-dir .
-nvim --headless -l tests/overwatch_spec.lua
 ```

@@ -6,87 +6,11 @@ M.OVERRIDE_PATH = '.overwatch.json'
 
 local QUIET_MS = 400
 
--- Patterns are JavaScript regexes, as in hooks/watchers.ts and .overwatch.json; vim_regex translates them.
-local VITEST = {
-  name = 'vitest',
-  language = 'js',
-  marker = 'node_modules/.bin/vitest',
-  argv = { 'npx', '--no', '--', 'vitest', 'watch' },
-  summary = '^ +Test Files +.*$',
-  failed = [[\bfailed\b]],
-  failure = [[^ FAIL {2}(\S+\.\w+(?: .*)?)$]],
-}
-
-local JEST = {
-  name = 'jest',
-  language = 'js',
-  marker = 'node_modules/.bin/jest',
-  argv = { 'npx', '--no', '--', 'jest', '--watchAll' },
-  summary = '^Test Suites: .*total$',
-  failed = [[\bfailed\b]],
-  failure = [[^(?:FAIL (\S+)| {2}● (.+))$]],
-}
-
-local BUN = {
-  name = 'bun',
-  language = 'js',
-  marker = 'bun.lock',
-  argv = { 'bun', 'test', '--watch' },
-  summary = [[^ \d+ fail$]],
-  failed = [[^[1-9]\d* fail$]],
-  failure = [[^\(fail\) (.+?)(?: \[[0-9.]+m?s\])?$]],
-}
-
-local DENO = {
-  name = 'deno',
-  marker = 'deno.json',
-  argv = { 'deno', 'test', '--watch' },
-  summary = [[^Watcher \w+ (?:finished|failed)\..*$]],
-  failed = 'failed',
-  result = [[^(?:ok|FAILED) \| .*$]],
-  failure = [[^(\S.* => \S+:\d+:\d+)$]],
-}
-
-local GO_FAILURE = [[^(?:\s*--- FAIL: (\S+).*|=== FAIL: (.+?)(?: \([0-9.]+s\))?|(\S+\.go:\d+:\d+: .+))$]]
-
--- Alternatives of one language are tried in order: the first whose marker, and `requires` if it names one, are present runs.
-M.WATCHERS = {
-  {
-    name = 'zig',
-    marker = 'build.zig',
-    argv = { 'zig', 'build', '-Doptimize=fast', 'test', '--watch' },
-    summary = '^Build Summary:.*$',
-    failed = 'failed',
-    failure = [[^(?:error: '(.+)' failed:|(\S+\.zig:\d+:\d+: error: .+))$]],
-  },
-  {
-    name = 'python',
-    marker = 'pyproject.toml',
-    argv = { 'uv', 'run', '--with', 'pytest', '--with', 'pytest-watcher', '--with', 'pytest-testmon', 'ptw', '.', '--testmon' },
-    baseline = { 'uv', 'run', '--with', 'pytest', '--with', 'pytest-testmon', 'pytest', '--testmon-noselect' },
-    summary = [[^=+ .+ in \d+(?:\.\d+)?s(?: \([^)]*\))? =+$]],
-    failed = [[\b(?:failed|errors?)\b]],
-    failure = [[^(?:FAILED|ERROR) (\S+)]],
-  },
-  VITEST,
-  JEST,
-  BUN,
-  vim.tbl_extend('force', BUN, { marker = 'bun.lockb' }),
-  DENO,
-  vim.tbl_extend('force', DENO, { marker = 'deno.jsonc' }),
-  {
-    name = 'go',
-    marker = 'go.mod',
-    requires = 'gotestsum',
-    argv = { 'gotestsum', '--watch' },
-    baseline = { 'gotestsum', '--', './...' },
-    summary = [[^DONE \d+ tests?.*$]],
-    failed = [[\b(?:failures?|errors?)\b]],
-    failure = GO_FAILURE,
-  },
-  { name = 'go', marker = 'go.mod', baseline = { 'go', 'test', './...' }, failure = GO_FAILURE },
-  { name = 'rust', marker = 'Cargo.toml', baseline = { 'cargo', 'test' }, failure = [[^test (\S+) \.\.\. FAILED$]] },
-}
+-- The table every runtime reads, watchers.json at the repository's root. Patterns are JavaScript regexes, as in
+-- .overwatch.json; vim_regex translates them. Alternatives of one language are tried in order: the first whose
+-- marker, and `requires` if it names one, are present runs.
+local ROOT = vim.fn.fnamemodify(debug.getinfo(1, 'S').source:sub(2), ':p:h:h:h')
+M.WATCHERS = vim.json.decode(table.concat(vim.fn.readfile(ROOT .. '/watchers.json'), '\n')).watchers
 
 local LAZY = { ['*'] = '{-}', ['+'] = '{-1,}', ['?'] = '{-,1}' }
 

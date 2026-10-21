@@ -12,6 +12,8 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "hooks"))
 import codex  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+import table  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -162,11 +164,21 @@ class CodexHookTests(unittest.TestCase):
         self.tool("gotestsum", "=== FAIL: . TestAdd (0.00s)\n\nDONE 2 tests, 1 failure in 0.184s", 1)
 
         started, _ = self.call("SessionStart", source="startup")
-        self.assertEqual(started["systemMessage"], "Overwatch: go ✗ DONE 2 tests, 1 failure in 0.184s — . TestAdd")
+        self.assertEqual(started["systemMessage"], "Overwatch: go ✗ 2 tests, 1 failure in 0.184s — . TestAdd")
+
+    def test_the_typescript_table_is_generated_from_watchers_json(self) -> None:
+        self.assertEqual(table.TARGET.read_text(), table.render(), "run python3 scripts/table.py")
+
+    def test_python_without_uv_reruns_pytest_from_path(self) -> None:
+        write(self.cwd / "pyproject.toml", "[project]\n")
+        self.tool("pytest", "FAILED tests/test_add.py::test_add - assert 10 == 11\n=== 1 failed, 2 passed in 0.03s ===", 1)
+
+        started, _ = self.call("SessionStart", source="startup")
+        self.assertEqual(started["systemMessage"], "Overwatch: python ✗ 1 failed, 2 passed in 0.03s — tests/test_add.py::test_add")
 
     def test_colour_codes_are_read_through(self) -> None:
         output = "\x1b[0m\x1b[31mFAILED\x1b[0m | 1 passed | 1 failed\n\x1b[0m\x1b[38;5;12mWatcher\x1b[0m Test failed. Restarting..."
-        report = codex.read_report(codex.DENO, output)
+        report = codex.read_report(next(w for w in codex.WATCHERS if w["name"] == "deno"), output)
         assert report is not None
         self.assertTrue(report["failed"])
         self.assertEqual(report["summary"], "FAILED | 1 passed | 1 failed")

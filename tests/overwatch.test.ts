@@ -61,6 +61,7 @@ E   ModuleNotFoundError: No module named 'calc'
 type Project = { files: readonly string[]; output: string; spawned: string[][] }
 
 const project = (on: On, { files, output, spawned }: Project) => {
+  mock.env(on, { PATH: '/usr/bin' })
   on('fs.read', () => ({ deny: 'no such file' }))
   on('fs.exists', ($, e) => ({ value: files.some(file => e.path.endsWith(`/${file}`)) }))
   on('process.spawn', async function* ($, e) {
@@ -470,7 +471,7 @@ test('a pyproject.toml project runs pytest under a watcher', async ($, on) => {
   const clock = mock.clock(on)
   const spawned: string[][] = []
   const prompts: string[] = []
-  project(on, { files: ['pyproject.toml'], output: PYTEST_FAILING, spawned })
+  project(on, { files: ['pyproject.toml', 'usr/bin/uv'], output: PYTEST_FAILING, spawned })
   on('prompt.submit', ($, e) => {
     prompts.push(e.text)
     return { text: e.text }
@@ -489,8 +490,9 @@ test('the full suite runs green before the watcher starts', async ($, on) => {
   const clock = mock.clock(on)
   const statuses: (string | undefined)[] = []
   const spawned: string[][] = []
+  mock.env(on, { PATH: '/usr/bin' })
   on('fs.read', () => ({ deny: 'no such file' }))
-  on('fs.exists', ($, e) => ({ value: e.path.endsWith('/pyproject.toml') }))
+  on('fs.exists', ($, e) => ({ value: e.path === '/repo/pyproject.toml' || e.path === '/usr/bin/uv' }))
   on('ui.status', ($, e, next) => {
     statuses.push(e.text)
     return next(e)
@@ -616,6 +618,18 @@ failures:
 test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 `
 
+const CARGO_BROKEN = `   Compiling calc v0.1.0 (/repo)
+error[E0308]: mismatched types
+ --> src/lib.rs:8:26
+  |
+8 | pub fn broken() -> u32 { "x" }
+  |                    ---   ^^^ expected \`u32\`, found \`&str\`
+
+For more information about this error, try \`rustc --explain E0308\`.
+error: could not compile \`calc\` (lib) due to 1 previous error
+error: could not compile \`calc\` (lib test) due to 1 previous error
+`
+
 test('each language reads its runner’s report and names what failed', () => {
   const read = (watcher: (typeof WATCHERS)[number], output: string, code?: number) => {
     const report = readReport(watcher, output, code)!
@@ -640,7 +654,10 @@ test('each language reads its runner’s report and names what failed', () => {
   expect(read(go, GO_BROKEN, 1)[1]).toEqual(['./calc_test.go:5:1: expected declaration, found syntax'])
   expect(read(go, 'ok  \texample.com/calc\t0.2s\n', 0)).toEqual(['overwatch go ✓ passed', []])
   expect(read(watcherNamed('rust'), CARGO_FAILING, 101)).toEqual(['overwatch rust ✗ 1 failed — tests::adds', ['tests::adds']])
-  expect(read(watcherNamed('rust'), 'error[E0308]: mismatched types\n', 101)).toEqual(['overwatch rust ✗ exited with code 101', []])
+  expect(read(watcherNamed('rust'), CARGO_BROKEN, 101)).toEqual([
+    'overwatch rust ✗ 1 failed — error[E0308]: mismatched types',
+    ['error[E0308]: mismatched types'],
+  ])
 })
 
 test('a one-shot run that gives no summary but exits nonzero fails', () => {
@@ -652,7 +669,7 @@ test('the agent is told which tests failed', async ($, on) => {
   const clock = mock.clock(on)
   const spawned: string[][] = []
   const prompts: string[] = []
-  project(on, { files: ['pyproject.toml'], output: PYTEST_FAILING, spawned })
+  project(on, { files: ['pyproject.toml', 'usr/bin/uv'], output: PYTEST_FAILING, spawned })
   on('prompt.submit', ($, e) => {
     prompts.push(e.text)
     return { text: e.text }

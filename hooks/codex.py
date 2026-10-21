@@ -27,103 +27,16 @@ COMMAND_TIMEOUT = 540
 FAILURE_LIMIT = 10
 # Colour codes, which some tools (deno) print even into a pipe.
 ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
-
-VITEST: dict[str, Any] = {
-    "name": "vitest",
-    "language": "js",
-    "marker": "node_modules/.bin/vitest",
-    "argv": ["npx", "--no", "--", "vitest", "watch"],
-    "summary": r"^ +Test Files +.*$",
-    "failed": r"\bfailed\b",
-    "failure": r"^ FAIL {2}(\S+\.\w+(?: .*)?)$",
-}
-
-JEST: dict[str, Any] = {
-    "name": "jest",
-    "language": "js",
-    "marker": "node_modules/.bin/jest",
-    "argv": ["npx", "--no", "--", "jest", "--watchAll"],
-    "summary": r"^Test Suites: .*total$",
-    "failed": r"\bfailed\b",
-    "failure": r"^(?:FAIL (\S+)| {2}● (.+))$",
-}
-
-BUN: dict[str, Any] = {
-    "name": "bun",
-    "language": "js",
-    "marker": "bun.lock",
-    "argv": ["bun", "test", "--watch"],
-    "summary": r"^ \d+ fail$",
-    "failed": r"^[1-9]\d* fail$",
-    "failure": r"^\(fail\) (.+?)(?: \[[0-9.]+m?s\])?$",
-}
-
-DENO: dict[str, Any] = {
-    "name": "deno",
-    "marker": "deno.json",
-    "argv": ["deno", "test", "--watch"],
-    "summary": r"^Watcher \w+ (?:finished|failed)\..*$",
-    "failed": r"failed",
-    "result": r"^(?:ok|FAILED) \| .*$",
-    "failure": r"^(\S.* => \S+:\d+:\d+)$",
-}
-
-GO_FAILURE = r"^(?:\s*--- FAIL: (\S+).*|=== FAIL: (.+?)(?: \([0-9.]+s\))?|(\S+\.go:\d+:\d+: .+))$"
-
-# The same watchers as hooks/watchers.ts: alternatives of one language are tried in order.
-WATCHERS: tuple[dict[str, Any], ...] = (
-    {
-        "name": "zig",
-        "marker": "build.zig",
-        "argv": ["zig", "build", "-Doptimize=fast", "test", "--watch"],
-        "summary": r"^Build Summary:.*$",
-        "failed": r"failed",
-        "failure": r"^(?:error: '(.+)' failed:|(\S+\.zig:\d+:\d+: error: .+))$",
-    },
-    {
-        "name": "python",
-        "marker": "pyproject.toml",
-        "argv": [
-            "uv", "run", "--with", "pytest", "--with", "pytest-watcher",
-            "--with", "pytest-testmon", "ptw", ".", "--testmon",
-        ],
-        "baseline": [
-            "uv", "run", "--with", "pytest", "--with", "pytest-testmon",
-            "pytest", "--testmon-noselect",
-        ],
-        "summary": r"^=+ .+ in \d+(?:\.\d+)?s(?: \([^)]*\))? =+$",
-        "failed": r"\b(?:failed|errors?)\b",
-        "failure": r"^(?:FAILED|ERROR) (\S+)",
-    },
-    VITEST,
-    JEST,
-    BUN,
-    {**BUN, "marker": "bun.lockb"},
-    DENO,
-    {**DENO, "marker": "deno.jsonc"},
-    {
-        "name": "go",
-        "marker": "go.mod",
-        "requires": "gotestsum",
-        "argv": ["gotestsum", "--watch"],
-        "baseline": ["gotestsum", "--", "./..."],
-        "summary": r"^DONE \d+ tests?.*$",
-        "failed": r"\b(?:failures?|errors?)\b",
-        "failure": GO_FAILURE,
-    },
-    {"name": "go", "marker": "go.mod", "baseline": ["go", "test", "./..."], "failure": GO_FAILURE},
-    {"name": "rust", "marker": "Cargo.toml", "baseline": ["cargo", "test"], "failure": r"^test (\S+) \.\.\. FAILED$"},
+# The decoration each tool puts around its summary, which the status line leaves out.
+SUMMARY_DECORATION = re.compile(
+    r"^Build Summary:\s*|^zanity:\s*|^=+\s*|\s*=+$|^Test Files\s+|^Test Suites:\s*|^DONE\s+|^(?:ok|FAILED) \| "
 )
 
-CHECKERS: tuple[dict[str, Any], ...] = (
-    {
-        "name": "zanity",
-        "marker": "zanity",
-        "baseline": ["zanity", "check", ".", "--no-color"],
-        "summary": r"^zanity: (?:\d+ errors?(?:,| and) \d+ warnings? in .*|checked .*, no issues found\.?)$",
-        "failed": r"\b[1-9]\d* (?:errors?|warnings?)\b",
-    },
-)
+# The table every runtime reads; patterns are JavaScript regexes that Python reads the same way.
+# Alternatives of one language are tried in order: the first whose marker, and tool if it needs one, are present runs.
+TABLE: dict[str, Any] = json.loads((Path(__file__).resolve().parent.parent / "watchers.json").read_text())
+WATCHERS: tuple[dict[str, Any], ...] = tuple(TABLE["watchers"])
+CHECKERS: tuple[dict[str, Any], ...] = tuple(TABLE["checkers"])
 
 
 class ConfigurationError(Exception):
@@ -441,7 +354,7 @@ def failing_suffix(failures: list[str]) -> str:
 
 def failure_status(reports: list[dict[str, Any]]) -> str:
     summaries = " · ".join(
-        f"{report['name']} ✗ {report['summary']}{failing_suffix(report.get('failures', []))}"
+        f"{report['name']} ✗ {SUMMARY_DECORATION.sub('', report['summary'])}{failing_suffix(report.get('failures', []))}"
         for report in reports
         if report["failed"]
     )
@@ -449,7 +362,7 @@ def failure_status(reports: list[dict[str, Any]]) -> str:
 
 
 def recovery_message(reports: list[dict[str, Any]]) -> str:
-    summaries = " · ".join(f"overwatch {report['name']} ✓ {report['summary']}" for report in reports)
+    summaries = " · ".join(f"overwatch {report['name']} ✓ {SUMMARY_DECORATION.sub('', report['summary'])}" for report in reports)
     return f"overwatch: green again. {summaries}"
 
 

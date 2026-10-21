@@ -1,3 +1,5 @@
+import { TABLE } from './table'
+
 /** A test watcher overwatch can run: the file that marks a project as its kind, the command, and how to read its output. */
 export type Watcher = {
   name: string
@@ -41,99 +43,37 @@ export type Override = {
 
 export const OVERRIDE_PATH = '.overwatch.json'
 
-const VITEST: Watcher = {
-  name: 'vitest',
-  language: 'js',
-  marker: 'node_modules/.bin/vitest',
-  argv: ['npx', '--no', '--', 'vitest', 'watch'],
-  summary: /^ +Test Files +.*$/m,
-  failed: /\bfailed\b/,
-  failure: /^ FAIL {2}(\S+\.\w+(?: .*)?)$/gm,
+/** One entry of watchers.json, the table every runtime reads: patterns are JavaScript regex source. */
+type Entry = {
+  name: string
+  language?: string
+  marker: string
+  requires?: string
+  argv?: readonly string[]
+  baseline?: readonly string[]
+  summary?: string
+  failed?: string
+  result?: string
+  failure?: string
 }
 
-const JEST: Watcher = {
-  name: 'jest',
-  language: 'js',
-  marker: 'node_modules/.bin/jest',
-  argv: ['npx', '--no', '--', 'jest', '--watchAll'],
-  summary: /^Test Suites: .*total$/m,
-  failed: /\bfailed\b/,
-  failure: /^(?:FAIL (\S+)| {2}● (.+))$/gm,
+const table: { watchers: readonly Entry[]; checkers: readonly Entry[] } = TABLE
+
+function watcherOf({ summary, failed, result, failure, ...entry }: Entry): Watcher {
+  return {
+    ...entry,
+    ...(summary === undefined ? {} : { summary: new RegExp(summary, 'm') }),
+    ...(failed === undefined ? {} : { failed: new RegExp(failed) }),
+    ...(result === undefined ? {} : { result: new RegExp(result, 'm') }),
+    ...(failure === undefined ? {} : { failure: new RegExp(failure, 'gm') }),
+  }
 }
 
-const BUN: Watcher = {
-  name: 'bun',
-  language: 'js',
-  marker: 'bun.lock',
-  argv: ['bun', 'test', '--watch'],
-  summary: /^ \d+ fail$/m,
-  failed: /^[1-9]\d* fail$/,
-  failure: /^\(fail\) (.+?)(?: \[[0-9.]+m?s\])?$/gm,
-}
-
-const DENO: Watcher = {
-  name: 'deno',
-  marker: 'deno.json',
-  argv: ['deno', 'test', '--watch'],
-  summary: /^Watcher \w+ (?:finished|failed)\..*$/m,
-  failed: /failed/,
-  result: /^(?:ok|FAILED) \| .*$/m,
-  failure: /^(\S.* => \S+:\d+:\d+)$/gm,
-}
-
-/** A Go test failure, or a compile error with its location. */
-const GO_FAILURE = /^(?:\s*--- FAIL: (\S+).*|=== FAIL: (.+?)(?: \([0-9.]+s\))?|(\S+\.go:\d+:\d+: .+))$/gm
-
-export const WATCHERS: readonly Watcher[] = [
-  {
-    name: 'zig',
-    marker: 'build.zig',
-    argv: ['zig', 'build', '-Doptimize=fast', 'test', '--watch'],
-    summary: /^Build Summary:.*$/m,
-    failed: /failed/,
-    failure: /^(?:error: '(.+)' failed:|(\S+\.zig:\d+:\d+: error: .+))$/gm,
-  },
-  {
-    name: 'python',
-    marker: 'pyproject.toml',
-    argv: ['uv', 'run', '--with', 'pytest', '--with', 'pytest-watcher', '--with', 'pytest-testmon', 'ptw', '.', '--testmon'],
-    baseline: ['uv', 'run', '--with', 'pytest', '--with', 'pytest-testmon', 'pytest', '--testmon-noselect'],
-    summary: /^=+ .+ in \d+(?:\.\d+)?s(?: \([^)]*\))? =+$/m,
-    failed: /\b(?:failed|errors?)\b/,
-    failure: /^(?:FAILED|ERROR) (\S+)/gm,
-  },
-  // A project's own test runner, installed in node_modules, comes before bun's.
-  VITEST,
-  JEST,
-  BUN,
-  { ...BUN, marker: 'bun.lockb' },
-  DENO,
-  { ...DENO, marker: 'deno.jsonc' },
-  {
-    name: 'go',
-    marker: 'go.mod',
-    requires: 'gotestsum',
-    argv: ['gotestsum', '--watch'],
-    baseline: ['gotestsum', '--', './...'],
-    summary: /^DONE \d+ tests?.*$/m,
-    failed: /\b(?:failures?|errors?)\b/,
-    failure: GO_FAILURE,
-  },
-  // Without gotestsum, Go has no watch command: overwatch reruns the suite after each edit.
-  { name: 'go', marker: 'go.mod', baseline: ['go', 'test', './...'], failure: GO_FAILURE },
-  { name: 'rust', marker: 'Cargo.toml', baseline: ['cargo', 'test'], failure: /^test (\S+) \.\.\. FAILED$/gm },
-]
+/** Alternatives of one language are tried in order, so a project's own test runner, installed in node_modules, comes before bun's. */
+export const WATCHERS: readonly Watcher[] = table.watchers.map(watcherOf)
 
 /** Checkers run beside the project's watcher, in any project, whenever their executable is on PATH. */
-export const CHECKERS: readonly Watcher[] = [
-  {
-    name: 'zanity',
-    marker: 'zanity',
-    argv: ['zanity', 'check', '.', '--watch', '--no-color'],
-    summary: /^zanity: (?:\d+ errors?(?:,| and) \d+ warnings? in .*|checked .*, no issues found\.?)$/m,
-    failed: /\b[1-9]\d* (?:errors?|warnings?)\b/,
-  },
-]
+export const CHECKERS: readonly Watcher[] = table.checkers.map(watcherOf)
 
 export const REPORT_LIMIT = 8000
 
