@@ -1,6 +1,6 @@
 # overwatch
 
-Watchers for agentic engineering. overwatch runs your project's tests beside Codex, Claude Code, or Neovim and hands failures back immediately, so the agent fixes what it broke before it moves on.
+Watchers for agentic engineering. overwatch runs your project's tests beside Codex, Claude Code, or Neovim and hands failures back immediately, so the agent fixes what it broke before it moves on. The [site](https://benomahony.github.io/overwatch/) has this README as pages.
 
 With Codex, overwatch runs the full suite when a session starts, checks again after tools change the workspace, and prevents the turn from stopping while the latest result is red. A change made outside Codex is picked up with the next prompt. Overwatch supplies transient status text while each check runs, though not every Codex surface renders it, and a concise visible warning when one fails; the full report goes to the agent. Codex's status line does not currently accept persistent plugin-defined fields. Codex does not currently let a plugin start a new turn in an idle session, so that is the one difference from the Claude Code behavior below.
 
@@ -112,10 +112,12 @@ require("lualine").setup({ sections = { lualine_x = { require("overwatch").statu
 ## Develop
 
 ```sh
-python3 scripts/table.py  # after editing watchers.json
+python3 scripts/table.py      # after editing watchers.json
+python3 docs/sync.py          # after editing this README: the site's pages come from it
 python3 -m unittest tests.test_codex
 nvim --headless -l tests/overwatch_spec.lua
 claude plugin validate .
 claude plugin test .
 claude --plugin-dir .
+cd docs && zine                # the site, served locally
 ```

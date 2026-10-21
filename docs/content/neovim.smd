@@ -1,0 +1,14 @@
+---
+.title = "Neovim",
+.description = "The same watchers beside the editor, with no agent involved.",
+.date = .date("2026-10-21T00:00:02"),
+.layout = "page.shtml",
+---
+
+
+The same test watchers run beside Neovim (zanity does not; its own `zanity lsp` gives Neovim its findings on save): the full suite first, then the watcher, with no agent involved. The latest result of each language's watcher is in `require('overwatch').status()`, every failing build goes into one quickfix list (`:copen`), titled with the watchers whose builds failed and cleared of each one as it goes green. A watcher with no `argv` reruns `baseline` after every save, stopping a run that a newer save has overtaken. A watcher that exits is restarted as it is in Claude Code, at once or after 30 and then 60 seconds; after three quick exits in a row it stays stopped, with what it last printed, until `:OverwatchStart`. It starts with Neovim in a project that has a watcher; `:OverwatchStart` and `:OverwatchStop` start and stop it.
+
+```lua
+vim.pack.add({ "https://github.com/benomahony/overwatch" })
+require("lualine").setup({ sections = { lualine_x = { require("overwatch").status } } })
+```

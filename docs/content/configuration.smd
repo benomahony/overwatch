@@ -1,0 +1,32 @@
+---
+.title = "Configuration",
+.description = "Turning overwatch off, or giving a project its own commands, with .overwatch.json.",
+.date = .date("2026-10-21T00:00:04"),
+.layout = "page.shtml",
+---
+
+
+`.overwatch.json` at the project root, every field optional. Codex, Claude Code, and Neovim all read it; `summary` and `failed` are JavaScript-style regexes, which the Neovim plugin translates.
+
+```json
+{
+  "enabled": true,
+  "argv": ["zig", "build", "test", "--watch"],
+  "baseline": ["zig", "build", "test"],
+  "summary": "^Build Summary:.*$",
+  "failed": "failed"
+}
+```
+
+`"enabled": false` turns overwatch off for that project, zanity included; `"baseline": []` skips the full run first. The other fields apply to one test watcher alone: in a polyglot project or a monorepo, the first language in the table above that the project has, at its root or in a sub-project. The override is read only at the project's root.
+
+A project with no marker file is watched when its override names `summary`, `failed`, and `argv` or `baseline`; `name` labels it in the status line. With no `argv`, overwatch needs no watch tool: it reruns `baseline` itself after the agent's edits (Edit, Write, MultiEdit, NotebookEdit or Bash calls) go quiet. An edit made while the suite runs stops that run and starts another, so the agent never hears a result its later edits have already overtaken. Edits made outside the session are picked up at the agent's next edit. This repository watches its own tests that way:
+
+```json
+{
+  "name": "plugin",
+  "baseline": ["claude", "plugin", "test", "."],
+  "summary": "^ \\d+ fail$",
+  "failed": "^[1-9]\\d* fail$"
+}
+```

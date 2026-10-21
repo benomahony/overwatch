@@ -1,0 +1,36 @@
+---
+.title = "Install",
+.description = "Adding overwatch to Codex or Claude Code.",
+.date = .date("2026-10-21T00:00:03"),
+.layout = "page.shtml",
+---
+
+
+# [Codex]($heading.id('codex'))
+
+```sh
+codex plugin marketplace add benomahony/overwatch
+codex plugin add overwatch@overwatch
+```
+
+Restart Codex, run `/hooks`, and trust the Overwatch hooks. Codex requires renewed trust whenever a hook definition changes.
+
+From a local checkout:
+
+```sh
+codex plugin marketplace add /absolute/path/to/overwatch
+codex plugin add overwatch@overwatch
+```
+
+# [Claude Code]($heading.id('claude-code'))
+
+```sh
+/plugin install overwatch --marketplace benomahony/overwatch
+```
+
+From a local checkout:
+
+```sh
+claude plugin marketplace add ~/Code/open_source/overwatch
+claude plugin install overwatch@overwatch
+```

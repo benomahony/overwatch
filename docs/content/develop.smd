@@ -1,0 +1,18 @@
+---
+.title = "Develop",
+.description = "Running overwatch's own tests and trying a local checkout.",
+.date = .date("2026-10-21T00:00:01"),
+.layout = "page.shtml",
+---
+
+
+```sh
+python3 scripts/table.py      # after editing watchers.json
+python3 docs/sync.py          # after editing this README: the site's pages come from it
+python3 -m unittest tests.test_codex
+nvim --headless -l tests/overwatch_spec.lua
+claude plugin validate .
+claude plugin test .
+claude --plugin-dir .
+cd docs && zine                # the site, served locally
+```

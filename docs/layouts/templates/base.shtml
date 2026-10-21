@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head id="head">
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+		<title :text="$page.title.suffix(' · overwatch')"></title>
+		<meta name="description" content="overwatch: test watchers that hand every failing build to Codex, Claude Code or Neovim the moment it happens">
+		<link rel="stylesheet" href="$site.asset('style.css').link()">
+		<super>
+	</head>
+	<body>
+		<div class="layout">
+			<nav class="sidebar">
+				<a class="brand" href="$site.page('').link()">
+					<span class="logo">overwatch</span>
+					<span class="tagline">watchers for agentic engineering</span>
+				</a>
+				<ul>
+					<li><a href="$site.page('').link()">Introduction</a></li>
+					<li><a href="$site.page('watchers').link()">Watchers</a></li>
+					<li><a href="$site.page('configuration').link()">Configuration</a></li>
+					<li><a href="$site.page('install').link()">Install</a></li>
+					<li><a href="$site.page('neovim').link()">Neovim</a></li>
+					<li><a href="$site.page('develop').link()">Develop</a></li>
+				</ul>
+				<div class="external">
+					<a href="https://github.com/benomahony/overwatch">Source</a>
+					<a href="https://github.com/benomahony/overwatch/issues">Issues</a>
+				</div>
+			</nav>
+			<main id="main">
+				<super>
+			</main>
+		</div>
+	</body>
+</html>
