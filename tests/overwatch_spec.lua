@@ -29,7 +29,7 @@ end)
 test('the pytest summary line decides pass or fail', function()
   local report = overwatch.read_report(python, PYTEST_FAILING)
   eq(report.is_failed, true)
-  eq(overwatch.status_line(python, report), 'overwatch python ✗ 1 failed, 2 passed in 0.03s — tests/test_add.py::test_add')
+  eq(overwatch.status_line(python, report), 'overwatch python ✗ 1 failed, 2 passed in 0.03s: tests/test_add.py::test_add')
   eq(overwatch.read_report(python, '=== no tests ran in 0.00s ===').is_failed, false)
   eq(overwatch.read_report(python, '=== 1 error in 0.05s ===').is_failed, true)
   eq(overwatch.read_report(python, 'collected 3 items'), nil)
@@ -70,22 +70,22 @@ test('each language reads its runner’s report and names what failed', function
     local report = overwatch.read_report(watcher, output, code)
     return { overwatch.status_line(watcher, report), report.failures }
   end
-  eq(read(python, PYTEST_FAILING), { 'overwatch python ✗ 1 failed, 2 passed in 0.03s — tests/test_add.py::test_add', { 'tests/test_add.py::test_add' } })
+  eq(read(python, PYTEST_FAILING), { 'overwatch python ✗ 1 failed, 2 passed in 0.03s: tests/test_add.py::test_add', { 'tests/test_add.py::test_add' } })
   eq(read(named('vitest'), ' FAIL  calc.test.js > adds\n Test Files  1 failed (1)\n FAIL  Tests failed. Watching for file changes...'),
-    { 'overwatch vitest ✗ 1 failed (1) — calc.test.js > adds', { 'calc.test.js > adds' } })
+    { 'overwatch vitest ✗ 1 failed (1): calc.test.js > adds', { 'calc.test.js > adds' } })
   eq(read(named('jest'), 'FAIL ./calc.test.js\n  ● adds\nTest Suites: 1 failed, 1 total'),
-    { 'overwatch jest ✗ 1 failed, 1 total — ./calc.test.js +1 more', { './calc.test.js', 'adds' } })
-  eq(read(named('bun'), '(fail) adds [0.53ms]\n\n 1 pass\n 1 fail\n'), { 'overwatch bun ✗ 1 fail — adds', { 'adds' } })
+    { 'overwatch jest ✗ 1 failed, 1 total: ./calc.test.js +1 more', { './calc.test.js', 'adds' } })
+  eq(read(named('bun'), '(fail) adds [0.53ms]\n\n 1 pass\n 1 fail\n'), { 'overwatch bun ✗ 1 fail: adds', { 'adds' } })
   local deno = 'adds \27[0m\27[38;5;245m=> ./calc_test.ts:1:6\27[0m\n\27[0m\27[31mFAILED\27[0m | 1 passed | 1 failed (2ms)\n'
     .. '\27[0m\27[38;5;12mWatcher\27[0m Test failed. Restarting on file change...'
-  eq(read(named('deno'), deno), { 'overwatch deno ✗ 1 passed | 1 failed (2ms) — adds => ./calc_test.ts:1:6', { 'adds => ./calc_test.ts:1:6' } })
+  eq(read(named('deno'), deno), { 'overwatch deno ✗ 1 passed | 1 failed (2ms): adds => ./calc_test.ts:1:6', { 'adds => ./calc_test.ts:1:6' } })
   eq(read(named('go', 'go.mod'), '=== FAIL: . TestAdd (0.00s)\n\nDONE 2 tests, 1 failure in 0.184s'),
-    { 'overwatch go ✗ 2 tests, 1 failure in 0.184s — . TestAdd', { '. TestAdd' } })
+    { 'overwatch go ✗ 2 tests, 1 failure in 0.184s: . TestAdd', { '. TestAdd' } })
   local go = overwatch.WATCHERS[#overwatch.WATCHERS - 1]
   eq(overwatch.read_report(go, '--- FAIL: TestAdd (0.00s)\nFAIL'), nil)
-  eq(read(go, '--- FAIL: TestAdd (0.00s)\nFAIL', 1), { 'overwatch go ✗ 1 failed — TestAdd', { 'TestAdd' } })
+  eq(read(go, '--- FAIL: TestAdd (0.00s)\nFAIL', 1), { 'overwatch go ✗ 1 failed: TestAdd', { 'TestAdd' } })
   eq(read(go, './calc_test.go:5:1: expected declaration, found syntax', 1)[2], { './calc_test.go:5:1: expected declaration, found syntax' })
-  eq(read(named('rust'), 'test tests::adds ... FAILED\ntest result: FAILED.', 101), { 'overwatch rust ✗ 1 failed — tests::adds', { 'tests::adds' } })
+  eq(read(named('rust'), 'test tests::adds ... FAILED\ntest result: FAILED.', 101), { 'overwatch rust ✗ 1 failed: tests::adds', { 'tests::adds' } })
   eq(read(named('rust'), 'test result: ok.', 0), { 'overwatch rust ✓ passed', {} })
 end)
 
@@ -134,7 +134,7 @@ test('each watcher in a polyglot project shows in the status line', function()
   overwatch.start(dir)
   vim.wait(5000, function() return overwatch.status():find('rust ✓', 1, true) and overwatch.status():find('go ✗', 1, true) end)
   vim.env.PATH = path
-  eq(overwatch.status(), 'overwatch go ✗ 1 failed — TestAdd · overwatch rust ✓ passed')
+  eq(overwatch.status(), 'overwatch go ✗ 1 failed: TestAdd · overwatch rust ✓ passed')
   overwatch.stop()
   eq(overwatch.status(), '')
 end)

@@ -424,7 +424,7 @@ def failing_suffix(failures: list[str]) -> str:
     if not failures:
         return ""
     more = f" +{len(failures) - 1} more" if len(failures) > 1 else ""
-    return f" — {failures[0]}{more}"
+    return f": {failures[0]}{more}"
 
 
 def failure_status(reports: list[dict[str, Any]]) -> str:

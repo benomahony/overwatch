@@ -220,7 +220,7 @@ function M.status_line(watcher, report)
   end
   local failing = ''
   if #report.failures > 0 then
-    failing = ' — ' .. report.failures[1] .. (#report.failures > 1 and (' +%d more'):format(#report.failures - 1) or '')
+    failing = ': ' .. report.failures[1] .. (#report.failures > 1 and (' +%d more'):format(#report.failures - 1) or '')
   end
   return ('overwatch %s %s %s%s'):format(watcher.name, report.is_failed and '✗' or '✓', summary, failing)
 end
@@ -270,7 +270,7 @@ local function deliver(run, report)
   if report.is_failed or is_recovery then update_quickfix(report.is_failed) end
   if report.is_failed then
     local failing = #report.failures > 0 and (' (%s)'):format(table.concat(vim.list_slice(report.failures, 1, 3), ', ')) or ''
-    vim.notify(('overwatch %s: %s%s — :copen for the report'):format(watcher.name, report.summary, failing), vim.log.levels.ERROR)
+    vim.notify(('overwatch %s: %s%s; :copen for the report'):format(watcher.name, report.summary, failing), vim.log.levels.ERROR)
   elseif is_recovery then
     vim.notify(('overwatch %s: green again. %s'):format(watcher.name, report.summary), vim.log.levels.INFO)
   end

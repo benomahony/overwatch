@@ -7,7 +7,7 @@
 			<div class="hero-copy">
 				<p class="pill"><span class="pulse"></span> Your test suite is watching</p>
 				<h1>Catch the breakage <em>while the agent is still there.</em></h1>
-				<p class="hero-lede">overwatch runs your project’s tests beside Claude Code, Codex, or Neovim—and hands failures back the instant they happen.</p>
+				<p class="hero-lede">overwatch runs your project’s tests beside Claude Code, Codex, or Neovim. It hands failures back the instant they happen.</p>
 				<div class="cta-row">
 					<a class="button" href="$site.page('install').link()">Install overwatch →</a>
 					<a class="button ghost" href="$site.page('watchers').link()">Explore watchers</a>

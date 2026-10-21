@@ -569,11 +569,11 @@ test('the pytest summary line decides pass or fail', () => {
 
 test('the status line drops the summary decoration and names the first failing test', () => {
   expect(statusLine(python, readReport(python, PYTEST_FAILING)!)).toBe(
-    'overwatch python ✗ 1 failed, 2 passed in 0.03s — tests/test_add.py::test_add',
+    'overwatch python ✗ 1 failed, 2 passed in 0.03s: tests/test_add.py::test_add',
   )
   expect(statusLine(zig, readReport(zig, PASSING)!)).toBe('overwatch zig ✓ 4/4 steps succeeded; 48/48 tests passed')
   expect(statusLine(zig, readReport(zig, FAILING)!)).toBe(
-    'overwatch zig ✗ 3/5 steps succeeded (1 failed); 2/3 tests passed (1 failed) — root.test.basic add functionality',
+    'overwatch zig ✗ 3/5 steps succeeded (1 failed); 2/3 tests passed (1 failed): root.test.basic add functionality',
   )
 })
 
@@ -682,13 +682,13 @@ const readResult = (watcher: (typeof WATCHERS)[number], output: string, code?: n
 }
 
 test('JavaScript runners report what failed', () => {
-  expect(readResult(watcherNamed('vitest'), VITEST_FAILING)).toEqual(['overwatch vitest ✗ 1 failed (1) — calc.test.js > adds', ['calc.test.js > adds']])
+  expect(readResult(watcherNamed('vitest'), VITEST_FAILING)).toEqual(['overwatch vitest ✗ 1 failed (1): calc.test.js > adds', ['calc.test.js > adds']])
   expect(readResult(watcherNamed('vitest'), VITEST_BROKEN)[1]).toEqual(['calc.test.js [ calc.test.js ]'])
   expect(readReport(watcherNamed('vitest'), ' Test Files  1 passed (1)\n')?.isFailed).toBe(false)
-  expect(readResult(watcherNamed('jest'), JEST_FAILING)).toEqual(['overwatch jest ✗ 1 failed, 1 total — ./calc.test.js +1 more', ['./calc.test.js', 'adds']])
-  expect(readResult(watcherNamed('bun'), BUN_FAILING)).toEqual(['overwatch bun ✗ 1 fail — adds', ['adds']])
+  expect(readResult(watcherNamed('jest'), JEST_FAILING)).toEqual(['overwatch jest ✗ 1 failed, 1 total: ./calc.test.js +1 more', ['./calc.test.js', 'adds']])
+  expect(readResult(watcherNamed('bun'), BUN_FAILING)).toEqual(['overwatch bun ✗ 1 fail: adds', ['adds']])
   expect(readReport(watcherNamed('bun'), ' 2 pass\n 0 fail\n')?.isFailed).toBe(false)
-  expect(readResult(watcherNamed('deno'), DENO_FAILING)).toEqual(['overwatch deno ✗ 1 passed | 1 failed (2ms) — adds => ./calc_test.ts:1:6', ['adds => ./calc_test.ts:1:6']])
+  expect(readResult(watcherNamed('deno'), DENO_FAILING)).toEqual(['overwatch deno ✗ 1 passed | 1 failed (2ms): adds => ./calc_test.ts:1:6', ['adds => ./calc_test.ts:1:6']])
   expect(readReport(watcherNamed('deno'), DENO_BROKEN)?.isFailed).toBe(true)
   expect(readReport(watcherNamed('deno'), 'ok | 2 passed | 0 failed (2ms)\nWatcher Test finished. Restarting on file change...\n')?.summary).toBe(
     'ok | 2 passed | 0 failed (2ms)',
@@ -697,18 +697,18 @@ test('JavaScript runners report what failed', () => {
 
 test('Go runners report what failed', () => {
   const gotestsum = WATCHERS.find(watcher => watcher.requires === 'gotestsum')!
-  expect(readResult(gotestsum, GOTESTSUM_FAILING)).toEqual(['overwatch go ✗ 2 tests, 1 failure in 0.184s — . TestAdd', ['. TestAdd']])
+  expect(readResult(gotestsum, GOTESTSUM_FAILING)).toEqual(['overwatch go ✗ 2 tests, 1 failure in 0.184s: . TestAdd', ['. TestAdd']])
   const go = WATCHERS.find(watcher => watcher.name === 'go' && watcher.requires === undefined)!
   expect(readReport(go, GO_FAILING)).toBeUndefined()
-  expect(readResult(go, GO_FAILING, 1)).toEqual(['overwatch go ✗ 1 failed — TestAdd', ['TestAdd']])
+  expect(readResult(go, GO_FAILING, 1)).toEqual(['overwatch go ✗ 1 failed: TestAdd', ['TestAdd']])
   expect(readResult(go, GO_BROKEN, 1)[1]).toEqual(['./calc_test.go:5:1: expected declaration, found syntax'])
   expect(readResult(go, 'ok  \texample.com/calc\t0.2s\n', 0)).toEqual(['overwatch go ✓ passed', []])
 })
 
 test('Rust reports compile and test failures', () => {
-  expect(readResult(watcherNamed('rust'), CARGO_FAILING, 101)).toEqual(['overwatch rust ✗ 1 failed — tests::adds', ['tests::adds']])
+  expect(readResult(watcherNamed('rust'), CARGO_FAILING, 101)).toEqual(['overwatch rust ✗ 1 failed: tests::adds', ['tests::adds']])
   expect(readResult(watcherNamed('rust'), CARGO_BROKEN, 101)).toEqual([
-    'overwatch rust ✗ 1 failed — error[E0308]: mismatched types',
+    'overwatch rust ✗ 1 failed: error[E0308]: mismatched types',
     ['error[E0308]: mismatched types'],
   ])
 })
@@ -808,7 +808,7 @@ test('a language the root lacks is watched in each sub-project that has it', asy
     ['/repo/services/web', 'bun', 'test', '--watch'],
     ['/repo/tools', 'cargo', 'test'],
   ])
-  expect(statuses.at(-1)).toContain('overwatch go services/api ✗ 1 failed — TestAdd')
+  expect(statuses.at(-1)).toContain('overwatch go services/api ✗ 1 failed: TestAdd')
   expect(statuses.at(-1)).toContain('overwatch rust tools ✓ passed')
   expect(prompts[0]).toContain('`go test ./...` in `services/api` failed')
 })
@@ -828,7 +828,7 @@ test('every language in a polyglot project gets its own watcher', async ($, on) 
   await clock.advance(1000)
   expect(sorted(spawned)).toEqual([['cargo', 'test'], ['go', 'test', './...'], ZIG_WATCH])
   expect(statuses).toContain(
-    'overwatch zig ✓ 4/4 steps succeeded; 48/48 tests passed · overwatch go ✗ 1 failed — TestAdd · overwatch rust ✗ 1 failed — tests::adds',
+    'overwatch zig ✓ 4/4 steps succeeded; 48/48 tests passed · overwatch go ✗ 1 failed: TestAdd · overwatch rust ✗ 1 failed: tests::adds',
   )
 })
 

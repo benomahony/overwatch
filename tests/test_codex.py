@@ -159,7 +159,7 @@ class CodexHookTests(unittest.TestCase):
         self.tool("cargo", "test tests::adds ... ok\ntest result: ok. 1 passed", 0)
 
         started, _ = self.call("SessionStart", source="startup")
-        self.assertEqual(started["systemMessage"], "Overwatch: go ✗ 1 failed — TestAdd")
+        self.assertEqual(started["systemMessage"], "Overwatch: go ✗ 1 failed: TestAdd")
         self.assertIn("Failing: `TestAdd`.", started["hookSpecificOutput"]["additionalContext"])
 
     def test_each_language_is_checked_at_once(self) -> None:
@@ -184,7 +184,7 @@ class CodexHookTests(unittest.TestCase):
         self.tool("cargo", "test result: ok. 1 passed", 0)
 
         started, _ = self.call("SessionStart", source="startup")
-        self.assertEqual(started["systemMessage"], "Overwatch: go services/api ✗ 1 failed — TestAdd")
+        self.assertEqual(started["systemMessage"], "Overwatch: go services/api ✗ 1 failed: TestAdd")
         self.assertIn("`go test ./...` in `services/api` failed", started["hookSpecificOutput"]["additionalContext"])
         self.assertEqual(Path(read(self.bin / "go.cwd").strip()).resolve(), (self.cwd / "services/api").resolve())
 
@@ -194,7 +194,7 @@ class CodexHookTests(unittest.TestCase):
         self.tool("gotestsum", "=== FAIL: . TestAdd (0.00s)\n\nDONE 2 tests, 1 failure in 0.184s", 1)
 
         started, _ = self.call("SessionStart", source="startup")
-        self.assertEqual(started["systemMessage"], "Overwatch: go ✗ 2 tests, 1 failure in 0.184s — . TestAdd")
+        self.assertEqual(started["systemMessage"], "Overwatch: go ✗ 2 tests, 1 failure in 0.184s: . TestAdd")
 
     def test_the_typescript_table_is_generated_from_watchers_json(self) -> None:
         self.assertEqual(read(table.TARGET), table.render(), "run python3 scripts/table.py")
@@ -204,7 +204,7 @@ class CodexHookTests(unittest.TestCase):
         self.tool("pytest", "FAILED tests/test_add.py::test_add - assert 10 == 11\n=== 1 failed, 2 passed in 0.03s ===", 1)
 
         started, _ = self.call("SessionStart", source="startup")
-        self.assertEqual(started["systemMessage"], "Overwatch: python ✗ 1 failed, 2 passed in 0.03s — tests/test_add.py::test_add")
+        self.assertEqual(started["systemMessage"], "Overwatch: python ✗ 1 failed, 2 passed in 0.03s: tests/test_add.py::test_add")
 
     def test_a_long_report_keeps_its_start_and_its_end(self) -> None:
         lines = [f"test tests::case_{i} ... ok" for i in range(2000)]

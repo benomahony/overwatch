@@ -233,6 +233,6 @@ const SUMMARY_DECORATION = /^Build Summary:\s*|^zanity:\s*|^=+\s*|\s*=+$|^Test F
 export function statusLine(watcher: Watcher, report: Report): string {
   const mark = report.isFailed ? '✗' : '✓'
   const [first, ...rest] = report.failures
-  const failing = first === undefined ? '' : ` — ${first}${rest.length > 0 ? ` +${rest.length} more` : ''}`
+  const failing = first === undefined ? '' : `: ${first}${rest.length > 0 ? ` +${rest.length} more` : ''}`
   return `overwatch ${watcher.name} ${mark} ${report.summary.replace(SUMMARY_DECORATION, '')}${failing}`
 }
