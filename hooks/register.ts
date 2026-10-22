@@ -7,9 +7,13 @@ import {
   WATCHERS,
   applyOverride,
   commandLine,
+  environmentIn,
+  environmentLine,
+  environmentMessage,
   exitMessage,
   failureMessage,
   gaveUpMessage,
+  hasRegression,
   languageOf,
   overrideWatcher,
   readReport,
@@ -36,8 +40,9 @@ const EDITING_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Ba
 
 /** One watcher's place beside the others: a language in the project or one of its sub-projects, or a checker such as zanity. */
 type Slot = {
-  /** The watcher's language and sub-project, which stay the same while the watcher run there may change. */
+  /** The watcher's language and the real path it runs in, which stay the same while the watcher run there may change. */
   key: string
+  dir: string
   isWatching: boolean
   /** When a watcher that ended soon after its start may be started again. */
   retryAt: number
@@ -46,9 +51,16 @@ type Slot = {
   kill: (() => Promise<unknown>) | undefined
   changed: (() => void) | undefined
   wasFailing: boolean
+  /** The first result that was not an environment error: what the project was like when the session found it. */
+  baseline: Report | undefined
+  /** What the agent was last told of this watcher, so a failure that repeats is told once. */
+  told: string | undefined
   /** This watcher's part of the plugin's one status line. */
   status: string | undefined
 }
+
+/** A message for the agent, waiting to go with the others that arrive with it; each slot has at most one of each kind waiting. */
+type Message = { text: string; isWaking: boolean; kind: 'report' | 'exit' | 'environment' | 'baseline' }
 
 type State = {
   /** The interactive session's directory; undefined before it starts and once it ends. */
@@ -57,6 +69,13 @@ type State = {
   epoch: number
   isTurnRunning: boolean
   isPromptQueued: boolean
+  /** Whether the running turn has had its one message from overwatch. */
+  isToldThisTurn: boolean
+  /** The messages not yet sent, by their slot's key and kind. */
+  outbox: Map<string, Message>
+  flushing: Timer | undefined
+  /** Each watcher's environment error the agent has been told of, so each is told once. */
+  environment: Set<string>
   /** Whether the project is being searched for watchers, and whether it should be again once that is done. */
   isFinding: boolean
   isFindDue: boolean
@@ -77,24 +96,122 @@ function setStatus($: EngineInterface, state: State, slot: Slot, text: string | 
   $.ui.status(parts.length === 0 ? undefined : parts.join(' · '))
 }
 
-/** Joins the running turn; with none, starts one only when `isWaking`. */
-async function tell($: EngineInterface, state: State, text: string, isWaking: boolean) {
+/**
+ * Gives the agent every waiting message as one: joined to the running turn,
+ * at most once a turn, or else as a new turn when one of them should wake
+ * the agent. The rest wait for the next turn.
+ */
+async function send($: EngineInterface, state: State) {
+  const messages = [...state.outbox.values()]
+  if (messages.length === 0) return
+  const isHeld = state.isTurnRunning ? state.isToldThisTurn : state.isPromptQueued || !messages.some(({ isWaking }) => isWaking)
+  if (isHeld) return
+  state.outbox.clear()
+  const reports = messages.flatMap(({ text, kind }) => (kind === 'environment' ? [] : [text]))
+  const environment = messages.flatMap(({ text, kind }) => (kind === 'environment' ? [text] : []))
+  const text = [...reports, ...(environment.length === 0 ? [] : [environmentMessage(environment)])].join('\n\n')
   if (state.isTurnRunning) {
+    state.isToldThisTurn = true
     await $.session.append({ message: { type: 'user', content: [{ type: 'text', text }] } })
     return
   }
-  if (!isWaking || state.isPromptQueued) return
   state.isPromptQueued = true
   await $.prompt.submit({ text })
 }
 
-async function deliver($: EngineInterface, { state, slot, watcher }: Run, report: Report) {
+/** Sends the waiting messages once the reports arriving with them are in. */
+function schedule($: EngineInterface, state: State) {
+  state.flushing?.cancel()
+  state.flushing = $.clock.after(QUIET_MS, () => void send($, state))
+}
+
+/** Holds a message for the agent in place of any of its kind this slot has waiting, unless the agent was already given it, by its `signature`. */
+function queue($: EngineInterface, { state, slot }: { state: State; slot: Slot }, signature: string, message: Message) {
+  const key = `${slot.key}:${message.kind}`
+  if (slot.told === signature && !state.outbox.has(key)) return
+  slot.told = signature
+  state.outbox.set(key, message)
+  schedule($, state)
+}
+
+/** Holds a watcher's environment error for the one summary of them, once for each. */
+function queueEnvironment($: EngineInterface, { state, slot, watcher }: Omit<Run, 'cwd'>, line: string) {
+  const key = `${slot.key}\n${line}`
+  if (state.environment.has(key)) return
+  state.environment.add(key)
+  state.outbox.set(`${slot.key}:environment`, { text: environmentLine(watcher, line), isWaking: false, kind: 'environment' })
+  schedule($, state)
+}
+
+/** Writes a watcher's full output where the agent can read it, keeping it out of the conversation; undefined when it cannot. */
+async function writeLog($: EngineInterface, slot: Slot, text: string, suffix = ''): Promise<string | undefined> {
+  const home = await $.env.get('HOME').catch(() => undefined)
+  if (home === undefined || home === '') return undefined
+  const path = `${home}/.cache/overwatch/logs/${slot.key.replace(/[^\w.-]+/g, '-')}${suffix}.log`
+  return $.fs.write(path, text).then(
+    () => path,
+    () => undefined,
+  )
+}
+
+/** Saves inherited issues once, with a compact pointer for deliberate backlog triage. */
+async function baselineInventory($: EngineInterface, run: Run, report: Report) {
+  if (!report.isFailed) return
+  const { state, slot, watcher } = run
+  const log = await writeLog($, slot, report.text, '.baseline')
+  if (log === undefined) return
+  const path = log + '.json'
+  const inventory = { checks: [{ name: watcher.name, dir: watcher.dir, command: commandLine(watcher),
+    summary: report.summary, failures: report.failures, log }] }
+  const saved = await $.fs.write(path, JSON.stringify(inventory)).then(() => true, () => false)
+  if (!saved || !slot.isWatching) return
+  const detail = report.failures.length > 0 ? report.failures.length + ' named issues' : 'individual issue names unavailable; see full log'
+  const text = 'overwatch: inherited backlog (' + detail + '). ' +
+    'It is not a Stop blocker; only new failures are guarded. Triage inventory: ' + path +
+    '. Filter or page it with hooks/triage.py; full output is linked there.'
+  state.outbox.set(slot.key + ':baseline', { text, isWaking: false, kind: 'baseline' })
+  schedule($, state)
+}
+
+/** Timings in a summary, which change from run to run of the same failure. */
+const TIMING = /\d+(?:\.\d+)?m?s\b/g
+
+/**
+ * Tells the agent of a failure its session caused: one the watcher's first
+ * result, its baseline, did not already have. An environment error is told
+ * once, apart from the code's failures.
+ */
+async function deliver($: EngineInterface, run: Run, report: Report) {
+  const { state, slot, watcher } = run
   setStatus($, state, slot, statusLine(watcher, report))
-  const isRecovery = !report.isFailed && slot.wasFailing
-  slot.wasFailing = report.isFailed
-  if (!report.isFailed && !isRecovery) return
-  const text = report.isFailed ? failureMessage(watcher, report) : recoveryMessage(watcher, report)
-  await tell($, state, text, report.isFailed)
+  if (report.environment !== undefined) {
+    queueEnvironment($, run, report.environment)
+    return
+  }
+  if (slot.baseline === undefined) {
+    slot.baseline = report
+    await baselineInventory($, run, report)
+    if (!slot.isWatching) return
+  }
+  const isRegression = hasRegression(report, slot.baseline)
+  const wasFailing = slot.wasFailing
+  slot.wasFailing = isRegression
+  if (isRegression) {
+    const known = slot.baseline.isFailed ? slot.baseline.failures : []
+    const knownNames = new Set(known)
+    const fresh = report.failures.filter(name => !knownNames.has(name))
+    const signature = `failed:${fresh.length > 0 ? [...fresh].sort().join('\n') : report.summary.replace(TIMING, '')}`
+    if (slot.told === signature && !state.outbox.has(`${slot.key}:report`)) return
+    const text = failureMessage(watcher, report, known, await writeLog($, slot, report.text))
+    queue($, run, signature, { text, isWaking: true, kind: 'report' })
+    return
+  }
+  if (!wasFailing) return
+  if (state.outbox.delete(`${slot.key}:report`)) {
+    slot.told = undefined
+    return
+  }
+  queue($, run, 'recovered', { text: recoveryMessage(watcher, report), isWaking: false, kind: 'report' })
 }
 
 /** Runs a command to its end and reports what it printed, unless it was stopped for a newer run first. */
@@ -189,10 +306,6 @@ async function watch($: EngineInterface, run: Run): Promise<Ending | undefined> 
     }
     flush?.cancel()
     if (!slot.isWatching) return undefined
-    // A report printed just before the exit is delivered now, before the status line says it exited.
-    const report = readReport(watcher, output)
-    if (report !== undefined) await deliver($, run, report)
-    $.ui.toast(`overwatch: ${commandLine(watcher)} exited`)
   } catch (error) {
     flush?.cancel()
     if (!slot.isWatching) return undefined
@@ -202,7 +315,35 @@ async function watch($: EngineInterface, run: Run): Promise<Ending | undefined> 
   } finally {
     slot.kill = undefined
   }
-  return { isStarted, startedAt, endedAt: await $.clock.now(), output }
+  if (!slot.isWatching) return undefined
+  const endedAt = await $.clock.now()
+  if (isStarted) await deliverExit($, run, output)
+  return { isStarted, startedAt, endedAt, output }
+}
+
+/** Delivers the last report before showing that the watcher exited. */
+async function deliverExit($: EngineInterface, run: Run, output: string) {
+  const report = readReport(run.watcher, output)
+  if (report !== undefined) await deliver($, run, report)
+  if (run.slot.isWatching) $.ui.toast(`overwatch: ${commandLine(run.watcher)} exited`)
+}
+
+/** Where `path` lands once its links are followed; the path itself when it cannot be resolved. */
+async function realPath($: EngineInterface, path: string): Promise<string> {
+  return $.fs
+    .stat(path, { resolve: true })
+    .then(({ realPath }) => realPath ?? path)
+    .catch(() => path)
+}
+
+/** The real path of the git repository holding `dir`, the nearest directory with a `.git`; undefined outside one. */
+async function repositoryOf($: EngineInterface, dir: string): Promise<string | undefined> {
+  let at = (await realPath($, dir)).replace(/\/$/, '')
+  while (true) {
+    if (await $.fs.exists(`${at}/.git`)) return at === '' ? '/' : at
+    if (at === '') return undefined
+    at = at.slice(0, at.lastIndexOf('/'))
+  }
 }
 
 async function readOverride($: EngineInterface, cwd: string): Promise<Override> {
@@ -276,7 +417,7 @@ async function findWatchers($: EngineInterface, cwd: string, override: Override)
       const watcher = await firstPresent($, alternatives, marker => hasMarker($, `${cwd}/${dir}`, names, marker))
       if (watcher === undefined) continue
       claimed.push(dir)
-      found.push({ ...watcher, name: `${watcher.name} ${dir}`, dir })
+      found.push({ ...watcher, language, name: `${watcher.name} ${dir}`, dir })
     }
   }
   const [first, ...rest] = found
@@ -303,10 +444,19 @@ async function findAll($: EngineInterface, cwd: string): Promise<Watcher[]> {
   return [...(await findWatchers($, cwd, override)), ...checkers]
 }
 
-const keyOf = (watcher: Watcher) => `${languageOf(watcher)}:${watcher.dir ?? ''}`
+/** The watchers of the git repository holding `cwd`, each with the real path it runs in; none outside a repository. */
+async function findIn($: EngineInterface, cwd: string): Promise<{ watcher: Watcher; dir: string }[]> {
+  const root = await repositoryOf($, cwd)
+  if (root === undefined) return []
+  const watchers = await findAll($, root)
+  return Promise.all(
+    watchers.map(async watcher => ({ watcher, dir: await realPath($, watcher.dir === undefined ? root : `${root}/${watcher.dir}`) })),
+  )
+}
 
 /**
- * Finds the project's watchers afresh, reading its markers and override, so a
+ * Finds the watchers of the git repository the session is in afresh, reading
+ * its markers and override, so a
  * project scaffolded mid-session gets its watcher, and starts each that is
  * not running or waiting out a retry. One search runs at a time; asked for
  * during one, another follows it. A watcher that exits is restarted, see `restart`.
@@ -320,29 +470,30 @@ async function ensureAll($: EngineInterface, state: State) {
   }
   state.isFinding = true
   state.isFindDue = false
-  const watchers = await findAll($, cwd).finally(() => {
+  const watchers = await findIn($, cwd).finally(() => {
     state.isFinding = false
   })
   if (state.epoch !== epoch) return
   const now = await $.clock.now()
-  for (const watcher of watchers) {
-    const key = keyOf(watcher)
+  for (const { watcher, dir } of watchers) {
+    const key = `${languageOf(watcher)}:${dir}`
     let found = state.slots.find(each => each.key === key)
     if (found === undefined) {
-      found = slot(key)
+      found = slot(key, dir)
       state.slots.push(found)
     }
-    if (!found.isWatching && now >= found.retryAt) void start($, state, found, watcher)
+    if (found.isWatching || now < found.retryAt) continue
+    found.isWatching = true
+    void start($, state, found, watcher)
   }
   if (state.isFindDue) await ensureAll($, state)
 }
 
 async function start($: EngineInterface, state: State, slot: Slot, watcher: Watcher) {
-  const { cwd, epoch } = state
-  if (cwd === undefined) return
+  const { epoch } = state
   slot.isWatching = true
   slot.retryAt = 0
-  const ending = await watch($, { state, slot, watcher, cwd: watcher.dir === undefined ? cwd : `${cwd}/${watcher.dir}` })
+  const ending = await watch($, { state, slot, watcher, cwd: slot.dir })
   if (ending === undefined || state.epoch !== epoch) return
   await restart($, { state, slot, watcher, ending })
 }
@@ -351,8 +502,10 @@ async function start($: EngineInterface, state: State, slot: Slot, watcher: Watc
  * After a watcher ends of itself: one that ran RETRY_MS or longer restarts at
  * once; a quick exit waits RETRY_MS, doubling with each one in a row, until
  * GIVE_UP_AFTER of them, when only a turn starts it again, still RETRY_MS
- * apart. The status line says it is down and the agent is told, woken only
- * once overwatch gives up, since until then the watcher comes back on its own.
+ * apart. The status line says it is down and the agent is told during a
+ * turn, woken only once overwatch gives up, since until then the watcher
+ * comes back on its own. One that cannot run in this environment is told of
+ * once, in the environment summary, and never wakes the agent.
  */
 async function restart($: EngineInterface, { state, slot, watcher, ending }: Restart) {
   const { epoch } = state
@@ -361,11 +514,16 @@ async function restart($: EngineInterface, { state, slot, watcher, ending }: Res
   slot.quickExits = isQuick ? slot.quickExits + 1 : 0
   slot.isWatching = false
   const what = isStarted ? `${commandLine(watcher)} exited` : `could not start ${commandLine(watcher)}`
+  const environment = environmentIn(output)
+  if (environment !== undefined) queueEnvironment($, { state, slot, watcher }, environment)
   if (slot.quickExits >= GIVE_UP_AFTER) {
     slot.retryAt = endedAt + RETRY_MS
     const status = `${what} ${slot.quickExits} times in a row; retrying at the first turn after ${RETRY_MS / 1000}s`
     setStatus($, state, slot, `overwatch ${watcher.name}: ${status}`)
-    if (slot.quickExits === GIVE_UP_AFTER) await tell($, state, gaveUpMessage(watcher, slot.quickExits, RETRY_MS, output), true)
+    if (slot.quickExits === GIVE_UP_AFTER && environment === undefined) {
+      const text = gaveUpMessage(watcher, slot.quickExits, RETRY_MS, await writeLog($, slot, output))
+      queue($, { state, slot }, `exited:${output}`, { text, isWaking: true, kind: 'exit' })
+    }
     return
   }
   const delay = isQuick ? RETRY_MS * 2 ** (slot.quickExits - 1) : 0
@@ -376,17 +534,41 @@ async function restart($: EngineInterface, { state, slot, watcher, ending }: Res
     $.clock.after(delay, () => {
       if (state.epoch === epoch) void ensureAll($, state)
     })
-  await tell($, state, exitMessage(watcher, delay), false)
+  if (environment !== undefined || !state.isTurnRunning) return
+  queue($, { state, slot }, `exited:${output}`, { text: exitMessage(watcher, delay), isWaking: false, kind: 'exit' })
 }
 
-const slot = (key: string): Slot => ({
+/** Stops every watcher and forgets what the session found and told, so the next session starts afresh. */
+async function stop($: EngineInterface, state: State) {
+  state.cwd = undefined
+  state.epoch += 1
+  state.flushing?.cancel()
+  state.outbox.clear()
+  state.environment.clear()
+  const slots = state.slots.map(each => {
+    each.isWatching = false
+    each.changed = undefined
+    each.wasFailing = false
+    each.baseline = undefined
+    each.told = undefined
+    each.status = undefined
+    return each.kill?.()
+  })
+  await Promise.all(slots)
+  $.ui.status(undefined)
+}
+
+const slot = (key: string, dir: string): Slot => ({
   key,
+  dir,
   isWatching: false,
   retryAt: 0,
   quickExits: 0,
   kill: undefined,
   changed: undefined,
   wasFailing: false,
+  baseline: undefined,
+  told: undefined,
   status: undefined,
 })
 
@@ -396,6 +578,10 @@ export const register: Register = on => {
     epoch: 0,
     isTurnRunning: false,
     isPromptQueued: false,
+    isToldThisTurn: false,
+    outbox: new Map(),
+    flushing: undefined,
+    environment: new Set(),
     isFinding: false,
     isFindDue: false,
     slots: [],
@@ -411,35 +597,32 @@ export const register: Register = on => {
 
   on('tool.call', async ($, e, next) => {
     const result = await next(e)
-    if (EDITING_TOOLS.has(e.tool)) for (const each of state.slots) each.changed?.()
+    if (!EDITING_TOOLS.has(e.tool)) return result
+    for (const each of state.slots) each.changed?.()
     return result
   })
 
   on('turn.start', ($, e, next) => {
     state.isTurnRunning = true
+    state.isToldThisTurn = state.isPromptQueued
     state.isPromptQueued = false
+    schedule($, state)
     void ensureAll($, state)
     return next(e)
   })
 
   on('turn.complete', ($, e, next) => {
-    if (e.agentId === undefined) state.isTurnRunning = false
+    if (e.agentId === undefined) {
+      state.isTurnRunning = false
+      schedule($, state)
+    }
     void ensureAll($, state)
     return next(e)
   })
 
   on('session.end', async ($, e, next) => {
     if (e.reason === 'clear') return next(e)
-    state.cwd = undefined
-    state.epoch += 1
-    const slots = state.slots.map(each => {
-      each.isWatching = false
-      each.changed = undefined
-      each.status = undefined
-      return each.kill?.()
-    })
-    await Promise.all(slots)
-    $.ui.status(undefined)
+    await stop($, state)
     return next(e)
   })
 }

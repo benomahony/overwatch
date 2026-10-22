@@ -11,9 +11,22 @@ export const TABLE = {
       "venv",
       "__pycache__",
       "zig-cache",
-      "zig-out"
+      "zig-out",
+      "Downloads",
+      "Desktop",
+      "tmp",
+      "temp",
+      "scratch"
     ]
   },
+  "environment": [
+    "Failed to (?:fetch|download):? `",
+    "error sending request for url",
+    "dns error|failed to lookup address information|nodename nor servname provided|Temporary failure in name resolution|Name or service not known",
+    "\\bno wheels? (?:with a matching|for|available for)\\b",
+    "`\\.python-version`|No interpreter found for Python|is incompatible with the project's Python requirement",
+    "KeyError: '[A-Z0-9_]*(?:API_KEY|TOKEN|SECRET)[A-Z0-9_]*'|api_key client option must be set|[A-Z][A-Z0-9_]*_API_KEY environment variable|[Mm]issing (?:an? )?API key|API key (?:is )?(?:not set|not found|missing|required)"
+  ],
   "watchers": [
     {
       "name": "zig",

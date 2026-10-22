@@ -2,9 +2,11 @@
 """One-shot check runner for Overwatch's coding-agent adapters.
 
 Command hooks and in-process plugins call this runner with a Claude-style hook
-event. It runs one build whenever the workspace changes and caches its result
-for later hooks. A configured watch command is stopped after its first complete
-report.
+event. It checks the git repository holding the event's directory, and nothing
+outside one. It runs one build whenever the workspace changes and caches its
+result for later hooks. A configured watch command is stopped after its first
+complete report. The first result of each check is its baseline: only failures
+it did not have are reported, each once, with the full output in a log file.
 """
 
 from __future__ import annotations
@@ -24,7 +26,6 @@ from typing import Any
 
 
 OVERRIDE_PATH = ".overwatch.json"
-REPORT_LIMIT = 8_000
 COMMAND_TIMEOUT = 540
 FAILURE_LIMIT = 10
 # Colour codes, which some tools (deno) print even into a pipe.
@@ -43,6 +44,8 @@ CHECKERS: tuple[dict[str, Any], ...] = tuple(TABLE["checkers"])
 # and these.
 SEARCH_DEPTH: int = TABLE["search"]["depth"]
 SEARCH_SKIP: frozenset[str] = frozenset(TABLE["search"]["skip"])
+# Lines that mean a command could not run where it is, which no change to the code fixes.
+ENVIRONMENT: tuple[re.Pattern[str], ...] = tuple(re.compile(pattern) for pattern in TABLE["environment"])
 
 
 class ConfigurationError(Exception):
@@ -270,22 +273,21 @@ def failures_in(watcher: dict[str, Any], output: str) -> list[str]:
     if "failure" not in watcher:
         return []
     names: list[str] = []
+    seen: set[str] = set()
     for match in re.finditer(watcher["failure"], output, re.MULTILINE):
         name = next((group for group in match.groups() if group is not None), "").strip()
-        if name and name not in names:
+        if name and name not in seen:
+            seen.add(name)
             names.append(name)
     return names
 
 
-def clip(text: str) -> str:
-    """Cuts a report to about REPORT_LIMIT, at line ends: its first quarter, and the rest from its end, where most
-    tools (cargo, go, pytest) print what failed and why."""
-    if len(text) <= REPORT_LIMIT:
-        return text
-    head = text[: text.rfind("\n", 0, REPORT_LIMIT // 4 + 1) + 1 or REPORT_LIMIT // 4]
-    start = len(text) - (REPORT_LIMIT - len(head))
-    tail = text.find("\n", start) + 1 or start
-    return f"{head}… {tail - len(head)} characters cut …\n{text[tail:]}"
+def environment_in(output: str) -> str | None:
+    """The first line saying the command failed for want of something in its environment, not because of the code."""
+    for line in output.splitlines():
+        if any(pattern.search(line) for pattern in ENVIRONMENT):
+            return line.strip()
+    return None
 
 
 def read_report(watcher: dict[str, Any], output: str, code: int | None = None) -> dict[str, Any] | None:
@@ -303,8 +305,6 @@ def read_report(watcher: dict[str, Any], output: str, code: int | None = None) -
     else:
         failed = code != 0
         summary = (f"{len(failures)} failed" if failures else f"exited with code {code}") if failed else "passed"
-    text = clean.strip()
-    text = clip(text)
     selected = command_for(watcher)
     assert selected is not None
     return {
@@ -314,7 +314,8 @@ def read_report(watcher: dict[str, Any], output: str, code: int | None = None) -
         "summary": summary,
         "failed": failed,
         "failures": failures if failed else [],
-        "text": text,
+        "environment": environment_in(clean) if failed else None,
+        "text": clean.strip(),
     }
 
 
@@ -374,6 +375,23 @@ def fingerprint(cwd: Path) -> str:
     return digest.hexdigest()
 
 
+def repository_of(cwd: Path) -> Path | None:
+    """The root of the git repository holding cwd; None outside one."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=cwd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=5,
+            check=True,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return Path(result.stdout.strip()).resolve()
+
+
 def state_path(event: dict[str, Any], cwd: Path) -> Path:
     data = Path(os.environ.get("PLUGIN_DATA", Path.home() / ".cache" / "overwatch"))
     identity = f"{event.get('session_id', '')}\0{cwd}"
@@ -410,14 +428,68 @@ def where(report: dict[str, Any]) -> str:
     return f" in `{report['dir']}`" if report.get("dir") else ""
 
 
-def failure_message(reports: list[dict[str, Any]]) -> str:
-    failures = [report for report in reports if report["failed"]]
-    return "\n\n".join(
-        f"overwatch: `{report['command']}`{where(report)} failed after the latest change.\n"
-        f"{failing_line(report.get('failures', []))}"
-        "Fix it before carrying on. If you are midway through a change that touches several files, finish it first.\n\n"
-        f"```\n{report['text']}\n```"
-        for report in failures
+def key_of(report: dict[str, Any]) -> str:
+    return f"{report['name']}\0{report.get('dir') or ''}"
+
+
+def known_failures(report: dict[str, Any], baseline: dict[str, Any]) -> list[str]:
+    """The failures this check already had when the session started."""
+    first = baseline.get(key_of(report), {})
+    return list(first.get("failures", [])) if first.get("failed") else []
+
+
+def is_regression(report: dict[str, Any], baseline: dict[str, Any]) -> bool:
+    """Whether a report fails in a way its baseline, the session's first result, did not."""
+    if not report["failed"] or report.get("environment"):
+        return False
+    first = baseline.get(key_of(report), {})
+    known = set(known_failures(report, baseline))
+    if not first.get("failed") or any(name not in known for name in report.get("failures", [])):
+        return True
+    if "summary" not in first:
+        return False
+    previous = failure_counts(first["summary"])
+    return any(count > previous.get(kind, 0) for kind, count in failure_counts(report["summary"]).items())
+
+
+def failure_counts(summary: str) -> dict[str, int]:
+    """Counts are a fallback when a runner does not identify individual issues."""
+    counts: dict[str, int] = {}
+    for number, label in re.findall(r"(\d+)\s+(errors?|warnings?|failures?|failed|fail)\b", summary):
+        kind = "error" if label.startswith("error") else "warning" if label.startswith("warning") else "failure"
+        counts[kind] = max(counts.get(kind, 0), int(number))
+    return counts
+
+
+def write_log(path: Path, report: dict[str, Any], prefix: str = "") -> Path:
+    """Writes a report's full output beside the session's state, keeping it out of the conversation."""
+    log = path.with_suffix("") / f"{prefix}{hashlib.sha256(key_of(report).encode()).hexdigest()[:16]}.log"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    log.write_text(report["text"])
+    return log
+
+
+def failure_message(reports: list[dict[str, Any]], baseline: dict[str, Any], logs: dict[str, Path]) -> str:
+    messages: list[str] = []
+    for report in reports:
+        known = set(known_failures(report, baseline))
+        fresh = [name for name in report.get("failures", []) if name not in known]
+        old = len(report.get("failures", [])) - len(fresh)
+        messages.append(
+            f"overwatch: `{report['command']}`{where(report)} failed after the latest change: {report['summary']}\n"
+            f"{failing_line(fresh)}"
+            f"{f'{old} more were already failing when the session started.' + chr(10) if old else ''}"
+            "Fix these new failures before finishing. Tools remain available while you investigate.\n"
+            f"Full output: `{logs[key_of(report)]}`"
+        )
+    return "\n\n".join(messages)
+
+
+def environment_message(reports: list[dict[str, Any]]) -> str:
+    lines = "\n".join(f"- `{report['command']}`{where(report)}: {report['environment']}" for report in reports)
+    return (
+        "overwatch: these checks cannot run in this environment, so they are not reporting. "
+        f"This is not caused by your changes and needs no code change:\n{lines}"
     )
 
 
@@ -432,7 +504,6 @@ def failure_status(reports: list[dict[str, Any]]) -> str:
     summaries = " · ".join(
         f"{report['name']} ✗ {SUMMARY_DECORATION.sub('', report['summary'])}{failing_suffix(report.get('failures', []))}"
         for report in reports
-        if report["failed"]
     )
     return f"Overwatch: {summaries}"
 
@@ -451,39 +522,114 @@ def context_output(event_name: str, text: str) -> dict[str, Any]:
     }
 
 
+def report_state(reports: list[dict[str, Any]], old: dict[str, Any]) -> dict[str, Any]:
+    baseline = dict(old.get("baseline", {}))
+    keyed = [(key_of(report), report) for report in reports]
+    for key, report in keyed:
+        if not report.get("environment"):
+            baseline.setdefault(key, {"failed": report["failed"], "failures": report.get("failures", []),
+                                      "summary": report["summary"]})
+    regressions = [report for report in reports if is_regression(report, baseline)]
+    signatures = regression_signatures(regressions, baseline)
+    blocked = sorted(set(old.get("blocked", [])) & set(signatures))
+    return {"reports": reports, "baseline": baseline, "failed": bool(regressions),
+            "told": json.dumps(signatures) if regressions else None,
+            "signatures": signatures, "blocked": blocked}
+
+
+def regression_signatures(reports: list[dict[str, Any]], baseline: dict[str, Any]) -> list[str]:
+    signatures: list[str] = []
+    for report in reports:
+        known = set(known_failures(report, baseline))
+        fresh = [name for name in report.get("failures", []) if name not in known]
+        identities = fresh or [re.sub(r"\d+(?:\.\d+)?m?s\b", "", report["summary"])]
+        signatures.extend(json.dumps([key_of(report), identity]) for identity in identities)
+    return sorted(signatures)
+
+
+def block_stop(event: dict[str, Any], current: dict[str, Any]) -> bool:
+    if event.get("hook_event_name") != "Stop" or event.get("stop_hook_active"):
+        return False
+    pending = set(current["signatures"]) - set(current["blocked"])
+    current["blocked"] = current["signatures"]
+    return bool(pending)
+
+
+def baseline_inventory(old: dict[str, Any], current: dict[str, Any], path: Path) -> str:
+    """Keep the inherited backlog inspectable without putting it in model context."""
+    added = [report for report in current["reports"]
+             if key_of(report) not in old.get("baseline", {}) and report["failed"] and not report.get("environment")]
+    if not added:
+        return ""
+    inventory = path.with_suffix(".baseline.json")
+    try:
+        checks = json.loads(inventory.read_text())["checks"]
+    except (OSError, ValueError, KeyError):
+        checks = []
+    for report in added:
+        log = write_log(path, report, "baseline-")
+        checks.append({**{key: value for key, value in report.items() if key != "text"}, "log": str(log)})
+    inventory.write_text(json.dumps({"checks": checks}, indent=2))
+    count = sum(len(report.get("failures", [])) for report in added)
+    detail = f"{count} named issues" if count else "individual issue names unavailable; see full logs"
+    return (f"overwatch: inherited backlog in {len(added)} checks ({detail}). "
+            "It is not a Stop blocker; only new failures are guarded. "
+            f"Triage inventory: `{inventory}`. Filter or page it with hooks/triage.py; full logs are linked there.")
+
+
+def new_environment(reports: list[dict[str, Any]], told: list[str]) -> list[dict[str, Any]]:
+    return [report for report in reports if report.get("environment") and report["environment"] not in told]
+
+
+def process_event(event: dict[str, Any]) -> dict[str, Any]:
+    cwd = repository_of(Path(str(event.get("cwd") or os.getcwd())).resolve())
+    if cwd is None:
+        return {}
+    old = load_state(event, cwd)
+    before = fingerprint(cwd)
+    should_run = not old or old.get("fingerprint") != before
+    watchers = find_watchers(cwd)
+    reports = run_checks(cwd, watchers) if should_run else old.get("reports", [])
+    current = report_state(reports, old)
+    told = list(old.get("environment", []))
+    environment = new_environment(reports, told)
+    current.update({
+        "fingerprint": fingerprint(cwd) if should_run else before,
+        "environment": [*told, *(report["environment"] for report in environment)],
+    })
+    output = report_output(event, old, current, state_path(event, cwd))
+    save_state(event, cwd, current)
+    return output
+
+
+def report_output(event: dict[str, Any], old: dict[str, Any], current: dict[str, Any], path: Path) -> dict[str, Any]:
+    reports = current["reports"]
+    environment = new_environment(reports, list(old.get("environment", [])))
+    baseline_notice = baseline_inventory(old, current, path)
+    parts: list[str] = [baseline_notice] if baseline_notice else []
+    output: dict[str, Any] = {}
+    blocking = block_stop(event, current)
+    if blocking or (current["failed"] and current["told"] != old.get("told")):
+        regressions = [report for report in reports if is_regression(report, current["baseline"])]
+        logs = {key_of(report): write_log(path, report) for report in regressions}
+        message = failure_message(regressions, current["baseline"], logs)
+        parts.append(message)
+        output["systemMessage"] = failure_status(regressions)
+        if blocking:
+            output.update({"decision": "block", "reason": message})
+    elif not current["failed"] and old.get("failed"):
+        parts.append(recovery_message(reports))
+    if environment:
+        parts.append(environment_message(environment))
+        output.setdefault("systemMessage", "Overwatch: some checks cannot run in this environment")
+    if parts:
+        output.update(context_output(str(event.get("hook_event_name", "")), "\n\n".join(parts)))
+    return output
+
+
 def main() -> int:
     try:
-        event = read_event()
-        event_name = str(event.get("hook_event_name", ""))
-        cwd = Path(str(event.get("cwd") or os.getcwd())).resolve()
-        old = load_state(event, cwd)
-        before = fingerprint(cwd)
-        should_run = not old or old.get("fingerprint") != before
-        watchers = find_watchers(cwd)
-        if should_run:
-            reports = run_checks(cwd, watchers)
-            failed = any(report["failed"] for report in reports)
-            state = {"fingerprint": fingerprint(cwd), "failed": failed, "reports": reports}
-            save_state(event, cwd, state)
-        else:
-            reports = old.get("reports", [])
-            failed = bool(old.get("failed"))
-
-        was_failing = bool(old.get("failed"))
-        if failed:
-            message = failure_message(reports)
-            status = failure_status(reports)
-            if event_name in {"Stop", "PostToolUse"}:
-                output = context_output(event_name, message)
-                output.update({"decision": "block", "reason": message})
-            else:
-                output = context_output(event_name, message)
-            output["systemMessage"] = status
-        elif should_run and was_failing:
-            output = context_output(event_name, recovery_message(reports))
-        else:
-            output = {}
-        print(json.dumps(output))
+        print(json.dumps(process_event(read_event())))
         return 0
     except ConfigurationError as error:
         print(json.dumps({"systemMessage": f"overwatch: {error}"}))

@@ -9,7 +9,7 @@ With Claude Code:
 - **Back to green:** the agent is told during a turn; otherwise the status line shows it.
 - The status line always shows the latest result, for example `overwatch zig ✓ 4/4 steps succeeded; 48/48 tests passed`.
 
-With Codex, overwatch runs the full suite when a session starts, checks again after tools change the workspace, and prevents the turn from stopping while the latest result is red. A change made outside Codex is picked up with the next prompt. Overwatch supplies transient status text while each check runs, though not every Codex surface renders it, and a concise visible warning when one fails; the full report goes to the agent. Codex's status line does not currently accept persistent plugin-defined fields. Codex does not currently let a plugin start a new turn in an idle session, so that is the one difference from the Claude Code behavior above.
+With Codex, overwatch runs the full suite when a session starts, checks again after tools change the workspace, and reports new failures after edits, then blocks Stop once for each distinct new failure. Tools remain available for investigation and fixes; repeated Stop events and the immediate Stop-hook continuation do not loop on the same failure. A change made outside Codex is picked up with the next prompt. Overwatch supplies transient status text while each check runs, though not every Codex surface renders it, and a concise visible warning for each distinct new failure, with full output saved to a log file. Existing failures form the session baseline, with a compact triage notice and full logs saved separately. They do not block Stop. Codex's status line does not currently accept persistent plugin-defined fields. Codex does not currently let a plugin start a new turn in an idle session, so that is the one difference from the Claude Code behavior above.
 
 With OpenCode, overwatch checks the project at session start, before model calls, and after editing tools. OpenCode 1 appends a red report to the editing tool's result and warns if the session goes idle. OpenCode 2 also queues one correction pass when the session tries to settle while red.
 
@@ -17,7 +17,7 @@ With Pi, overwatch runs the full suite at session start, adds failures to editin
 
 With Neovim, the same long-running watchers put failures in the quickfix list and expose their latest result to status lines, with no agent involved.
 
-Every integration runs the whole suite once before accepting the project's initial state, so you see every test green or the agent gets the failures before any change is made.
+Every integration runs the whole suite once to establish the session baseline. Existing failures remain visible in status and a triage inventory; only regressions against that baseline demand a correction.
 
 In Claude Code, the watcher starts with an interactive session, survives `/clear`, and stops when the session ends. overwatch looks for watchers again as each turn starts and completes, so a project scaffolded mid-session (`uv init`, `zig init`), or a sub-project added to one, is watched by its next turn at the latest. A watcher that exits is restarted at once, and the status line says so instead of keeping the last result; one that could not start, or exited within 30 seconds of starting, waits 30 seconds first, then 60. After three such quick exits in a row overwatch stops restarting it on its own and tries again only as turns start, at most every 30 seconds. The agent is told during a turn whenever the watcher exits, and woken with what the watcher last printed when overwatch gives up. Setting `"enabled": false` in `.overwatch.json` takes effect at the next check, with no restart.
 
@@ -74,6 +74,20 @@ A project with no marker file is watched when its override names `summary`, `fai
   "failed": "^[1-9]\\d* fail$"
 }
 ```
+
+### Legacy-code triage
+
+A legacy project can start with thousands of errors. Overwatch records the first result of each check as inherited backlog and sends one short notice with the inventory path. It saves all named issues and the full original output outside the conversation. Fixing that backlog is deliberate work; it does not prevent ordinary tools or Stop events. A new failure still gets its own Stop guard, even if other errors were already present.
+
+Inspect a small batch from the inventory path in the notice:
+
+```sh
+python3 hooks/triage.py /path/from/notice.baseline.json --limit 20
+python3 hooks/triage.py /path/from/notice.baseline.json --check go --match TestAdd --limit 10
+python3 hooks/triage.py /path/from/notice.baseline.json --offset 20 --limit 20 --json
+```
+
+Run the script from your Overwatch checkout or use its installed absolute path. `--check` matches the check, command, or subproject; `--match` searches issue names, both without case sensitivity. The view groups by check and pages the initial snapshot, with links to full logs. It does not rerun checks or silently accept new regressions. When a runner does not name individual issues, the inventory contains its summary and full log instead. An increase in its reported error, warning, or failure counts is treated as a regression; a replacement issue with the same count cannot be distinguished without issue names.
 
 ## Install
 

@@ -61,6 +61,7 @@ type Entry = {
 
 const table: {
   search: { depth: number; skip: readonly string[] }
+  environment: readonly string[]
   watchers: readonly Entry[]
   checkers: readonly Entry[]
 } = TABLE
@@ -87,18 +88,16 @@ export const WATCHERS: readonly Watcher[] = table.watchers.map(watcherOf)
 /** Checkers run beside the project's watcher, in any project, whenever their executable is on PATH. */
 export const CHECKERS: readonly Watcher[] = table.checkers.map(watcherOf)
 
-export const REPORT_LIMIT = 8000
+/** Lines that mean a command could not run where it is, offline or missing an interpreter, a wheel or a key, which no change to the code fixes. */
+const ENVIRONMENT: readonly RegExp[] = table.environment.map(pattern => new RegExp(pattern))
 
-/**
- * Cuts a report to about REPORT_LIMIT, at line ends: its first quarter, where
- * the run starts, and the rest from its end, where most tools (cargo, go,
- * pytest) print what failed and why.
- */
-export function clip(text: string): string {
-  if (text.length <= REPORT_LIMIT) return text
-  const head = text.slice(0, text.lastIndexOf('\n', REPORT_LIMIT / 4) + 1 || REPORT_LIMIT / 4)
-  const from = text.indexOf('\n', text.length - (REPORT_LIMIT - head.length)) + 1 || text.length - (REPORT_LIMIT - head.length)
-  return `${head}… ${from - head.length} characters cut …\n${text.slice(from)}`
+/** The first line of `output` that says it failed for want of something in its environment, not because of the code. */
+export function environmentIn(output: string): string | undefined {
+  return output
+    .replace(ANSI, '')
+    .split('\n')
+    .find(line => ENVIRONMENT.some(pattern => pattern.test(line)))
+    ?.trim()
 }
 
 /** How many failing tests a message names before it says how many more there are. */
@@ -130,7 +129,33 @@ export function overrideWatcher(override: Override): Watcher | undefined {
   return applyOverride({ name: 'project', language: 'project', marker: OVERRIDE_PATH }, override)
 }
 
-export type Report = { summary: string; isFailed: boolean; text: string; failures: readonly string[] }
+export type Report = {
+  summary: string
+  isFailed: boolean
+  text: string
+  failures: readonly string[]
+  /** For a failed build, the line saying its environment, not its code, stopped it. */
+  environment?: string
+}
+
+/** Compare counts when a runner does not give enough issue identities to identify a regression. */
+function summaryCounts(summary: string): Map<string, number> {
+  const counts = new Map<string, number>()
+  for (const match of summary.matchAll(/(\d+)\s+(errors?|warnings?|failures?|failed|fail)\b/g)) {
+    const label = match[2] ?? ''
+    const kind = label.startsWith('error') ? 'error' : label.startsWith('warning') ? 'warning' : 'failure'
+    counts.set(kind, Math.max(counts.get(kind) ?? 0, Number(match[1])))
+  }
+  return counts
+}
+
+export function hasRegression(report: Report, baseline: Report): boolean {
+  if (!report.isFailed) return false
+  const known = new Set(baseline.failures)
+  if (!baseline.isFailed || report.failures.some(name => !known.has(name))) return true
+  const before = summaryCounts(baseline.summary)
+  return [...summaryCounts(report.summary)].some(([kind, count]) => count > (before.get(kind) ?? 0))
+}
 
 /** Colour codes, which some tools (deno) print even into a pipe. */
 const ANSI = /\x1b\[[0-9;?]*[A-Za-z]/g
@@ -163,12 +188,13 @@ export function readReport(watcher: Watcher, output: string, code?: number | nul
     const failed = failures.length > 0 ? `${failures.length} failed` : code === null ? 'ended by a signal' : `exited with code ${code}`
     summary = isFailed ? failed : 'passed'
   }
-  const text = clean.trim()
+  const environment = isFailed ? environmentIn(clean) : undefined
   return {
     summary,
     isFailed,
-    text: clip(text),
+    text: clean.trim(),
     failures: isFailed ? failures : [],
+    ...(environment === undefined ? {} : { environment }),
   }
 }
 
@@ -189,26 +215,44 @@ function failingLine(failures: readonly string[]): string[] {
   return [`Failing: ${named}${more}.`]
 }
 
-export function failureMessage(watcher: Watcher, report: Report): string {
+/** Where the full output is, which the agent reads only when the summary is not enough. */
+function logLine(log: string | undefined): string[] {
+  return log === undefined ? [] : [`Full output: \`${log}\``]
+}
+
+/**
+ * Tells the agent what its changes broke: the failures that are new since the
+ * session started, how many it already had, and where the full output is.
+ */
+export function failureMessage(watcher: Watcher, report: Report, known: readonly string[], log: string | undefined): string {
+  const knownNames = new Set(known)
+  const fresh = report.failures.filter(name => !knownNames.has(name))
+  const old = report.failures.length - fresh.length
   return [
-    `overwatch: ${command(watcher)} failed after the latest change.`,
-    ...failingLine(report.failures),
-    'Fix it before carrying on. If you are midway through a change that touches several files, finish it first; overwatch reports again after every rebuild.',
-    '',
-    '```',
-    report.text,
-    '```',
+    `overwatch: ${command(watcher)} failed after the latest change: ${report.summary}`,
+    ...failingLine(fresh),
+    ...(old === 0 ? [] : [`${old} more were already failing when the session started.`]),
+    'Fix these new failures before finishing. Tools remain available while you investigate.',
+    ...logLine(log),
   ].join('\n')
 }
 
 export function recoveryMessage(watcher: Watcher, report: Report): string {
+  if (report.isFailed) return `overwatch: ${command(watcher)} is back to the failures it had when the session started. ${report.summary}`
   return `overwatch: ${command(watcher)} is green again. ${report.summary}`
 }
 
-/** Cuts what a command printed to REPORT_LIMIT, keeping its end, where the reason it stopped is. */
-function tail(output: string): string {
-  const text = output.replace(ANSI, '').trim()
-  return text.length > REPORT_LIMIT ? `… ${text.length - REPORT_LIMIT} earlier characters cut\n${text.slice(-REPORT_LIMIT)}` : text
+/** One watcher's line in the environment summary: the command and why it cannot run. */
+export function environmentLine(watcher: Watcher, line: string): string {
+  return `- ${command(watcher)}: ${line}`
+}
+
+/** Tells the agent, once, which watchers cannot run here, and that its code is not why. */
+export function environmentMessage(lines: readonly string[]): string {
+  return [
+    'overwatch: these checks cannot run in this environment, so they are not reporting. This is not caused by your changes and needs no code change:',
+    ...lines,
+  ].join('\n')
 }
 
 /** Tells the agent the watcher stopped and when it comes back, so it knows a quiet build is not a passing one. */
@@ -217,13 +261,12 @@ export function exitMessage(watcher: Watcher, restartsInMs: number): string {
   return `overwatch: ${command(watcher)} exited, so build failures are not reported until it restarts ${when}.`
 }
 
-/** Tells the agent the watcher keeps exiting as it starts, with what it last printed, so the cause can be fixed. */
-export function gaveUpMessage(watcher: Watcher, exits: number, retryMs: number, output: string): string {
-  const text = tail(output)
+/** Tells the agent the watcher keeps exiting as it starts, and where what it last printed is, so the cause can be fixed. */
+export function gaveUpMessage(watcher: Watcher, exits: number, retryMs: number, log: string | undefined): string {
   return [
     `overwatch: ${command(watcher)} stopped ${exits} times in a row within ${retryMs / 1000}s of starting, so overwatch stopped restarting it on its own.`,
     `Build failures are not reported until it runs again; overwatch tries again as turns start, at most every ${retryMs / 1000}s.`,
-    ...(text === '' ? [] : ['', 'What it printed last:', '', '```', text, '```']),
+    ...(log === undefined ? [] : [`What it printed last: \`${log}\``]),
   ].join('\n')
 }
 

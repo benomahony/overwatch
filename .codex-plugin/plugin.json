@@ -5,10 +5,13 @@
   "hooks": "./hooks/codex-hooks.json",
   "interface": {
     "displayName": "Overwatch",
-    "shortDescription": "Keep coding agents working until the tests pass",
-    "longDescription": "Runs the project's configured checks after changes and gives every failure back to Codex before it can finish the turn.",
+    "shortDescription": "Guard against new test failures",
+    "longDescription": "Checks the project after changes, records inherited failures for triage, and guards each new failure once before the turn finishes.",
     "developerName": "benomahony",
     "category": "Developer Tools",
-    "capabilities": ["Read", "Write"]
+    "capabilities": [
+      "Read",
+      "Write"
+    ]
   }
 }

@@ -12,6 +12,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "hooks"))
 import codex  # noqa: E402
+import triage  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import table  # noqa: E402
 
@@ -43,6 +44,7 @@ class CodexHookTests(unittest.TestCase):
         self.cwd = Path(self.temporary.name) / "project"
         self.data = Path(self.temporary.name) / "data"
         self.cwd.mkdir()
+        subprocess.run(["git", "init", "-q", str(self.cwd)], check=True)
         self.bin = Path(self.temporary.name) / "bin"
         self.bin.mkdir()
 
@@ -104,35 +106,140 @@ class CodexHookTests(unittest.TestCase):
         )
         return json.loads(process.stdout), time.monotonic() - started
 
-    def test_failure_is_context_at_start_and_blocks_stop(self) -> None:
+    def prime_tools(self) -> None:
+        scripts = {path: read(path) for path in self.bin.iterdir()}
+        for path in scripts:
+            summary = {"gotestsum": "DONE 2 tests, 0 failures", "pytest": "=== 3 passed in 0.01s ==="}.get(path.name, "")
+            write(path, f"#!/bin/sh\necho '{summary}'\nexit 0\n")
+        self.call("SessionStart")
+        for path, text in scripts.items():
+            write(path, text)
+        write(self.cwd / "changed.txt", "changed")
+
+    def test_failure_notifies_after_edit_and_blocks_stop_only_once(self) -> None:
         result, count = self.configure()
+        write(result, "RESULT: PASS")
+        self.assertEqual(self.call("SessionStart")[0], {})
         write(result, "details\nRESULT: FAIL")
-
-        started, _ = self.call("SessionStart", source="startup")
-        context = started["hookSpecificOutput"]
-        self.assertIn("details", context["additionalContext"])
-        self.assertEqual(started["systemMessage"], "Overwatch: fixture ✗ RESULT: FAIL")
-        self.assertNotIn("decision", started)
-
+        failed, _ = self.call("PostToolUse", tool_name="apply_patch")
+        self.assertNotIn("decision", failed)
+        self.assertIn("Full output:", failed["hookSpecificOutput"]["additionalContext"])
         stopped, _ = self.call("Stop", stop_hook_active=False)
         self.assertEqual(stopped["decision"], "block")
-        self.assertEqual(stopped["systemMessage"], "Overwatch: fixture ✗ RESULT: FAIL")
         self.assertIn("RESULT: FAIL", stopped["reason"])
-        self.assertEqual(read(count), "1", "an unchanged workspace should use the cached report")
+        for event in ("Stop", "UserPromptSubmit", "PostToolUse", "Stop"):
+            self.assertEqual(self.call(event, stop_hook_active=False)[0], {})
+        self.assertEqual(read(count), "2")
+
+    def test_timing_changes_do_not_repeat_a_failure(self) -> None:
+        result, _ = self.configure()
+        write(result, "RESULT: PASS")
+        self.call("SessionStart")
+        write(result, "RESULT: FAIL in 0.01s")
+        self.assertIn("systemMessage", self.call("Stop")[0])
+        write(result, "RESULT: FAIL in 0.02s")
+        self.assertEqual(self.call("Stop")[0], {})
+
+    def test_existing_failure_stays_quiet(self) -> None:
+        result, _ = self.configure()
+        write(result, "RESULT: FAIL")
+        started = self.call("SessionStart")[0]
+        self.assertNotIn("decision", started)
+        self.assertIn("inherited backlog", started["hookSpecificOutput"]["additionalContext"])
+        self.assertEqual(self.call("Stop")[0], {})
+
+    def test_stop_continuation_does_not_consume_a_new_failure_guard(self) -> None:
+        result, _ = self.configure()
+        write(result, "RESULT: PASS")
+        self.call("SessionStart")
+        write(result, "RESULT: FAIL")
+        self.assertNotIn("decision", self.call("Stop", stop_hook_active=True)[0])
+        self.assertEqual(self.call("Stop")[0]["decision"], "block")
+        self.assertEqual(self.call("Stop")[0], {})
+
+    def test_summary_only_backlog_blocks_only_when_error_counts_increase(self) -> None:
+        result, _ = self.configure()
+        write(result, "RESULT: FAIL 10000 errors")
+        self.call("SessionStart")
+        write(result, "RESULT: FAIL 9999 errors")
+        self.assertEqual(self.call("PostToolUse")[0], {})
+        write(result, "RESULT: FAIL 10001 errors")
+        self.assertNotIn("decision", self.call("PostToolUse")[0])
+        self.assertEqual(self.call("Stop")[0]["decision"], "block")
+        self.assertEqual(self.call("Stop")[0], {})
+
+    def test_another_new_issue_gets_its_own_stop_guard(self) -> None:
+        first = {"name": "fixture", "failed": True, "failures": ["legacy"], "summary": "1 failed"}
+        baseline = codex.report_state([first], {})
+        report = {**first, "failures": ["legacy", "new-a"], "summary": "2 failed"}
+        current = codex.report_state([report], baseline)
+        self.assertTrue(codex.block_stop({"hook_event_name": "Stop"}, current))
+        report = {**report, "failures": ["new-b", "new-a", "legacy"], "summary": "3 failed"}
+        following = codex.report_state([report], current)
+        self.assertTrue(codex.block_stop({"hook_event_name": "Stop"}, following))
+        report = {**report, "failures": ["new-a"], "summary": "1 failed"}
+        remaining = codex.report_state([report], following)
+        self.assertFalse(codex.block_stop({"hook_event_name": "Stop"}, remaining))
+
+    def legacy_project(self) -> tuple[list[str], dict[str, object], Path]:
+        write(self.cwd / "go.mod", "module legacy")
+        failures = [f"--- FAIL: TestCase{i} (0.00s)" for i in range(10_000)]
+        self.tool("go", "\n".join([*failures, "FAIL"]), 1)
+        started = self.call("SessionStart")[0]
+        return failures, started, next(self.data.glob("*.baseline.json"))
+
+    def test_large_legacy_baseline_is_compact_and_inspectable(self) -> None:
+        _, started, inventory = self.legacy_project()
+        context = started["hookSpecificOutput"]["additionalContext"]
+        self.assertLess(len(context), 1000)
+        self.assertIn("10000 named issues", context)
+        self.assertNotIn("decision", started)
+        self.assertEqual(self.call("Stop")[0], {})
+        check = json.loads(read(inventory))["checks"][0]
+        self.assertEqual(len(check["failures"]), 10_000)
+        self.assertIn("TestCase9999", read(Path(check["log"])))
+
+    def test_triage_filters_and_pages_a_large_baseline(self) -> None:
+        _, _, inventory = self.legacy_project()
+        selected = triage.triage(json.loads(read(inventory)), "GO", "TestCase99")
+        batch = triage.triage_page(selected, 3, 3)
+        self.assertEqual(batch["total"], 111)
+        self.assertEqual(len(batch["issues"]), 3)
+        self.assertEqual(batch["issues"], selected["issues"][3:6])
+        self.assertEqual(triage.triage(json.loads(read(inventory)), "missing")["total"], 0)
+
+    def test_legacy_cleanup_does_not_repeat_a_new_failure_guard(self) -> None:
+        """A new issue blocks once; reducing the inherited backlog preserves its guard and snapshot."""
+        failures, _, inventory = self.legacy_project()
+        snapshot = read(inventory)
+        self.tool("go", "\n".join([*failures, "--- FAIL: TestNew (0.00s)", "FAIL"]), 1)
+        write(self.cwd / "edit.txt", "new change")
+        changed = self.call("PostToolUse")[0]
+        self.assertNotIn("decision", changed)
+        self.assertIn("TestNew", changed["hookSpecificOutput"]["additionalContext"])
+        self.assertEqual(self.call("Stop")[0]["decision"], "block")
+        self.assertEqual(self.call("Stop")[0], {})
+        self.tool("go", "\n".join([*failures[100:], "--- FAIL: TestNew (0.00s)", "FAIL"]), 1)
+        write(self.cwd / "edit.txt", "legacy cleanup")
+        self.assertEqual(self.call("PostToolUse")[0], {})
+        self.assertEqual(self.call("Stop")[0], {})
+        self.assertEqual(read(inventory), snapshot)
 
     def test_changed_workspace_reruns_and_reports_recovery(self) -> None:
         result, count = self.configure()
-        write(result, "RESULT: FAIL")
+        write(result, "RESULT: PASS")
         self.call("SessionStart", source="startup")
+        write(result, "RESULT: FAIL")
+        self.call("PostToolUse")
 
         write(result, "RESULT: PASS")
         recovered, _ = self.call("PostToolUse", tool_name="apply_patch")
         self.assertIn("green again", recovered["hookSpecificOutput"]["additionalContext"])
-        self.assertEqual(read(count), "2")
+        self.assertEqual(read(count), "3")
 
         stopped, _ = self.call("Stop", stop_hook_active=False)
         self.assertEqual(stopped, {})
-        self.assertEqual(read(count), "2")
+        self.assertEqual(read(count), "3")
 
     def test_watch_command_stops_after_its_first_report(self) -> None:
         result, _ = self.configure(watch=True)
@@ -159,7 +266,8 @@ class CodexHookTests(unittest.TestCase):
         self.tool("go", "--- FAIL: TestAdd (0.00s)\n    calc_test.go:3: Add(3, 7) = 10\nFAIL", 1)
         self.tool("cargo", "test tests::adds ... ok\ntest result: ok. 1 passed", 0)
 
-        started, _ = self.call("SessionStart", source="startup")
+        self.prime_tools()
+        started, _ = self.call("PostToolUse")
         self.assertEqual(started["systemMessage"], "Overwatch: go ✗ 1 failed: TestAdd")
         self.assertIn("Failing: `TestAdd`.", started["hookSpecificOutput"]["additionalContext"])
 
@@ -184,7 +292,8 @@ class CodexHookTests(unittest.TestCase):
         go.chmod(0o755)
         self.tool("cargo", "test result: ok. 1 passed", 0)
 
-        started, _ = self.call("SessionStart", source="startup")
+        self.prime_tools()
+        started, _ = self.call("PostToolUse")
         self.assertEqual(started["systemMessage"], "Overwatch: go services/api ✗ 1 failed: TestAdd")
         self.assertIn("`go test ./...` in `services/api` failed", started["hookSpecificOutput"]["additionalContext"])
         self.assertEqual(Path(read(self.bin / "go.cwd").strip()).resolve(), (self.cwd / "services/api").resolve())
@@ -194,7 +303,8 @@ class CodexHookTests(unittest.TestCase):
         self.tool("go", "", 0)
         self.tool("gotestsum", "=== FAIL: . TestAdd (0.00s)\n\nDONE 2 tests, 1 failure in 0.184s", 1)
 
-        started, _ = self.call("SessionStart", source="startup")
+        self.prime_tools()
+        started, _ = self.call("PostToolUse")
         self.assertEqual(started["systemMessage"], "Overwatch: go ✗ 2 tests, 1 failure in 0.184s: . TestAdd")
 
     def test_the_typescript_table_is_generated_from_watchers_json(self) -> None:
@@ -204,17 +314,14 @@ class CodexHookTests(unittest.TestCase):
         write(self.cwd / "pyproject.toml", "[project]\n")
         self.tool("pytest", "FAILED tests/test_add.py::test_add - assert 10 == 11\n=== 1 failed, 2 passed in 0.03s ===", 1)
 
-        started, _ = self.call("SessionStart", source="startup")
+        self.prime_tools()
+        started, _ = self.call("PostToolUse")
         self.assertEqual(started["systemMessage"], "Overwatch: python ✗ 1 failed, 2 passed in 0.03s: tests/test_add.py::test_add")
 
-    def test_a_long_report_keeps_its_start_and_its_end(self) -> None:
-        lines = [f"test tests::case_{i} ... ok" for i in range(2000)]
-        text = "\n".join(["running 2001 tests", *lines, "test tests::adds ... FAILED", "test result: FAILED."])
-        clipped = codex.clip(text)
-        self.assertLess(len(clipped), codex.REPORT_LIMIT + 100)
-        self.assertTrue(clipped.startswith("running 2001 tests\n"))
-        self.assertTrue(clipped.endswith("test tests::adds ... FAILED\ntest result: FAILED."))
-        self.assertRegex(clipped, r"\nt[^\n]*\n… \d+ characters cut …\ntest ")
+    def test_full_output_is_saved_without_truncation(self) -> None:
+        report = {"name": "fixture", "text": "details\n" * 2000}
+        path = codex.write_log(self.data / "state.json", report)
+        self.assertEqual(read(path), report["text"])
 
     def test_colour_codes_are_read_through(self) -> None:
         output = "\x1b[0m\x1b[31mFAILED\x1b[0m | 1 passed | 1 failed\n\x1b[0m\x1b[38;5;12mWatcher\x1b[0m Test failed. Restarting..."

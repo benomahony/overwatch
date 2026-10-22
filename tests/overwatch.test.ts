@@ -1,6 +1,6 @@
 import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
-import { CHECKERS, REPORT_LIMIT, WATCHERS, clip, readReport, statusLine } from '../hooks/watchers'
+import { CHECKERS, WATCHERS, environmentIn, failureMessage, hasRegression, readReport, statusLine } from '../hooks/watchers'
 
 const zig = WATCHERS[0]!
 const python = WATCHERS[1]!
@@ -58,15 +58,25 @@ E   ModuleNotFoundError: No module named 'calc'
 =============================== 1 error in 0.05s ===============================
 `
 
-type Project = { files: readonly string[]; output: string; spawned: string[][] }
+/** A git repository with `files`, whose commands print `output`, and a second later `then.output` when given. */
+type Project = {
+  files: readonly string[]
+  output: string
+  spawned: string[][]
+  then?: { clock: ReturnType<typeof mock.clock>; output: string }
+}
 
-const project = (on: On, { files, output, spawned }: Project) => {
+const project = (on: On, { files, output, spawned, then }: Project) => {
   mock.env(on, { PATH: '/usr/bin' })
   on('fs.read', () => ({ deny: 'no such file' }))
-  on('fs.exists', ($, e) => ({ value: files.some(file => e.path.endsWith(`/${file}`)) }))
+  on('fs.exists', ($, e) => ({ value: e.path === '/repo/.git' || files.some(file => e.path.endsWith(`/${file}`)) }))
   on('process.spawn', async function* ($, e) {
     spawned.push([...e.argv])
     yield { stream: 'stderr' as const, text: output }
+    if (then !== undefined) {
+      await then.clock.sleep(1000)
+      yield { stream: 'stderr' as const, text: then.output }
+    }
     return { value: { code: 0, signal: null } }
   })
   on('session.start', ($, e) => ({ cwd: e.cwd }))
@@ -78,23 +88,84 @@ test('a failing build wakes an idle session with the failure', async ($, on) => 
   const clock = mock.clock(on)
   const spawned: string[][] = []
   const prompts: string[] = []
-  project(on, { files: ['build.zig'], output: FAILING, spawned })
+  project(on, { files: ['build.zig'], output: PASSING, spawned, then: { clock, output: FAILING } })
   on('prompt.submit', ($, e) => {
     prompts.push(e.text)
     return { text: e.text }
   })
   await $.session.start(start)
-  await clock.advance(1000)
+  await clock.advance(2000)
   expect(spawned).toEqual([['zig', 'build', '-Doptimize=fast', 'test', '--watch']])
   expect(prompts.length).toBe(1)
-  expect(prompts[0]).toContain("'root.test.basic add functionality' failed")
+  expect(prompts[0]).toContain('Failing: `root.test.basic add functionality`.')
+  expect(prompts[0]).not.toContain('try std.testing.expect')
+})
+
+test('a failure the project had when the session started is not reported', async ($, on) => {
+  const clock = mock.clock(on)
+  const session = mock.session(on)
+  const prompts: string[] = []
+  const statuses: (string | undefined)[] = []
+  project(on, { files: ['build.zig'], output: FAILING, spawned: [] })
+  on('prompt.submit', ($, e) => {
+    prompts.push(e.text)
+    return { text: e.text }
+  })
+  on('ui.status', ($, e, next) => {
+    statuses.push(e.text)
+    return next(e)
+  })
+  turnHooks(on)
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await $.session.start(start)
+  await clock.advance(1000)
+  expect(prompts).toEqual([])
+  expect(session.appended().filter(row => JSON.stringify(row.message.content).includes('failed'))).toEqual([])
+  expect(statuses).toContain('overwatch zig ✗ 3/5 steps succeeded (1 failed); 2/3 tests passed (1 failed): root.test.basic add functionality')
+})
+
+test('a session outside a git repository watches nothing', async ($, on) => {
+  const clock = mock.clock(on)
+  const spawned: string[][] = []
+  mock.env(on, { PATH: '/usr/bin' })
+  on('fs.read', () => ({ deny: 'no such file' }))
+  on('fs.exists', ($, e) => ({ value: ['/home/me/build.zig', '/home/me/pyproject.toml', '/usr/bin/uv'].includes(e.path) }))
+  on('fs.list', () => ({ value: [] }))
+  on('process.spawn', async function* ($, e) {
+    spawned.push([...e.argv])
+    return { value: { code: 1, signal: null } }
+  })
+  on('tool.call', () => ({ result: 'ok' }))
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  await $.session.start({ ...start, cwd: '/home/me' })
+  await $.tool.call({ tool: 'Edit', file_path: '/home/me/.zshrc', old_string: 'a', new_string: 'b' })
+  await clock.advance(1000)
+  expect(spawned).toEqual([])
+})
+
+test('the repository holding the session is watched, each directory once by its real path', async ($, on) => {
+  const clock = mock.clock(on)
+  const spawned: string[][] = []
+  const tree: Record<string, string[]> = { '/repo': ['api/', 'mirror/', 'Downloads/'], '/repo/api': ['go.mod'], '/repo/mirror': ['go.mod'], '/repo/Downloads': ['pyproject.toml'] }
+  mock.env(on, { PATH: '/usr/bin' })
+  on('fs.read', () => ({ deny: 'no such file' }))
+  on('fs.exists', ($, e) => ({ value: ['/repo/.git', '/usr/bin/uv'].includes(e.path) }))
+  on('fs.list', ($, e) => ({ value: (tree[e.path] ?? []).map(treeEntry) }))
+  on('fs.stat', ($, e) => {
+    const realPath = e.path === '/repo/mirror' ? '/repo/api' : e.path
+    return { value: { kind: 'dir' as const, size: 0, mtimeMs: 0, isLink: false, realPath } }
+  })
+  commands(on, { spawned, output: {}, code: 0 })
+  await $.session.start({ ...start, cwd: '/repo/src' })
+  await clock.advance(1000)
+  expect(spawned).toEqual([['go', 'test', './...']])
 })
 
 test('a failing build during a turn joins that turn', async ($, on) => {
   const clock = mock.clock(on)
   const session = mock.session(on)
   const prompts: string[] = []
-  project(on, { files: ['build.zig'], output: FAILING, spawned: [] })
+  project(on, { files: ['build.zig'], output: PASSING, spawned: [], then: { clock, output: FAILING } })
   on('prompt.submit', ($, e) => {
     prompts.push(e.text)
     return { text: e.text }
@@ -102,7 +173,7 @@ test('a failing build during a turn joins that turn', async ($, on) => {
   on('turn.start', ($, e) => ({ turnId: e.turnId }))
   await $.turn.start({ text: 'refactor', turnId: 't1' })
   await $.session.start(start)
-  await clock.advance(1000)
+  await clock.advance(2000)
   expect(prompts).toEqual([])
   const texts = session.appended().map(row => JSON.stringify(row.message.content))
   expect(texts.some(text => text.includes('failed after the latest change'))).toBe(true)
@@ -144,7 +215,7 @@ test('a project with no watch command reruns its suite after each edit', async (
   }
   let output = ' 9 pass\n 0 fail\n'
   on('fs.read', ($, e) => (e.path === '/repo/.overwatch.json' ? { value: JSON.stringify(override) } : { deny: 'no such file' }))
-  on('fs.exists', () => ({ value: false }))
+  on('fs.exists', ($, e) => ({ value: e.path === '/repo/.git' }))
   on('process.spawn', async function* ($, e) {
     spawned.push([...e.argv])
     yield { stream: 'stdout' as const, text: output }
@@ -169,7 +240,7 @@ test('a project with no watch command reruns its suite after each edit', async (
   await clock.advance(1000)
   expect(spawned).toEqual([override.baseline, override.baseline])
   expect(prompts.length).toBe(1)
-  expect(prompts[0]).toContain('(fail) adds')
+  expect(prompts[0]).toContain('failed after the latest change: 1 fail')
 })
 
 test('an edit made while the suite reruns stops that run and starts another', async ($, on) => {
@@ -179,7 +250,7 @@ test('an edit made while the suite reruns stops that run and starts another', as
   const override = { name: 'cargo', baseline: ['cargo', 'test'], summary: '^test result: .*$', failed: 'FAILED' }
   let output = 'test result: ok.\n'
   on('fs.read', ($, e) => (e.path === '/repo/.overwatch.json' ? { value: JSON.stringify(override) } : { deny: 'no such file' }))
-  on('fs.exists', () => ({ value: false }))
+  on('fs.exists', ($, e) => ({ value: e.path === '/repo/.git' }))
   on('process.spawn', async function* ($, e) {
     spawned.splice(spawned.length, 0, [...e.argv])
     const text = output
@@ -267,7 +338,7 @@ test('a watcher that exits is restarted at once, and the agent told', async ($, 
   const spawned: string[][] = []
   const statuses: (string | undefined)[] = []
   on('fs.read', () => ({ deny: 'no such file' }))
-  on('fs.exists', ($, e) => ({ value: e.path.endsWith('/build.zig') }))
+  on('fs.exists', ($, e) => ({ value: e.path.endsWith('/build.zig') || e.path === '/repo/.git' }))
   on('process.spawn', async function* ($, e) {
     spawned.push([...e.argv])
     yield { stream: 'stderr' as const, text: PASSING }
@@ -279,6 +350,7 @@ test('a watcher that exits is restarted at once, and the agent told', async ($, 
     return next(e)
   })
   on('session.start', ($, e) => ({ cwd: e.cwd }))
+  on('session.end', ($, e) => ({ sessionId: e.sessionId }))
   turnHooks(on)
   await $.session.start(start)
   await $.turn.start({ text: 'go', turnId: 't1' })
@@ -289,6 +361,9 @@ test('a watcher that exits is restarted at once, and the agent told', async ($, 
   expect(statuses).toContain(`overwatch zig: ${ZIG_WATCH.join(' ')} exited, restarting now`)
   const texts = session.appended().map(row => JSON.stringify(row.message.content))
   expect(texts.some(text => text.includes('exited, so build failures are not reported until it restarts now'))).toBe(true)
+  const ending = $.session.end({ reason: 'prompt_input_exit', sessionId: 's1', resume: { id: 's1' } })
+  await clock.advance(60_000)
+  await ending
 })
 
 const quickExitWatcher = (on: On) => {
@@ -297,11 +372,13 @@ const quickExitWatcher = (on: On) => {
   const prompts: string[] = []
   const statuses: (string | undefined)[] = []
   on('fs.read', () => ({ deny: 'no such file' }))
-  on('fs.exists', ($, e) => ({ value: e.path.endsWith('/build.zig') }))
+  on('fs.exists', ($, e) => ({ value: e.path.endsWith('/build.zig') || e.path === '/repo/.git' }))
   on('process.spawn', async function* () {
     attempts += 1
     throw new Error('zig: command not found')
   })
+  on('env.get', ($, e) => ({ value: e.name === 'HOME' ? '/home/me' : undefined }))
+  on('fs.write', () => ({ value: undefined }))
   on('prompt.submit', ($, e) => {
     prompts.push(e.text)
     return { text: e.text }
@@ -332,7 +409,7 @@ test('a watcher that keeps exiting backs off, then gives up and wakes the agent'
   expect(attempts()).toBe(3)
   expect(statuses.at(-1)).toContain('3 times in a row; retrying at the first turn after 30s')
   expect(prompts[0]).toContain('stopped restarting it on its own')
-  expect(prompts[0]).toContain('What it printed last:')
+  expect(prompts[0]).toContain('What it printed last: `/home/me/.cache/overwatch/logs/zig-repo.log`')
 })
 
 test('a watcher given up on retries only on a later turn', async ($, on) => {
@@ -356,13 +433,14 @@ test('enabled: false keeps the watcher off, read afresh at each turn', async ($,
   const spawned: string[][] = []
   let override = { enabled: false }
   on('fs.read', ($, e) => (e.path === '/repo/.overwatch.json' ? { value: JSON.stringify(override) } : { deny: 'no such file' }))
-  on('fs.exists', ($, e) => ({ value: e.path.endsWith('/build.zig') }))
+  on('fs.exists', ($, e) => ({ value: e.path.endsWith('/build.zig') || e.path === '/repo/.git' }))
   on('process.spawn', async function* ($, e) {
     spawned.push([...e.argv])
     await clock.sleep(600_000)
     return { value: { code: 0, signal: null } }
   })
   on('session.start', ($, e) => ({ cwd: e.cwd }))
+  on('session.end', ($, e) => ({ sessionId: e.sessionId }))
   turnHooks(on)
   await $.session.start(start)
   for (const turnId of ['t1', 't2', 't3']) {
@@ -375,6 +453,9 @@ test('enabled: false keeps the watcher off, read afresh at each turn', async ($,
   await $.turn.start({ text: 'go', turnId: 't4' })
   await clock.advance(1000)
   expect(spawned).toEqual([ZIG_WATCH])
+  const ending = $.session.end({ reason: 'prompt_input_exit', sessionId: 's1', resume: { id: 's1' } })
+  await clock.advance(600_000)
+  await ending
 })
 
 test('a turn that starts while the session is still looking spawns one watcher', async ($, on) => {
@@ -384,7 +465,7 @@ test('a turn that starts while the session is still looking spawns one watcher',
   const looking: (() => void)[] = []
   on('fs.exists', async ($, e) => {
     await new Promise<void>(resolve => looking.push(resolve))
-    return { value: e.path.endsWith('/build.zig') }
+    return { value: e.path.endsWith('/build.zig') || e.path === '/repo/.git' }
   })
   on('process.spawn', async function* ($, e) {
     spawned.push([...e.argv])
@@ -392,6 +473,7 @@ test('a turn that starts while the session is still looking spawns one watcher',
     return { value: { code: 0, signal: null } }
   })
   on('session.start', ($, e) => ({ cwd: e.cwd }))
+  on('session.end', ($, e) => ({ sessionId: e.sessionId }))
   turnHooks(on)
   /** Answers every look in flight, and the looks those lead to, until none is left. */
   const answerAll = async () => {
@@ -412,6 +494,9 @@ test('a turn that starts while the session is still looking spawns one watcher',
   await answerAll()
   await clock.advance(1000)
   expect(spawned).toEqual([ZIG_WATCH])
+  const ending = $.session.end({ reason: 'prompt_input_exit', sessionId: 's1', resume: { id: 's1' } })
+  await clock.advance(600_000)
+  await ending
 })
 
 test('the session ending stops the watcher and any restart', async ($, on) => {
@@ -455,10 +540,14 @@ test('zanity on PATH runs beside the project watcher', async ($, on) => {
   const prompts: string[] = []
   const statuses: (string | undefined)[] = []
   on('fs.read', () => ({ deny: 'no such file' }))
-  on('fs.exists', ($, e) => ({ value: e.path === '/repo/build.zig' || e.path === '/home/me/.local/bin/zanity' }))
+  on('fs.exists', ($, e) => ({ value: ['/repo/.git', '/repo/build.zig', '/home/me/.local/bin/zanity'].includes(e.path) }))
   on('process.spawn', async function* ($, e) {
     spawned.push([...e.argv])
-    yield { stream: 'stdout' as const, text: e.argv[0] === 'zanity' ? ZANITY_WARNINGS : PASSING }
+    yield { stream: 'stdout' as const, text: e.argv[0] === 'zanity' ? ZANITY_CLEAN : PASSING }
+    if (e.argv[0] === 'zanity') {
+      await clock.sleep(1000)
+      yield { stream: 'stdout' as const, text: ZANITY_WARNINGS }
+    }
     await clock.sleep(600_000)
     return { value: { code: 0, signal: null } }
   })
@@ -472,10 +561,10 @@ test('zanity on PATH runs beside the project watcher', async ($, on) => {
   })
   on('session.start', ($, e) => ({ cwd: e.cwd }))
   await $.session.start(start)
-  await clock.advance(1000)
+  await clock.advance(2000)
   expect(sorted(spawned)).toEqual([['zanity', 'check', '.', '--watch', '--no-color'], ZIG_WATCH])
   expect(prompts.length).toBe(1)
-  expect(prompts[0]).toContain("'while True' has an empty body")
+  expect(prompts[0]).toContain('`zanity check . --watch --no-color` failed after the latest change: zanity: 0 errors, 1 warning in 1/1 file.')
   expect(statuses.at(-1)).toBe(
     'overwatch zig ✓ 4/4 steps succeeded; 48/48 tests passed · overwatch zanity ✗ 0 errors, 1 warning in 1/1 file.',
   )
@@ -486,7 +575,7 @@ test('zanity is not run when it is not on PATH', async ($, on) => {
   mock.env(on, { PATH: '/usr/bin' })
   const spawned: string[][] = []
   on('fs.read', () => ({ deny: 'no such file' }))
-  on('fs.exists', ($, e) => ({ value: e.path === '/repo/build.zig' || e.path === '/home/me/.local/bin/zanity' }))
+  on('fs.exists', ($, e) => ({ value: ['/repo/.git', '/repo/build.zig', '/home/me/.local/bin/zanity'].includes(e.path) }))
   on('process.spawn', async function* ($, e) {
     spawned.push([...e.argv])
     yield { stream: 'stderr' as const, text: PASSING }
@@ -517,19 +606,22 @@ test('a pyproject.toml project runs pytest under a watcher', async ($, on) => {
   const clock = mock.clock(on)
   const spawned: string[][] = []
   const prompts: string[] = []
-  project(on, { files: ['pyproject.toml', 'usr/bin/uv'], output: PYTEST_FAILING, spawned })
+  project(on, { files: ['pyproject.toml', 'usr/bin/uv'], output: PYTEST_PASSING, spawned, then: { clock, output: PYTEST_FAILING } })
   on('prompt.submit', ($, e) => {
     prompts.push(e.text)
     return { text: e.text }
   })
+  on('session.end', ($, e) => ({ sessionId: e.sessionId }))
   await $.session.start(start)
-  await clock.advance(1000)
+  await clock.advance(3000)
   expect(spawned).toEqual([
     ['uv', 'run', '--with', 'pytest', '--with', 'pytest-testmon', 'pytest', '--testmon-noselect'],
     ['uv', 'run', '--with', 'pytest', '--with', 'pytest-watcher', '--with', 'pytest-testmon', 'ptw', '.', '--testmon'],
   ])
   expect(prompts.length).toBe(1)
-  expect(prompts[0]).toContain('assert 10 == 11')
+  expect(prompts[0]).toContain('Failing: `tests/test_add.py::test_add`.')
+  expect(prompts[0]).not.toContain('assert 10 == 11')
+  await $.session.end({ reason: 'prompt_input_exit', sessionId: 's1', resume: { id: 's1' } })
 })
 
 test('the full suite runs green before the watcher starts', async ($, on) => {
@@ -538,7 +630,7 @@ test('the full suite runs green before the watcher starts', async ($, on) => {
   const spawned: string[][] = []
   mock.env(on, { PATH: '/usr/bin' })
   on('fs.read', () => ({ deny: 'no such file' }))
-  on('fs.exists', ($, e) => ({ value: e.path === '/repo/pyproject.toml' || e.path === '/usr/bin/uv' }))
+  on('fs.exists', ($, e) => ({ value: ['/repo/.git', '/repo/pyproject.toml', '/usr/bin/uv'].includes(e.path) }))
   on('ui.status', ($, e, next) => {
     statuses.push(e.text)
     return next(e)
@@ -550,6 +642,7 @@ test('the full suite runs green before the watcher starts', async ($, on) => {
     return { value: { code: 0, signal: null } }
   })
   on('session.start', ($, e) => ({ cwd: e.cwd }))
+  on('session.end', ($, e) => ({ sessionId: e.sessionId }))
   await $.session.start(start)
   await clock.advance(1000)
   expect(spawned.map(argv => argv.includes('ptw'))).toEqual([false, true])
@@ -557,6 +650,7 @@ test('the full suite runs green before the watcher starts', async ($, on) => {
   const watching = statuses.findIndex(text => text?.includes(': starting uv run'))
   expect(green).toBeGreaterThan(-1)
   expect(watching).toBeGreaterThan(green)
+  await $.session.end({ reason: 'prompt_input_exit', sessionId: 's1', resume: { id: 's1' } })
 })
 
 test('the pytest summary line decides pass or fail', () => {
@@ -713,34 +807,102 @@ test('Rust reports compile and test failures', () => {
   ])
 })
 
-test('a long report keeps its start and its end, cut at line ends', () => {
-  const lines = Array.from({ length: 2000 }, (_, i) => `test tests::case_${i} ... ok`)
-  const text = ['running 2001 tests', ...lines, 'test tests::adds ... FAILED', 'test result: FAILED.'].join('\n')
-  const clipped = clip(text)
-  expect(clipped.length).toBeLessThan(REPORT_LIMIT + 100)
-  expect(clipped.startsWith('running 2001 tests\n')).toBe(true)
-  expect(clipped.endsWith('test tests::adds ... FAILED\ntest result: FAILED.')).toBe(true)
-  expect(clipped).toMatch(/\nt[^\n]*\n… \d+ characters cut …\ntest /)
-  expect(clip('short')).toBe('short')
+test('a failure names only what is new since the session started, and where its full output is', () => {
+  const go = { ...WATCHERS.find(watcher => watcher.name === 'go' && watcher.requires === undefined)!, dir: 'services/api' }
+  const report = readReport(go, `--- FAIL: TestOld (0.00s)\n${GO_FAILING}`, 1)!
+  expect(failureMessage(go, report, ['TestOld'], '/home/me/.cache/overwatch/logs/go.log').split('\n')).toEqual([
+    'overwatch: `go test ./...` in `services/api` failed after the latest change: 2 failed',
+    'Failing: `TestAdd`.',
+    '1 more were already failing when the session started.',
+    'Fix these new failures before finishing. Tools remain available while you investigate.',
+    'Full output: `/home/me/.cache/overwatch/logs/go.log`',
+  ])
+})
+
+test('a failure for want of a network, interpreter, wheel or key is an environment error', () => {
+  expect(environmentIn('error: Failed to fetch: `https://pypi.internal/simple/acme/`\n  Caused by: dns error')).toBe(
+    'error: Failed to fetch: `https://pypi.internal/simple/acme/`',
+  )
+  expect(environmentIn('error: Distribution `pydantic-core==2.27.2` can\'t be installed because it has no wheels for cp315')).toBeDefined()
+  expect(environmentIn('error: The Python request from `.python-version` resolved to Python 3.11.9, which is incompatible')).toBeDefined()
+  expect(environmentIn("E   KeyError: 'OPENAI_API_KEY'")).toBe("E   KeyError: 'OPENAI_API_KEY'")
+  expect(environmentIn(PYTEST_FAILING)).toBeUndefined()
+  expect(readReport(python, 'error: Failed to fetch: `https://pypi.internal/simple/acme/`', 2)?.environment).toBeDefined()
+  expect(readReport(python, PYTEST_FAILING)?.environment).toBeUndefined()
+})
+
+test('an environment error is told once, in one summary, and never asks for a fix', async ($, on) => {
+  const clock = mock.clock(on)
+  const session = mock.session(on)
+  const prompts: string[] = []
+  mock.env(on, { PATH: '/usr/bin' })
+  on('fs.read', () => ({ deny: 'no such file' }))
+  on('fs.exists', ($, e) => ({ value: ['/repo/.git', '/repo/pyproject.toml', '/usr/bin/uv'].includes(e.path) }))
+  on('process.spawn', async function* () {
+    yield { stream: 'stderr' as const, text: 'error: Failed to fetch: `https://pypi.internal/simple/acme/`\n  Caused by: dns error\n' }
+    return { value: { code: 2, signal: null } }
+  })
+  on('prompt.submit', ($, e) => {
+    prompts.push(e.text)
+    return { text: e.text }
+  })
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  turnHooks(on)
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await $.session.start(start)
+  await clock.advance(200_000)
+  const texts = session.appended().map(row => JSON.stringify(row.message.content))
+  expect(texts.length).toBe(1)
+  expect(texts[0]).toContain('cannot run in this environment')
+  expect(texts[0]).toContain('Failed to fetch')
+  expect(texts[0]).not.toContain('Fix it')
+  expect(prompts).toEqual([])
+})
+
+test('an identical failure is told once, and one message at most goes to a turn', async ($, on) => {
+  const clock = mock.clock(on)
+  const session = mock.session(on)
+  const prompts: string[] = []
+  const override = { name: 'cargo', baseline: ['cargo', 'test'], summary: '^test result: .*$', failed: 'FAILED' }
+  let output = 'test result: ok.\n'
+  on('fs.read', ($, e) => (e.path === '/repo/.overwatch.json' ? { value: JSON.stringify(override) } : { deny: 'no such file' }))
+  on('fs.exists', ($, e) => ({ value: e.path === '/repo/.git' }))
+  on('process.spawn', async function* () {
+    yield { stream: 'stdout' as const, text: output }
+    return { value: { code: 0, signal: null } }
+  })
+  on('prompt.submit', ($, e) => {
+    prompts.push(e.text)
+    return { text: e.text }
+  })
+  on('tool.call', () => ({ result: 'ok' }))
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  turnHooks(on)
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await $.session.start(start)
+  await clock.advance(1000)
+  output = 'test result: FAILED. in 0.01s\n'
+  await $.tool.call({ tool: 'Edit', file_path: '/repo/src/lib.rs', old_string: 'a', new_string: 'b' })
+  await clock.advance(1000)
+  expect(session.appended().length).toBe(1)
+  output = 'test result: FAILED. in 0.02s\n'
+  await $.tool.call({ tool: 'Edit', file_path: '/repo/src/lib.rs', old_string: 'b', new_string: 'c' })
+  await clock.advance(1000)
+  expect(session.appended().length).toBe(1)
+  output = 'test result: FAILED. other\n'
+  await $.tool.call({ tool: 'Bash', command: 'ls' })
+  await clock.advance(1000)
+  expect(session.appended().length).toBe(1)
+  expect(prompts).toEqual([])
+  await $.turn.complete(ended)
+  await clock.advance(1000)
+  expect(prompts.length).toBe(1)
+  expect(prompts[0]).toContain('test result: FAILED. other')
 })
 
 test('a one-shot run that gives no summary but exits nonzero fails', () => {
   expect(readReport(python, 'error: Failed to parse uv.lock', 2)?.summary).toBe('exited with code 2')
   expect(readReport(python, 'nothing to see', 0)).toBeUndefined()
-})
-
-test('the agent is told which tests failed', async ($, on) => {
-  const clock = mock.clock(on)
-  const spawned: string[][] = []
-  const prompts: string[] = []
-  project(on, { files: ['pyproject.toml', 'usr/bin/uv'], output: PYTEST_FAILING, spawned })
-  on('prompt.submit', ($, e) => {
-    prompts.push(e.text)
-    return { text: e.text }
-  })
-  await $.session.start(start)
-  await clock.advance(1000)
-  expect(prompts[0]).toContain('Failing: `tests/test_add.py::test_add`.')
 })
 
 /** A project whose commands exit with `code`, printing `output` for each by its executable. */
@@ -785,7 +947,7 @@ test('a language the root lacks is watched in each sub-project that has it', asy
   const statuses: (string | undefined)[] = []
   const prompts: string[] = []
   on('fs.read', () => ({ deny: 'no such file' }))
-  on('fs.exists', () => ({ value: false }))
+  on('fs.exists', ($, e) => ({ value: e.path === '/repo/.git' }))
   on('fs.list', ($, e) => ({ value: (SUBPROJECT_TREE[e.path] ?? []).map(treeEntry) }))
   on('ui.status', ($, e, next) => {
     statuses.splice(statuses.length, 0, e.text)
@@ -810,7 +972,7 @@ test('a language the root lacks is watched in each sub-project that has it', asy
   ])
   expect(statuses.at(-1)).toContain('overwatch go services/api ✗ 1 failed: TestAdd')
   expect(statuses.at(-1)).toContain('overwatch rust tools ✓ passed')
-  expect(prompts[0]).toContain('`go test ./...` in `services/api` failed')
+  expect(prompts).toEqual([])
 })
 
 test('every language in a polyglot project gets its own watcher', async ($, on) => {
@@ -818,7 +980,7 @@ test('every language in a polyglot project gets its own watcher', async ($, on) 
   const spawned: string[][] = []
   const statuses: (string | undefined)[] = []
   on('fs.read', () => ({ deny: 'no such file' }))
-  on('fs.exists', ($, e) => ({ value: ['/repo/build.zig', '/repo/go.mod', '/repo/Cargo.toml'].includes(e.path) }))
+  on('fs.exists', ($, e) => ({ value: ['/repo/.git', '/repo/build.zig', '/repo/go.mod', '/repo/Cargo.toml'].includes(e.path) }))
   on('ui.status', ($, e, next) => {
     statuses.push(e.text)
     return next(e)
@@ -836,7 +998,7 @@ test('a JS project runs the test runner it has installed, and only that one', as
   const clock = mock.clock(on)
   const spawned: string[][] = []
   on('fs.read', () => ({ deny: 'no such file' }))
-  const files = ['/repo/package.json', '/repo/bun.lock', '/repo/node_modules/.bin/jest']
+  const files = ['/repo/.git', '/repo/package.json', '/repo/bun.lock', '/repo/node_modules/.bin/jest']
   on('fs.exists', ($, e) => ({ value: files.includes(e.path) }))
   commands(on, { spawned, output: {}, code: 0 })
   await $.session.start(start)
@@ -850,7 +1012,7 @@ test('Go uses gotestsum’s watcher when it is on PATH, else reruns go test afte
   let path = '/usr/bin'
   on('env.get', ($, e) => ({ value: e.name === 'PATH' ? path : undefined }))
   on('fs.read', () => ({ deny: 'no such file' }))
-  on('fs.exists', ($, e) => ({ value: e.path === '/repo/go.mod' || e.path === '/home/me/go/bin/gotestsum' }))
+  on('fs.exists', ($, e) => ({ value: ['/repo/.git', '/repo/go.mod', '/home/me/go/bin/gotestsum'].includes(e.path) }))
   on('tool.call', () => ({ result: 'ok' }))
   on('session.end', ($, e) => ({ sessionId: e.sessionId }))
   commands(on, { spawned, output: { go: GO_FAILING }, code: 1 })
@@ -869,4 +1031,48 @@ test('Go uses gotestsum’s watcher when it is on PATH, else reruns go test afte
     ['gotestsum', '--', './...'],
     ['gotestsum', '--watch'],
   ])
+})
+
+
+test('a large inherited backlog is saved for triage while only a new issue wakes the agent', async ($, on) => {
+  const clock = mock.clock(on)
+  const logs = new Map<string, string>()
+  const prompts: string[] = []
+  const names = Array.from({ length: 10_000 }, (_, index) => '--- FAIL: TestCase' + index + ' (0.00s)')
+  let output = names.join('\n') + '\nFAIL\n'
+  mock.env(on, { PATH: '/usr/bin', HOME: '/home/me' })
+  on('fs.read', () => ({ deny: 'no such file' }))
+  on('fs.exists', ($, e) => ({ value: ['/repo/.git', '/repo/go.mod'].includes(e.path) }))
+  on('fs.write', ($, e) => {
+    logs.set(e.path, e.text)
+    return { value: undefined }
+  })
+  on('process.spawn', async function* () {
+    yield { stream: 'stdout' as const, text: output }
+    return { value: { code: 1, signal: null } }
+  })
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  on('tool.call', () => ({ result: 'ok' }))
+  on('prompt.submit', ($, e) => { prompts.push(e.text); return { text: e.text } })
+  await $.session.start(start)
+  await clock.advance(1000)
+  const inventory = JSON.parse(logs.get('/home/me/.cache/overwatch/logs/go-repo.baseline.log.json')!)
+  expect(inventory.checks[0].failures.length).toBe(10_000)
+  expect(logs.get(inventory.checks[0].log)).toBe(output.trim())
+  expect(prompts).toEqual([])
+  output = names.join('\n') + '\n--- FAIL: TestNew (0.00s)\nFAIL\n'
+  await $.tool.call({ tool: 'Edit', file_path: '/repo/calc.go', old_string: 'a', new_string: 'b' })
+  await clock.advance(1000)
+  expect(prompts.length).toBe(1)
+  expect(prompts[0]).toContain('TestNew')
+  expect(prompts[0]!.length).toBeLessThan(1000)
+  expect(JSON.parse(logs.get('/home/me/.cache/overwatch/logs/go-repo.baseline.log.json')!).checks[0].failures.length).toBe(10_000)
+})
+
+
+test('a summary-only legacy backlog guards count increases and permits reductions', () => {
+  const baseline = { summary: '10000 errors and 20 warnings', isFailed: true, text: '', failures: [] }
+  expect(hasRegression({ ...baseline, summary: '9999 errors and 20 warnings' }, baseline)).toBe(false)
+  expect(hasRegression({ ...baseline, summary: '10001 errors and 20 warnings' }, baseline)).toBe(true)
+  expect(hasRegression({ ...baseline, summary: '9999 errors and 21 warnings' }, baseline)).toBe(true)
 })
