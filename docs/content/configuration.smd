@@ -33,7 +33,7 @@ A project with no marker file is watched when its override names `summary`, `fai
 
 # [Legacy-code triage]($heading.id('legacy-code-triage'))
 
-A legacy project can start with thousands of errors. Overwatch records the first result of each check as inherited backlog and sends one short notice with the inventory path. It saves all named issues and the full original output outside the conversation. Fixing that backlog is deliberate work; it does not prevent ordinary tools or Stop events. A new failure still gets its own Stop guard, even if other errors were already present.
+A legacy project can start with thousands of errors. Overwatch records the first result of each check as inherited backlog and sends one short notice with the inventory path. It saves all named issues and the full original output outside the conversation. Fixing that backlog is deliberate work; by default, it does not prevent ordinary tools or Stop events. New failures keep completion guarded, even if other errors were already present. Updating results never replaces the initial baseline with new failures.
 
 Inspect a small batch from the inventory path in the notice:
 
@@ -44,3 +44,27 @@ python3 hooks/triage.py /path/from/notice.baseline.json --offset 20 --limit 20 -
 ```
 
 Run the script from your Overwatch checkout or use its installed absolute path. `--check` matches the check, command, or subproject; `--match` searches issue names, both without case sensitivity. The view groups by check and pages the initial snapshot, with links to full logs. It does not rerun checks or silently accept new regressions. When a runner does not name individual issues, the inventory contains its summary and full log instead. An increase in its reported error, warning, or failure counts is treated as a regression; a replacement issue with the same count cannot be distinguished without issue names.
+
+# [Failure gates and protected actions]($heading.id('failure-gates-and-protected-actions'))
+
+Failure notifications and permission decisions are separate. Listing, searching, reading, editing, and running checks are ordinary operations: a red check does not deny them or launch a check before they run. Post-tool notifications never deny a tool. Completion stays guarded until the relevant failures clear; deduplicating a notification does not clear that gate. Warnings retain each check's existing failure policy, including Zanity warnings.
+
+There are no protected tool actions by default. Configure specific actions in the repository's `.overwatch.json`:
+
+```json
+{
+  "gate": {
+    "inherited": "allow",
+    "protected_actions": [
+      { "tool": "Bash", "command": "\\bgit\\s+push\\b", "checks": ["zanity"] },
+      { "tool": "Publish", "checks": ["zanity", "go"] }
+    ]
+  }
+}
+```
+
+Tool names match without case sensitivity; use the tool name your agent sends, such as `Bash`, `bash`, or `exec_command`. An optional `command` regular expression matches its `command` or `cmd` argument. Use syntax supported by both Python and JavaScript. Protect the specific publication or deployment command rather than the whole shell tool, so repairs remain possible. Without `command`, the rule protects the entire named tool. `checks` selects watcher names or languages; an omitted or empty list selects all checks. An unrelated failed check does not block an action scoped to passing checks. Every protected attempt checks the failure state independently, so a prior denial does not grant the next attempt.
+
+`inherited` defaults to `"allow"`, preserving backlog triage. Set it to `"block"` to require inherited findings to clear before completion or protected actions. Ordinary operations remain available under either policy. A successful check clears its gate; it does not clear failures from other checks. Environment errors retain their existing reporting behavior.
+
+Command hooks use `PreToolUse` only for protected-action permission decisions and `Stop` for completion. Ordinary pre-tool hooks return an empty response without rerunning checks. Claude Code's in-process plugin denies protected tools before execution and replaces guarded completion with a correction request. OpenCode and Pi use their before-tool hooks for protected actions. Reload the plugin after updating hook definitions; Codex may require renewed hook trust.

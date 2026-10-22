@@ -1,4 +1,4 @@
-import { contextOf, serialChecker } from "./check.js"
+import { contextOf, deniedAction, serialChecker } from "./check.js"
 
 const EDITING_TOOLS = new Set(["bash", "edit", "powershell", "write"])
 
@@ -11,7 +11,6 @@ function base(event, ctx) {
 export function registerPi(pi, checker = serialChecker()) {
   const check = checker
   let startupContext
-  let stopBlocked = false
 
   const showStatus = (ctx, output) => {
     ctx.ui.setStatus("overwatch", output.systemMessage)
@@ -30,6 +29,12 @@ export function registerPi(pi, checker = serialChecker()) {
     return { message }
   })
 
+  pi.on("tool_call", async (event, ctx) => {
+    const output = await check({ ...base("PreToolUse", ctx), tool_name: event.toolName, tool_input: event.input })
+    const reason = deniedAction(output)
+    return reason === undefined ? undefined : { block: true, reason }
+  })
+
   pi.on("tool_result", async (event, ctx) => {
     if (!EDITING_TOOLS.has(event.toolName)) return undefined
     const output = await check({
@@ -38,7 +43,6 @@ export function registerPi(pi, checker = serialChecker()) {
       tool_use_id: event.toolCallId,
       tool_input: event.input,
     })
-    stopBlocked = false
     showStatus(ctx, output)
     const message = contextOf(output)
     if (!message) return undefined
@@ -46,10 +50,9 @@ export function registerPi(pi, checker = serialChecker()) {
   })
 
   pi.on("agent_before_settle", async (event, ctx) => {
-    const output = await check({ ...base("Stop", ctx), stop_hook_active: stopBlocked })
+    const output = await check(base("Stop", ctx))
     showStatus(ctx, output)
-    if (output.decision !== "block" || stopBlocked) return undefined
-    stopBlocked = true
+    if (output.decision !== "block") return undefined
     return {
       entries: [
         ...event.entries,

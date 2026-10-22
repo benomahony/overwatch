@@ -6,7 +6,7 @@
   "interface": {
     "displayName": "Overwatch",
     "shortDescription": "Guard against new test failures",
-    "longDescription": "Checks the project after changes, records inherited failures for triage, and guards each new failure once before the turn finishes.",
+    "longDescription": "Keeps diagnostic and repair tools available while guarding completion and configured protected actions until relevant failures clear.",
     "developerName": "benomahony",
     "category": "Developer Tools",
     "capabilities": [

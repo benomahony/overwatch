@@ -15,6 +15,21 @@ function output(message, failed = true) {
     : {}
 }
 
+async function v2Hooks(checker) {
+  const hooks = {}
+  const ctx = {
+    location: { directory: "/project" },
+    session: {
+      hook: async (name, callback) => { hooks[`session:${name}`] = callback },
+      prompt: async () => undefined,
+    },
+    tool: { hook: async (name, callback) => { hooks[`tool:${name}`] = callback } },
+    event: { subscribe: async function* () {} },
+  }
+  await setupV2(ctx, checker)
+  return hooks
+}
+
 test("the OpenCode package exposes V1 and V2 entrypoints", () => {
   assert.equal(typeof OverwatchPlugin, "function")
   assert.equal(OpenCode.id, "overwatch")
@@ -58,10 +73,11 @@ test("OpenCode V2 checks edits and adds a cached failure to model context", asyn
   assert.equal(event.system.at(-1).text, "fix the test")
 })
 
-test("Pi appends failures to tool results and requests one settlement continuation", async () => {
+test("Pi appends failures and guards settlement until the check passes", async () => {
   const handlers = {}
   const pi = { on: (name, handler) => { handlers[name] = handler } }
-  registerPi(pi, async event => output(`failure at ${event.hook_event_name}`))
+  let failing = true
+  registerPi(pi, async event => output(`failure at ${event.hook_event_name}`, failing))
   const statuses = []
   const ctx = {
     cwd: "/project",
@@ -79,6 +95,45 @@ test("Pi appends failures to tool results and requests one settlement continuati
   const second = await handlers.agent_before_settle(settling, ctx)
   assert.equal(first.continue, true)
   assert.equal(first.entries[0].customType, "overwatch")
-  assert.equal(second, undefined)
+  assert.equal(second.continue, true)
   assert.match(statuses.at(-1), /fixture failed/)
+  failing = false
+  assert.equal(await handlers.agent_before_settle(settling, ctx), undefined)
+})
+
+function protectionOutput(event, failing) {
+  if (!failing || event.tool_name !== "publish") return {}
+  return { hookSpecificOutput: { permissionDecision: "deny", permissionDecisionReason: "29 warnings" } }
+}
+
+test("Pi permits repair tools and blocks a protected tool before it runs", async () => {
+  const handlers = {}
+  const pi = { on: (name, handler) => { handlers[name] = handler } }
+  let failing = true
+  registerPi(pi, async event => protectionOutput(event, failing))
+  const ctx = { cwd: "/project", sessionManager: { getSessionId: () => "s1" } }
+  for (const toolName of ["read", "edit", "bash"]) {
+    assert.equal(await handlers.tool_call({ toolName, input: { command: "rg --files" } }, ctx), undefined)
+  }
+  assert.deepEqual(await handlers.tool_call({ toolName: "publish", input: {} }, ctx), { block: true, reason: "29 warnings" })
+  failing = false
+  assert.equal(await handlers.tool_call({ toolName: "publish", input: {} }, ctx), undefined)
+})
+
+test("OpenCode V1 protects only configured actions in its before-tool hook", async () => {
+  let failing = true
+  const hooks = createV1Hooks({ directory: "/project" }, async event => protectionOutput(event, failing))
+  await hooks["tool.execute.before"]({ tool: "bash", sessionID: "s1" }, { args: { command: "cat example.py" } })
+  await assert.rejects(hooks["tool.execute.before"]({ tool: "publish", sessionID: "s1" }, { args: {} }), /29 warnings/)
+  failing = false
+  await hooks["tool.execute.before"]({ tool: "publish", sessionID: "s1" }, { args: {} })
+})
+
+test("OpenCode V2 allows diagnostics while protecting publication until recovery", async () => {
+  let failing = true
+  const hooks = await v2Hooks(async event => protectionOutput(event, failing))
+  await hooks["tool:execute.before"]({ tool: "bash", sessionID: "s1", input: { command: "rg --files" } })
+  await assert.rejects(hooks["tool:execute.before"]({ tool: "publish", sessionID: "s1", input: {} }), /29 warnings/)
+  failing = false
+  await hooks["tool:execute.before"]({ tool: "publish", sessionID: "s1", input: {} })
 })

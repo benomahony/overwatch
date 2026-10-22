@@ -67,3 +67,11 @@ export function contextOf(output) {
   return output?.hookSpecificOutput?.additionalContext
 }
 
+/** A pre-tool permission decision is separate from a completion decision or a notification. */
+export function deniedAction(output) {
+  const permission = output?.hookSpecificOutput
+  return permission?.permissionDecision === "deny"
+    ? permission.permissionDecisionReason ?? "overwatch: relevant checks block this protected action"
+    : undefined
+}
+

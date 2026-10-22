@@ -24,6 +24,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
+from gating import protected_checks, read_policy, relevant
+
 
 OVERRIDE_PATH = ".overwatch.json"
 COMMAND_TIMEOUT = 540
@@ -309,6 +311,7 @@ def read_report(watcher: dict[str, Any], output: str, code: int | None = None) -
     assert selected is not None
     return {
         "name": watcher["name"],
+        "language": language_of(watcher),
         "command": command_line(selected[0]),
         "dir": watcher.get("dir"),
         "summary": summary,
@@ -531,10 +534,9 @@ def report_state(reports: list[dict[str, Any]], old: dict[str, Any]) -> dict[str
                                       "summary": report["summary"]})
     regressions = [report for report in reports if is_regression(report, baseline)]
     signatures = regression_signatures(regressions, baseline)
-    blocked = sorted(set(old.get("blocked", [])) & set(signatures))
     return {"reports": reports, "baseline": baseline, "failed": bool(regressions),
             "told": json.dumps(signatures) if regressions else None,
-            "signatures": signatures, "blocked": blocked}
+            "signatures": signatures}
 
 
 def regression_signatures(reports: list[dict[str, Any]], baseline: dict[str, Any]) -> list[str]:
@@ -548,11 +550,38 @@ def regression_signatures(reports: list[dict[str, Any]], baseline: dict[str, Any
 
 
 def block_stop(event: dict[str, Any], current: dict[str, Any]) -> bool:
-    if event.get("hook_event_name") != "Stop" or event.get("stop_hook_active"):
+    if event.get("hook_event_name") != "Stop":
         return False
-    pending = set(current["signatures"]) - set(current["blocked"])
-    current["blocked"] = current["signatures"]
-    return bool(pending)
+    return bool(gate_reports(current))
+
+
+def gate_reports(current: dict[str, Any], checks: list[str] | None = None) -> list[dict[str, Any]]:
+    inherited = current.get("gate", {}).get("inherited", "allow") == "block"
+    return [report for report in current["reports"]
+            if report["failed"] and not report.get("environment") and relevant(report, checks or [])
+            and (inherited or is_regression(report, current["baseline"]))]
+
+
+def protected_output(event: dict[str, Any], cwd: Path) -> dict[str, Any]:
+    policy = read_policy(read_override(cwd))
+    checks = protected_checks(event, policy)
+    if checks is None:
+        return {}
+    old, current = checked_state(event, cwd)
+    current["told"] = old.get("told")
+    save_state(event, cwd, current)
+    reports = gate_reports(current, checks)
+    if not reports:
+        return {}
+    reason = gate_reason(reports)
+    return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+                                   "permissionDecisionReason": reason}}
+
+
+def gate_reason(reports: list[dict[str, Any]]) -> str:
+    summaries = "; ".join(f"{report['name']}: {report['summary']}" for report in reports)
+    return (f"overwatch: this action is guarded while relevant checks fail. {summaries}. "
+            "Inspection, edits, and check commands remain available. Rerun the checks after repairing the failure.")
 
 
 def baseline_inventory(old: dict[str, Any], current: dict[str, Any], path: Path) -> str:
@@ -572,8 +601,11 @@ def baseline_inventory(old: dict[str, Any], current: dict[str, Any], path: Path)
     inventory.write_text(json.dumps({"checks": checks}, indent=2))
     count = sum(len(report.get("failures", [])) for report in added)
     detail = f"{count} named issues" if count else "individual issue names unavailable; see full logs"
+    policy = ("Inherited findings guard completion and protected actions. "
+              if current.get("gate", {}).get("inherited") == "block"
+              else "It is not a Stop blocker; only new failures are guarded. ")
     return (f"overwatch: inherited backlog in {len(added)} checks ({detail}). "
-            "It is not a Stop blocker; only new failures are guarded. "
+            f"{policy}"
             f"Triage inventory: `{inventory}`. Filter or page it with hooks/triage.py; full logs are linked there.")
 
 
@@ -585,6 +617,15 @@ def process_event(event: dict[str, Any]) -> dict[str, Any]:
     cwd = repository_of(Path(str(event.get("cwd") or os.getcwd())).resolve())
     if cwd is None:
         return {}
+    if event.get("hook_event_name") == "PreToolUse":
+        return protected_output(event, cwd)
+    old, current = checked_state(event, cwd)
+    output = report_output(event, old, current, state_path(event, cwd))
+    save_state(event, cwd, current)
+    return output
+
+
+def checked_state(event: dict[str, Any], cwd: Path) -> tuple[dict[str, Any], dict[str, Any]]:
     old = load_state(event, cwd)
     before = fingerprint(cwd)
     should_run = not old or old.get("fingerprint") != before
@@ -594,12 +635,11 @@ def process_event(event: dict[str, Any]) -> dict[str, Any]:
     told = list(old.get("environment", []))
     environment = new_environment(reports, told)
     current.update({
+        "gate": read_policy(read_override(cwd)),
         "fingerprint": fingerprint(cwd) if should_run else before,
         "environment": [*told, *(report["environment"] for report in environment)],
     })
-    output = report_output(event, old, current, state_path(event, cwd))
-    save_state(event, cwd, current)
-    return output
+    return old, current
 
 
 def report_output(event: dict[str, Any], old: dict[str, Any], current: dict[str, Any], path: Path) -> dict[str, Any]:
@@ -609,19 +649,19 @@ def report_output(event: dict[str, Any], old: dict[str, Any], current: dict[str,
     parts: list[str] = [baseline_notice] if baseline_notice else []
     output: dict[str, Any] = {}
     blocking = block_stop(event, current)
-    if blocking or (current["failed"] and current["told"] != old.get("told")):
+    if current["failed"] and current["told"] != old.get("told"):
         regressions = [report for report in reports if is_regression(report, current["baseline"])]
         logs = {key_of(report): write_log(path, report) for report in regressions}
         message = failure_message(regressions, current["baseline"], logs)
         parts.append(message)
         output["systemMessage"] = failure_status(regressions)
-        if blocking:
-            output.update({"decision": "block", "reason": message})
     elif not current["failed"] and old.get("failed"):
         parts.append(recovery_message(reports))
     if environment:
         parts.append(environment_message(environment))
         output.setdefault("systemMessage", "Overwatch: some checks cannot run in this environment")
+    if blocking:
+        output.update({"decision": "block", "reason": gate_reason(gate_reports(current))})
     if parts:
         output.update(context_output(str(event.get("hook_event_name", "")), "\n\n".join(parts)))
     return output

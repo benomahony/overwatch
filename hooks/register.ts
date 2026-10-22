@@ -1,4 +1,5 @@
 import type { EngineInterface, FsEntry, Register, Timer } from 'claude-code'
+import { protectedChecks, type GatePolicy } from './gating'
 import {
   CHECKERS,
   LANGUAGES,
@@ -40,6 +41,8 @@ const EDITING_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Ba
 
 /** One watcher's place beside the others: a language in the project or one of its sub-projects, or a checker such as zanity. */
 type Slot = {
+  watcher: Watcher | undefined
+  report: Report | undefined
   /** The watcher's language and the real path it runs in, which stay the same while the watcher run there may change. */
   key: string
   dir: string
@@ -78,6 +81,7 @@ type State = {
   environment: Set<string>
   /** Whether the project is being searched for watchers, and whether it should be again once that is done. */
   isFinding: boolean
+  finding: Promise<{ watcher: Watcher; dir: string }[]> | undefined
   isFindDue: boolean
   /** One for each watcher found so far, in the order found, which is the status line's order. */
   slots: Slot[]
@@ -167,7 +171,7 @@ async function baselineInventory($: EngineInterface, run: Run, report: Report) {
   if (!saved || !slot.isWatching) return
   const detail = report.failures.length > 0 ? report.failures.length + ' named issues' : 'individual issue names unavailable; see full log'
   const text = 'overwatch: inherited backlog (' + detail + '). ' +
-    'It is not a Stop blocker; only new failures are guarded. Triage inventory: ' + path +
+    'Inherited findings follow the configured failure policy. Triage inventory: ' + path +
     '. Filter or page it with hooks/triage.py; full output is linked there.'
   state.outbox.set(slot.key + ':baseline', { text, isWaking: false, kind: 'baseline' })
   schedule($, state)
@@ -183,6 +187,7 @@ const TIMING = /\d+(?:\.\d+)?m?s\b/g
  */
 async function deliver($: EngineInterface, run: Run, report: Report) {
   const { state, slot, watcher } = run
+  slot.report = report
   setStatus($, state, slot, statusLine(watcher, report))
   if (report.environment !== undefined) {
     queueEnvironment($, run, report.environment)
@@ -470,8 +475,10 @@ async function ensureAll($: EngineInterface, state: State) {
   }
   state.isFinding = true
   state.isFindDue = false
-  const watchers = await findIn($, cwd).finally(() => {
+  state.finding = findIn($, cwd)
+  const watchers = await state.finding.finally(() => {
     state.isFinding = false
+    state.finding = undefined
   })
   if (state.epoch !== epoch) return
   const now = await $.clock.now()
@@ -491,6 +498,7 @@ async function ensureAll($: EngineInterface, state: State) {
 
 async function start($: EngineInterface, state: State, slot: Slot, watcher: Watcher) {
   const { epoch } = state
+  slot.watcher = watcher
   slot.isWatching = true
   slot.retryAt = 0
   const ending = await watch($, { state, slot, watcher, cwd: slot.dir })
@@ -550,15 +558,18 @@ async function stop($: EngineInterface, state: State) {
     each.changed = undefined
     each.wasFailing = false
     each.baseline = undefined
+    each.report = undefined
     each.told = undefined
     each.status = undefined
     return each.kill?.()
   })
-  await Promise.all(slots)
+  await Promise.all([...slots, state.finding])
   $.ui.status(undefined)
 }
 
 const slot = (key: string, dir: string): Slot => ({
+  watcher: undefined,
+  report: undefined,
   key,
   dir,
   isWatching: false,
@@ -572,6 +583,37 @@ const slot = (key: string, dir: string): Slot => ({
   status: undefined,
 })
 
+/** Policy is read afresh, but ordinary tool calls never rerun a check. */
+async function projectPolicy($: EngineInterface, state: State): Promise<GatePolicy> {
+  if (state.cwd === undefined) return {}
+  const root = await repositoryOf($, state.cwd)
+  return root === undefined ? {} : (await readOverride($, root)).gate ?? {}
+}
+
+function guardedFailure(state: State, policy: GatePolicy, checks: readonly string[] = []): string | undefined {
+  const blocked = state.slots.filter(({ report, baseline, watcher }) => {
+    if (report === undefined || baseline === undefined || !report.isFailed || report.environment !== undefined) return false
+    if (checks.length > 0 && !checks.includes(watcher?.name ?? '') && !checks.includes(watcher === undefined ? '' : languageOf(watcher))) return false
+    return policy.inherited === 'block' || hasRegression(report, baseline)
+  })
+  if (blocked.length === 0) return undefined
+  const summaries = blocked.map(each => `${each.watcher?.name}: ${each.report?.summary}`).join('; ')
+  return `overwatch: this action is guarded while relevant checks fail. ${summaries}. Inspection, edits, and check commands remain available.`
+}
+
+/** Completion hooks return text; queue a correction instead of returning a tool-only denial. */
+async function completionGuard($: EngineInterface, state: State): Promise<string | undefined> {
+  if (!state.slots.some(each => each.report?.isFailed)) return undefined
+  const reason = guardedFailure(state, await projectPolicy($, state))
+  if (reason === undefined) return undefined
+  state.isTurnRunning = false
+  if (!state.isPromptQueued) {
+    state.isPromptQueued = true
+    await $.prompt.submit({ text: reason })
+  }
+  return reason
+}
+
 export const register: Register = on => {
   const state: State = {
     cwd: undefined,
@@ -583,6 +625,7 @@ export const register: Register = on => {
     flushing: undefined,
     environment: new Set(),
     isFinding: false,
+    finding: undefined,
     isFindDue: false,
     slots: [],
   }
@@ -596,6 +639,12 @@ export const register: Register = on => {
   })
 
   on('tool.call', async ($, e, next) => {
+    if (state.slots.some(each => each.report?.isFailed)) {
+      const policy = await projectPolicy($, state)
+      const checks = protectedChecks(e.tool, e, policy)
+      const reason = checks === undefined ? undefined : guardedFailure(state, policy, checks)
+      if (reason !== undefined) return { deny: reason }
+    }
     const result = await next(e)
     if (!EDITING_TOOLS.has(e.tool)) return result
     for (const each of state.slots) each.changed?.()
@@ -611,8 +660,10 @@ export const register: Register = on => {
     return next(e)
   })
 
-  on('turn.complete', ($, e, next) => {
+  on('turn.complete', async ($, e, next) => {
     if (e.agentId === undefined) {
+      const reason = await completionGuard($, state)
+      if (reason !== undefined) return { text: reason }
       state.isTurnRunning = false
       schedule($, state)
     }

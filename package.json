@@ -6,6 +6,7 @@
   "exports": "./integrations/opencode.js",
   "files": [
     "hooks/codex.py",
+    "hooks/gating.py",
     "hooks/triage.py",
     "integrations",
     "watchers.json"

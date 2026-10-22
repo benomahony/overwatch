@@ -9,11 +9,11 @@ With Claude Code:
 - **Back to green:** the agent is told during a turn; otherwise the status line shows it.
 - The status line always shows the latest result, for example `overwatch zig ✓ 4/4 steps succeeded; 48/48 tests passed`.
 
-With Codex, overwatch runs the full suite when a session starts, checks again after tools change the workspace, and reports new failures after edits, then blocks Stop once for each distinct new failure. Tools remain available for investigation and fixes; repeated Stop events and the immediate Stop-hook continuation do not loop on the same failure. A change made outside Codex is picked up with the next prompt. Overwatch supplies transient status text while each check runs, though not every Codex surface renders it, and a concise visible warning for each distinct new failure, with full output saved to a log file. Existing failures form the session baseline, with a compact triage notice and full logs saved separately. They do not block Stop. Codex's status line does not currently accept persistent plugin-defined fields. Codex does not currently let a plugin start a new turn in an idle session, so that is the one difference from the Claude Code behavior above.
+With Codex, overwatch runs the full suite when a session starts, checks again after tools change the workspace, and reports new failures after edits. Completion remains guarded until those failures clear, including during a Stop-hook continuation. Tools remain available for investigation and fixes. A change made outside Codex is picked up with the next prompt. Overwatch supplies transient status text while each check runs, though not every Codex surface renders it, and a concise visible warning for each distinct new failure, with full output saved to a log file. Existing failures form the session baseline, with a compact triage notice and full logs saved separately. They do not block Stop unless the inherited-finding policy requires it. Codex's status line does not currently accept persistent plugin-defined fields. Codex does not currently let a plugin start a new turn in an idle session, so that is the one difference from the Claude Code behavior above.
 
 With OpenCode, overwatch checks the project at session start, before model calls, and after editing tools. OpenCode 1 appends a red report to the editing tool's result and warns if the session goes idle. OpenCode 2 also queues one correction pass when the session tries to settle while red.
 
-With Pi, overwatch runs the full suite at session start, adds failures to editing tool results, keeps the latest failure in Pi's status line, and requests one more agent pass when the suite is still red at settlement.
+With Pi, overwatch runs the full suite at session start, adds failures to editing tool results, keeps the latest failure in Pi's status line, and requests a correction pass whenever guarded failures remain at settlement.
 
 With Neovim, the same long-running watchers put failures in the quickfix list and expose their latest result to status lines, with no agent involved.
 
@@ -77,7 +77,7 @@ A project with no marker file is watched when its override names `summary`, `fai
 
 ### Legacy-code triage
 
-A legacy project can start with thousands of errors. Overwatch records the first result of each check as inherited backlog and sends one short notice with the inventory path. It saves all named issues and the full original output outside the conversation. Fixing that backlog is deliberate work; it does not prevent ordinary tools or Stop events. A new failure still gets its own Stop guard, even if other errors were already present.
+A legacy project can start with thousands of errors. Overwatch records the first result of each check as inherited backlog and sends one short notice with the inventory path. It saves all named issues and the full original output outside the conversation. Fixing that backlog is deliberate work; by default, it does not prevent ordinary tools or Stop events. New failures keep completion guarded, even if other errors were already present. Updating results never replaces the initial baseline with new failures.
 
 Inspect a small batch from the inventory path in the notice:
 
@@ -88,6 +88,30 @@ python3 hooks/triage.py /path/from/notice.baseline.json --offset 20 --limit 20 -
 ```
 
 Run the script from your Overwatch checkout or use its installed absolute path. `--check` matches the check, command, or subproject; `--match` searches issue names, both without case sensitivity. The view groups by check and pages the initial snapshot, with links to full logs. It does not rerun checks or silently accept new regressions. When a runner does not name individual issues, the inventory contains its summary and full log instead. An increase in its reported error, warning, or failure counts is treated as a regression; a replacement issue with the same count cannot be distinguished without issue names.
+
+### Failure gates and protected actions
+
+Failure notifications and permission decisions are separate. Listing, searching, reading, editing, and running checks are ordinary operations: a red check does not deny them or launch a check before they run. Post-tool notifications never deny a tool. Completion stays guarded until the relevant failures clear; deduplicating a notification does not clear that gate. Warnings retain each check's existing failure policy, including Zanity warnings.
+
+There are no protected tool actions by default. Configure specific actions in the repository's `.overwatch.json`:
+
+```json
+{
+  "gate": {
+    "inherited": "allow",
+    "protected_actions": [
+      { "tool": "Bash", "command": "\\bgit\\s+push\\b", "checks": ["zanity"] },
+      { "tool": "Publish", "checks": ["zanity", "go"] }
+    ]
+  }
+}
+```
+
+Tool names match without case sensitivity; use the tool name your agent sends, such as `Bash`, `bash`, or `exec_command`. An optional `command` regular expression matches its `command` or `cmd` argument. Use syntax supported by both Python and JavaScript. Protect the specific publication or deployment command rather than the whole shell tool, so repairs remain possible. Without `command`, the rule protects the entire named tool. `checks` selects watcher names or languages; an omitted or empty list selects all checks. An unrelated failed check does not block an action scoped to passing checks. Every protected attempt checks the failure state independently, so a prior denial does not grant the next attempt.
+
+`inherited` defaults to `"allow"`, preserving backlog triage. Set it to `"block"` to require inherited findings to clear before completion or protected actions. Ordinary operations remain available under either policy. A successful check clears its gate; it does not clear failures from other checks. Environment errors retain their existing reporting behavior.
+
+Command hooks use `PreToolUse` only for protected-action permission decisions and `Stop` for completion. Ordinary pre-tool hooks return an empty response without rerunning checks. Claude Code's in-process plugin denies protected tools before execution and replaces guarded completion with a correction request. OpenCode and Pi use their before-tool hooks for protected actions. Reload the plugin after updating hook definitions; Codex may require renewed hook trust.
 
 ## Install
 

@@ -116,7 +116,7 @@ class CodexHookTests(unittest.TestCase):
             write(path, text)
         write(self.cwd / "changed.txt", "changed")
 
-    def test_failure_notifies_after_edit_and_blocks_stop_only_once(self) -> None:
+    def test_failure_notifies_once_but_completion_remains_guarded(self) -> None:
         result, count = self.configure()
         write(result, "RESULT: PASS")
         self.assertEqual(self.call("SessionStart")[0], {})
@@ -127,8 +127,9 @@ class CodexHookTests(unittest.TestCase):
         stopped, _ = self.call("Stop", stop_hook_active=False)
         self.assertEqual(stopped["decision"], "block")
         self.assertIn("RESULT: FAIL", stopped["reason"])
-        for event in ("Stop", "UserPromptSubmit", "PostToolUse", "Stop"):
+        for event in ("UserPromptSubmit", "PostToolUse"):
             self.assertEqual(self.call(event, stop_hook_active=False)[0], {})
+        self.assertEqual(self.call("Stop")[0]["decision"], "block")
         self.assertEqual(read(count), "2")
 
     def test_timing_changes_do_not_repeat_a_failure(self) -> None:
@@ -138,7 +139,7 @@ class CodexHookTests(unittest.TestCase):
         write(result, "RESULT: FAIL in 0.01s")
         self.assertIn("systemMessage", self.call("Stop")[0])
         write(result, "RESULT: FAIL in 0.02s")
-        self.assertEqual(self.call("Stop")[0], {})
+        self.assertEqual(self.call("Stop")[0]["decision"], "block")
 
     def test_existing_failure_stays_quiet(self) -> None:
         result, _ = self.configure()
@@ -153,9 +154,9 @@ class CodexHookTests(unittest.TestCase):
         write(result, "RESULT: PASS")
         self.call("SessionStart")
         write(result, "RESULT: FAIL")
-        self.assertNotIn("decision", self.call("Stop", stop_hook_active=True)[0])
+        self.assertEqual(self.call("Stop", stop_hook_active=True)[0]["decision"], "block")
         self.assertEqual(self.call("Stop")[0]["decision"], "block")
-        self.assertEqual(self.call("Stop")[0], {})
+        self.assertEqual(self.call("Stop")[0]["decision"], "block")
 
     def test_summary_only_backlog_blocks_only_when_error_counts_increase(self) -> None:
         result, _ = self.configure()
@@ -166,7 +167,7 @@ class CodexHookTests(unittest.TestCase):
         write(result, "RESULT: FAIL 10001 errors")
         self.assertNotIn("decision", self.call("PostToolUse")[0])
         self.assertEqual(self.call("Stop")[0]["decision"], "block")
-        self.assertEqual(self.call("Stop")[0], {})
+        self.assertEqual(self.call("Stop")[0]["decision"], "block")
 
     def test_another_new_issue_gets_its_own_stop_guard(self) -> None:
         first = {"name": "fixture", "failed": True, "failures": ["legacy"], "summary": "1 failed"}
@@ -179,7 +180,7 @@ class CodexHookTests(unittest.TestCase):
         self.assertTrue(codex.block_stop({"hook_event_name": "Stop"}, following))
         report = {**report, "failures": ["new-a"], "summary": "1 failed"}
         remaining = codex.report_state([report], following)
-        self.assertFalse(codex.block_stop({"hook_event_name": "Stop"}, remaining))
+        self.assertTrue(codex.block_stop({"hook_event_name": "Stop"}, remaining))
 
     def legacy_project(self) -> tuple[list[str], dict[str, object], Path]:
         write(self.cwd / "go.mod", "module legacy")
@@ -208,8 +209,8 @@ class CodexHookTests(unittest.TestCase):
         self.assertEqual(batch["issues"], selected["issues"][3:6])
         self.assertEqual(triage.triage(json.loads(read(inventory)), "missing")["total"], 0)
 
-    def test_legacy_cleanup_does_not_repeat_a_new_failure_guard(self) -> None:
-        """A new issue blocks once; reducing the inherited backlog preserves its guard and snapshot."""
+    def test_legacy_cleanup_preserves_the_new_failure_gate(self) -> None:
+        """A new issue keeps completion guarded while cleanup preserves the inherited snapshot."""
         failures, _, inventory = self.legacy_project()
         snapshot = read(inventory)
         self.tool("go", "\n".join([*failures, "--- FAIL: TestNew (0.00s)", "FAIL"]), 1)
@@ -218,11 +219,11 @@ class CodexHookTests(unittest.TestCase):
         self.assertNotIn("decision", changed)
         self.assertIn("TestNew", changed["hookSpecificOutput"]["additionalContext"])
         self.assertEqual(self.call("Stop")[0]["decision"], "block")
-        self.assertEqual(self.call("Stop")[0], {})
+        self.assertEqual(self.call("Stop")[0]["decision"], "block")
         self.tool("go", "\n".join([*failures[100:], "--- FAIL: TestNew (0.00s)", "FAIL"]), 1)
         write(self.cwd / "edit.txt", "legacy cleanup")
         self.assertEqual(self.call("PostToolUse")[0], {})
-        self.assertEqual(self.call("Stop")[0], {})
+        self.assertEqual(self.call("Stop")[0]["decision"], "block")
         self.assertEqual(read(inventory), snapshot)
 
     def test_changed_workspace_reruns_and_reports_recovery(self) -> None:

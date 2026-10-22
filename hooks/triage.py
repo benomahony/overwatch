@@ -47,7 +47,7 @@ def main() -> None:
     if args.json:
         print(json.dumps(result, indent=2))
         return
-    print(f"Inherited backlog: {result['total']} matching issues. These are not Stop blockers.")
+    print(f"Inherited backlog: {result['total']} matching issues. Completion follows the project's inherited-finding policy.")
     for group in result["checks"]:
         print(f"  {group['name']} ({group.get('dir') or '.'}): {group['count']}")
     print(f"Showing up to {args.limit} issues from offset {args.offset}:")

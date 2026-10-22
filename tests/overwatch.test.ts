@@ -496,6 +496,7 @@ test('a turn that starts while the session is still looking spawns one watcher',
   expect(spawned).toEqual([ZIG_WATCH])
   const ending = $.session.end({ reason: 'prompt_input_exit', sessionId: 's1', resume: { id: 's1' } })
   await clock.advance(600_000)
+  await answerAll()
   await ending
 })
 

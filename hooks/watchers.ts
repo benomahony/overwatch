@@ -1,4 +1,5 @@
 import { TABLE } from './table'
+import type { GatePolicy } from './gating'
 
 /** A test watcher overwatch can run: the file that marks a project as its kind, the command, and how to read its output. */
 export type Watcher = {
@@ -35,6 +36,7 @@ export type Watcher = {
 
 /** The project's own `.overwatch.json`, shared with the Neovim plugin, every field optional. */
 export type Override = {
+  gate?: GatePolicy
   enabled?: boolean
   name?: string
   argv?: string[]

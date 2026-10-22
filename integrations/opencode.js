@@ -1,4 +1,4 @@
-import { contextOf, serialChecker } from "./check.js"
+import { contextOf, deniedAction, serialChecker } from "./check.js"
 
 const EDITING_TOOLS = new Set(["apply_patch", "bash", "edit", "shell", "write"])
 
@@ -28,6 +28,12 @@ export function createV1Hooks({ directory, client }, checker = serialChecker()) 
   }
 
   return {
+    "tool.execute.before": async (input, output) => {
+      const result = await check({ ...payload("PreToolUse", directory, input.sessionID),
+        tool_name: input.tool, tool_input: output.args ?? input.args })
+      const reason = deniedAction(result)
+      if (reason !== undefined) throw new Error(reason)
+    },
     event: async ({ event }) => {
       const sessionID = sessionIDOf(event)
       if (!sessionID) return
@@ -57,7 +63,13 @@ export function createV1Hooks({ directory, client }, checker = serialChecker()) 
 export async function setupV2(ctx, checker = serialChecker()) {
   const check = checker
   const cwd = ctx.location.directory
-  const stopBlocked = new Set()
+
+  await ctx.tool.hook("execute.before", async event => {
+    const output = await check({ ...payload("PreToolUse", cwd, event.sessionID),
+      tool_name: event.tool, tool_input: event.input })
+    const reason = deniedAction(output)
+    if (reason !== undefined) throw new Error(reason)
+  })
 
   await ctx.session.hook("context", async event => {
     const output = await check(payload("UserPromptSubmit", cwd, event.sessionID))
@@ -73,7 +85,6 @@ export async function setupV2(ctx, checker = serialChecker()) {
       tool_use_id: event.id ?? event.callID,
       tool_input: event.input,
     })
-    stopBlocked.delete(event.sessionID)
   })
 
   const controller = new AbortController()
@@ -84,8 +95,7 @@ export async function setupV2(ctx, checker = serialChecker()) {
         const sessionID = sessionIDOf(event)
         if (!sessionID) continue
         const output = await check(payload("Stop", cwd, sessionID))
-        if (output.decision !== "block" || stopBlocked.has(sessionID)) continue
-        stopBlocked.add(sessionID)
+        if (output.decision !== "block") continue
         await ctx.session.prompt({ sessionID, text: output.reason, delivery: "queue" })
       }
     } catch (error) {
