@@ -6,10 +6,16 @@
 ---
 
 
+The [behavior guide](https://benomahony.github.io/overwatch/behavior/) is generated from the Given/When/Then scenarios in [the acceptance catalog](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py). Each implemented step is executable against an isolated repository and the real command hook. Proposed scenarios are displayed separately and do not count as passing tests. Generation and CI checks run the implemented scenarios first; failing scenarios cannot publish a verified behavior page.
+
+Add a scenario by composing `Scenario(...).given(...).when(...).then(...)` with fixture actions for every implemented step. Titles must be unique. Use `status="proposed"` with no executable actions for a planned behavior. Keep hook payloads, temporary paths, and test setup in the fixture rather than the prose.
+
 ```sh
 python3 scripts/table.py      # after editing watchers.json
-python3 docs/sync.py          # after editing this README: the site's pages come from it
-python3 -m unittest tests.test_codex
+python3 scripts/scenarios.py  # verify scenarios and regenerate the behavior guide
+python3 scripts/scenarios.py --check  # verify scenarios and reject stale behavior docs
+python3 docs/sync.py          # regenerate site pages from README and the verified behavior guide
+python3 -m unittest discover -s tests -p 'test_*.py'
 node --test tests/test_integrations.mjs
 nvim --headless -l tests/overwatch_spec.lua
 claude plugin validate .

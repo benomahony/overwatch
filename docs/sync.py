@@ -1,4 +1,4 @@
-"""Write the site's pages from README.md, which stays the one source.
+"""Write site pages from README.md and the generated acceptance-scenario document.
 
 The introduction is the README from its first paragraph to its first section; each other page is
 one of its sections.
@@ -17,6 +17,7 @@ PAGES = {
     "index.smd": ("overwatch", "Test watchers that hand every failing build to the agent the moment it happens.", "index.shtml", "# overwatch", "## Watchers"),
     "watchers.smd": ("Watchers", "The test runners overwatch finds in a project, and how it reads what they print.", "page.shtml", "## Watchers", "## Per-project override"),
     "configuration.smd": ("Configuration", "Turning overwatch off, or giving a project its own commands, with .overwatch.json.", "page.shtml", "## Per-project override", "## Install"),
+    "behavior.smd": ("Behavior", "Executable examples of failure gates, recovery, and inherited-finding policies.", "page.shtml", "# How Overwatch behaves", None),
     "install.smd": ("Install", "Adding overwatch to Claude Code, Codex, OpenCode, Pi, or Neovim.", "page.shtml", "## Install", "## Neovim"),
     "neovim.smd": ("Neovim", "The same watchers beside the editor, with no agent involved.", "page.shtml", "## Neovim", "## Develop"),
     "develop.smd": ("Develop", "Running overwatch's own tests and trying a local checkout.", "page.shtml", "## Develop", None),
@@ -63,7 +64,8 @@ def main() -> None:
     assert readme[0] == "# overwatch", "README.md must start with its '# overwatch' title"
     for order, (name, (title, description, layout, start, end)) in enumerate(PAGES.items()):
         metadata = (title, description, layout)
-        (CONTENT / name).write_text(page(metadata, section(readme, start, end), order))
+        source = (DOCS / "behavior.md").read_text().splitlines() if name == "behavior.smd" else readme
+        (CONTENT / name).write_text(page(metadata, section(source, start, end), order))
         print(CONTENT / name)
 
 

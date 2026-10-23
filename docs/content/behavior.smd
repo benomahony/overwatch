@@ -1,0 +1,132 @@
+---
+.title = "Behavior",
+.description = "Executable examples of failure gates, recovery, and inherited-finding policies.",
+.date = .date("2026-10-21T00:00:04"),
+.layout = "page.shtml",
+---
+
+
+Generated from the executable scenarios in `tests/acceptance/catalog.py`.
+Run `python3 scripts/scenarios.py` to verify the scenarios and regenerate this page.
+
+# [Verified behavior]($heading.id('verified-behavior'))
+
+## [Failure gates]($heading.id('failure-gates'))
+
+### [Repair remains possible during failure]($heading.id('repair-remains-possible-during-failure'))
+
+Tags: repair, warnings.
+
+- **Given** A previously passing check now reports 29 warnings.
+- **When** The agent lists, searches, reads, edits, and runs check commands.
+- **Then** Every repair operation is allowed and the edited file can be read.
+
+### [Protected actions stay protected on every attempt]($heading.id('protected-actions-stay-protected-on-every-attempt'))
+
+Tags: protected-actions.
+
+- **Given** A previously passing check now reports 29 warnings.
+- **When** The agent attempts configured publication actions twice.
+- **Then** Every attempt is denied with the failing check's summary.
+
+### [Completion stays guarded during a continuation]($heading.id('completion-stays-guarded-during-a-continuation'))
+
+Tags: completion.
+
+- **Given** A previously passing check now reports 29 warnings.
+- **When** The agent repeatedly tries to finish, including a Stop continuation.
+- **Then** Every completion attempt remains guarded.
+
+### [Successful checks release the failure gate]($heading.id('successful-checks-release-the-failure-gate'))
+
+Tags: recovery.
+
+- **Given** A previously passing check now reports 29 warnings.
+- **When** The repaired code passes its check.
+- **Then** Completion and configured publication actions are allowed.
+
+### [Protected actions consult their relevant checks]($heading.id('protected-actions-consult-their-relevant-checks'))
+
+Tags: check-scope.
+
+- **Given** Publication requires the passing Go check.
+- **And** The unrelated Zanity check develops 29 warnings.
+- **When** The agent attempts publication and completion.
+- **Then** Publication is allowed while overall completion remains guarded.
+
+### [Inspection never starts a check]($heading.id('inspection-never-starts-a-check'))
+
+Tags: repair, check-execution.
+
+- **Given** A previously passing check now reports 29 warnings.
+- **And** The checker is unavailable for a new run.
+- **When** The agent lists files.
+- **Then** Listing succeeds without rerunning or replacing the failed result.
+
+## [Legacy debt]($heading.id('legacy-debt'))
+
+### [Inherited debt does not absorb new failures]($heading.id('inherited-debt-does-not-absorb-new-failures'))
+
+Tags: baseline, regressions.
+
+- **Given** The session starts with 29 inherited warnings under the default policy.
+- **When** The agent attempts completion and publication.
+- **Then** Completion and configured publication actions are allowed.
+- **When** A change increases the warning count to 30.
+- **Then** The new failure guards completion.
+
+### [Strict inherited-finding policy still permits inspection]($heading.id('strict-inherited-finding-policy-still-permits-inspection'))
+
+Tags: baseline, strict.
+
+- **Given** Inherited findings are configured to block.
+- **And** The session starts with 29 inherited warnings.
+- **When** The agent attempts completion, publication, and inspection.
+- **Then** Completion and publication are denied while inspection remains available.
+
+# [Proposed behavior (not implemented)]($heading.id('proposed-behavior-not-implemented'))
+
+## [Changed-code cleanup]($heading.id('changed-code-cleanup'))
+
+### [Editing a function activates its inherited findings]($heading.id('editing-a-function-activates-its-inherited-findings'))
+
+Tags: changed-code.
+
+- **Given** A function has three inherited warnings and another function has twelve.
+- **When** The agent changes the first function.
+- **Then** Its three warnings require cleanup while the other twelve remain backlog.
+- **And** Repair tools remain available while completion is guarded.
+
+### [Changed code activates the cross-file findings it participates in]($heading.id('changed-code-activates-the-cross-file-findings-it-participates-in'))
+
+Tags: changed-code, cross-file.
+
+- **Given** An inherited finding involves functions in two files.
+- **When** The agent changes one of those participating functions.
+- **Then** That cross-file finding requires cleanup while unrelated findings remain backlog.
+
+### [Disabling a rule is not a resolution]($heading.id('disabling-a-rule-is-not-a-resolution'))
+
+Tags: rules, resolution.
+
+- **Given** A finding requires cleanup in changed code.
+- **When** Its rule is disabled or its source path is excluded.
+- **Then** The finding is not recorded as fixed.
+
+## [Finding age]($heading.id('finding-age'))
+
+### [Moving a finding preserves its identity and age]($heading.id('moving-a-finding-preserves-its-identity-and-age'))
+
+Tags: identity, age.
+
+- **Given** An inherited finding has a recorded identity and first-seen date.
+- **When** Unrelated lines are inserted above it or the agent session restarts.
+- **Then** Its identity and age remain unchanged and movement alone does not activate it.
+
+### [Untouched debt escalates at its configured deadline]($heading.id('untouched-debt-escalates-at-its-configured-deadline'))
+
+Tags: age, deadlines.
+
+- **Given** An inherited finding has a project-configured deadline.
+- **When** A check runs after that deadline.
+- **Then** The finding escalates according to project policy without resetting its first-seen date.

@@ -10,6 +10,7 @@
 			<p class="sidebar-group">Core</p>
 			<a href="$site.page('watchers').link()" class="$site.page('watchers').isCurrent().then('active', '')">Watchers</a>
 			<a href="$site.page('configuration').link()" class="$site.page('configuration').isCurrent().then('active', '')">Configuration</a>
+			<a href="$site.page('behavior').link()" class="$site.page('behavior').isCurrent().then('active', '')">Behavior</a>
 			<p class="sidebar-group">Integrations</p>
 			<a href="$site.page('neovim').link()" class="$site.page('neovim').isCurrent().then('active', '')">Neovim</a>
 			<p class="sidebar-group">Project</p>

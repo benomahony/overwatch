@@ -19,8 +19,13 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
-      # Every page comes from README.md; a README change must regenerate them.
-      - name: Check the pages match README.md
+      - name: Verify acceptance scenarios and their generated documentation
+        run: |
+          python3 -m unittest discover -s tests -p test_scenarios.py
+          python3 scripts/scenarios.py --check
+
+      # Pages come from README.md and the verified acceptance scenarios.
+      - name: Check generated site pages
         run: |
           python3 docs/sync.py
           git diff --exit-code docs/content
