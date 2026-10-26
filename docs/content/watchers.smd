@@ -18,6 +18,7 @@
 | go | `go.mod`, with `gotestsum` on `PATH` | `gotestsum -- ./...` | `gotestsum --watch` |
 | go | `go.mod` | `go test ./...` | none: reruns the full run after edits |
 | rust | `Cargo.toml` | `cargo test` | none: reruns the full run after edits |
+| swift | `Package.swift` | `swift test` | none: reruns the full run after edits |
 
 Each language's rows are alternatives, tried in order: the first whose marker, and tool if it names one, is present runs. So a JS project runs the vitest or jest it has installed, ahead of `bun test`, Go uses gotestsum's watcher when it is installed, and a Python project without uv runs the `pytest` on `PATH`. A polyglot project runs a watcher for every language it has, side by side, each with its own part of the status line, for example `overwatch go ✗ 1 failed: TestAdd · overwatch rust ✓ passed`.
 

@@ -87,6 +87,13 @@ test('each language reads its runner’s report and names what failed', function
   eq(read(go, './calc_test.go:5:1: expected declaration, found syntax', 1)[2], { './calc_test.go:5:1: expected declaration, found syntax' })
   eq(read(named('rust'), 'test tests::adds ... FAILED\ntest result: FAILED.', 101), { 'overwatch rust ✗ 1 failed: tests::adds', { 'tests::adds' } })
   eq(read(named('rust'), 'test result: ok.', 0), { 'overwatch rust ✓ passed', {} })
+  local swift = '✘ Test adds() failed after 0.001 seconds with 1 issue.\n✘ Test "Adds negatives" failed after 0.001 seconds with 1 issue.\n'
+    .. "Test Case '-[CalcTests.CalcTests testAdd]' failed (0.002 seconds).\n✘ Test run with 3 tests in 1 suite failed after 0.003 seconds with 3 issues."
+  eq(read(named('swift'), swift, 1), { 'overwatch swift ✗ 3 failed: adds() +2 more', { 'adds()', '"Adds negatives"', '-[CalcTests.CalcTests testAdd]' } })
+  eq(read(named('swift'), "/p/Sources/Calc/Calc.swift:1:50: \27[1;31merror: \27[1;39mcannot convert value of type 'String' to expected argument type 'Int'\27[0;0m", 1)[2],
+    { "/p/Sources/Calc/Calc.swift:1:50: error: cannot convert value of type 'String' to expected argument type 'Int'" })
+  eq(read(named('swift'), 'Smoke/Smoke.swift:18: Precondition failed: lost records\nSmoke/Smoke.swift:38: Fatal error: Fixture must use 16 kHz', 133)[2],
+    { 'Smoke/Smoke.swift:18: Precondition failed: lost records', 'Smoke/Smoke.swift:38: Fatal error: Fixture must use 16 kHz' })
 end)
 
 test('every language in a polyglot project gets its own watcher', function()

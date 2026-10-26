@@ -201,6 +201,15 @@ export const TABLE = {
         "test"
       ],
       "failure": "^(?:test (\\S+) \\.\\.\\. FAILED|(error\\[E\\d+\\]: .+))$"
+    },
+    {
+      "name": "swift",
+      "marker": "Package.swift",
+      "baseline": [
+        "swift",
+        "test"
+      ],
+      "failure": "^(?:\\S+ Test (\\S+\\)|\".+\") failed after .*|Test Case '(.+)' failed \\(.*|(\\S+\\.swift:\\d+(?::\\d+: error|: (?:Fatal error|Precondition failed|Assertion failed)): .+))$"
     }
   ],
   "checkers": [
