@@ -521,6 +521,21 @@ test('the session ending stops the watcher and any restart', async ($, on) => {
   expect(statuses.at(-1)).toBeUndefined()
 })
 
+test('a resumed session starts watching again at once', async ($, on) => {
+  const clock = mock.clock(on)
+  const spawned: string[][] = []
+  project(on, { files: ['build.zig'], output: PASSING, spawned })
+  on('session.end', ($, e) => ({ sessionId: e.sessionId }))
+  on('session.cwd', () => ({ value: '/repo' }))
+  on('ui.status', () => ({ value: undefined }))
+  turnHooks(on)
+  await $.session.start(start)
+  await clock.advance(1000)
+  await $.session.end({ reason: 'resume', sessionId: 's1', resume: { id: 's1' } })
+  await clock.advance(1000)
+  expect(spawned).toEqual([ZIG_WATCH, ZIG_WATCH])
+})
+
 const ZANITY_WARNINGS = `zanity: 0 errors, 1 warning in 1/1 file.
 Next: fix these; saving a file checks again. Don't silence rules.
 

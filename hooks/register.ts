@@ -555,6 +555,8 @@ async function stop($: EngineInterface, state: State) {
   state.environment.clear()
   const slots = state.slots.map(each => {
     each.isWatching = false
+    each.retryAt = 0
+    each.quickExits = 0
     each.changed = undefined
     each.wasFailing = false
     each.baseline = undefined
@@ -614,21 +616,23 @@ async function completionGuard($: EngineInterface, state: State): Promise<string
   return reason
 }
 
+const initialState = (): State => ({
+  cwd: undefined,
+  epoch: 0,
+  isTurnRunning: false,
+  isPromptQueued: false,
+  isToldThisTurn: false,
+  outbox: new Map(),
+  flushing: undefined,
+  environment: new Set(),
+  isFinding: false,
+  finding: undefined,
+  isFindDue: false,
+  slots: [],
+})
+
 export const register: Register = on => {
-  const state: State = {
-    cwd: undefined,
-    epoch: 0,
-    isTurnRunning: false,
-    isPromptQueued: false,
-    isToldThisTurn: false,
-    outbox: new Map(),
-    flushing: undefined,
-    environment: new Set(),
-    isFinding: false,
-    finding: undefined,
-    isFindDue: false,
-    slots: [],
-  }
+  const state = initialState()
 
   on('session.start', async ($, e, next) => {
     const started = await next(e)
@@ -674,6 +678,10 @@ export const register: Register = on => {
   on('session.end', async ($, e, next) => {
     if (e.reason === 'clear') return next(e)
     await stop($, state)
+    if (e.reason === 'resume') {
+      state.cwd = await $.session.cwd()
+      $.clock.after(0, () => void ensureAll($, state))
+    }
     return next(e)
   })
 }
