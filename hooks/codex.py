@@ -24,7 +24,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
-from gating import protected_checks, read_policy, relevant
+from gating import protected_checks, read_gate, tool_command
 
 
 OVERRIDE_PATH = ".overwatch.json"
@@ -558,13 +558,14 @@ def block_stop(event: dict[str, Any], current: dict[str, Any]) -> bool:
 def gate_reports(current: dict[str, Any], checks: list[str] | None = None) -> list[dict[str, Any]]:
     inherited = current.get("gate", {}).get("inherited", "allow") == "block"
     return [report for report in current["reports"]
-            if report["failed"] and not report.get("environment") and relevant(report, checks or [])
+            if report["failed"] and not report.get("environment")
+            and (not checks or report["name"] in checks or report.get("language") in checks)
             and (inherited or is_regression(report, current["baseline"]))]
 
 
 def protected_output(event: dict[str, Any], cwd: Path) -> dict[str, Any]:
-    policy = read_policy(read_override(cwd))
-    checks = protected_checks(event, policy)
+    tool = event.get("tool_name")
+    checks = protected_checks(tool if isinstance(tool, str) else "", tool_command(event.get("tool_input")), read_gate(read_override(cwd)))
     if checks is None:
         return {}
     old, current = checked_state(event, cwd)
@@ -635,7 +636,7 @@ def checked_state(event: dict[str, Any], cwd: Path) -> tuple[dict[str, Any], dic
     told = list(old.get("environment", []))
     environment = new_environment(reports, told)
     current.update({
-        "gate": read_policy(read_override(cwd)),
+        "gate": {"inherited": read_gate(read_override(cwd)).inherited},
         "fingerprint": fingerprint(cwd) if should_run else before,
         "environment": [*told, *(report["environment"] for report in environment)],
     })
