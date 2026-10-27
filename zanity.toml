@@ -1,0 +1,4 @@
+#:schema https://raw.githubusercontent.com/benomahony/zanity/main/zanity.schema.json
+
+[rules]
+select = ["strict"]
