@@ -9,65 +9,65 @@
 Generated from the executable scenarios in `tests/acceptance/catalog.py`.
 Run `python3 scripts/scenarios.py` to verify the scenarios and regenerate this page.
 
-# [Verified behavior]($heading.id('verified-behavior'))
+# [Verified behavior]($section.id('verified-behavior'))
 
-## [Failure gates]($heading.id('failure-gates'))
+## [Failure gates]($section.id('failure-gates'))
 
-### [Repair remains possible during failure]($heading.id('repair-remains-possible-during-failure'))
+### [Repair remains possible during failure]($section.id('repair-remains-possible-during-failure').attrs('verified'))
 
-Tags: repair, warnings.
+[repair]($text.attrs('tag')) [warnings]($text.attrs('tag'))
 
 - **Given** A previously passing check now reports 29 warnings.
 - **When** The agent lists, searches, reads, edits, and runs check commands.
 - **Then** Every repair operation is allowed and the edited file can be read.
 
-### [Protected actions stay protected on every attempt]($heading.id('protected-actions-stay-protected-on-every-attempt'))
+### [Protected actions stay protected on every attempt]($section.id('protected-actions-stay-protected-on-every-attempt').attrs('verified'))
 
-Tags: protected-actions.
+[protected-actions]($text.attrs('tag'))
 
 - **Given** A previously passing check now reports 29 warnings.
 - **When** The agent attempts configured publication actions twice.
 - **Then** Every attempt is denied with the failing check's summary.
 
-### [Completion stays guarded during a continuation]($heading.id('completion-stays-guarded-during-a-continuation'))
+### [Completion stays guarded during a continuation]($section.id('completion-stays-guarded-during-a-continuation').attrs('verified'))
 
-Tags: completion.
+[completion]($text.attrs('tag'))
 
 - **Given** A previously passing check now reports 29 warnings.
 - **When** The agent repeatedly tries to finish, including a Stop continuation.
 - **Then** Every completion attempt remains guarded.
 
-### [Successful checks release the failure gate]($heading.id('successful-checks-release-the-failure-gate'))
+### [Successful checks release the failure gate]($section.id('successful-checks-release-the-failure-gate').attrs('verified'))
 
-Tags: recovery.
+[recovery]($text.attrs('tag'))
 
 - **Given** A previously passing check now reports 29 warnings.
 - **When** The repaired code passes its check.
 - **Then** Completion and configured publication actions are allowed.
 
-### [Protected actions consult their relevant checks]($heading.id('protected-actions-consult-their-relevant-checks'))
+### [Protected actions consult their relevant checks]($section.id('protected-actions-consult-their-relevant-checks').attrs('verified'))
 
-Tags: check-scope.
+[check-scope]($text.attrs('tag'))
 
 - **Given** Publication requires the passing Go check.
 - **And** The unrelated Zanity check develops 29 warnings.
 - **When** The agent attempts publication and completion.
 - **Then** Publication is allowed while overall completion remains guarded.
 
-### [Inspection never starts a check]($heading.id('inspection-never-starts-a-check'))
+### [Inspection never starts a check]($section.id('inspection-never-starts-a-check').attrs('verified'))
 
-Tags: repair, check-execution.
+[repair]($text.attrs('tag')) [check-execution]($text.attrs('tag'))
 
 - **Given** A previously passing check now reports 29 warnings.
 - **And** The checker is unavailable for a new run.
 - **When** The agent lists files.
 - **Then** Listing succeeds without rerunning or replacing the failed result.
 
-## [Legacy debt]($heading.id('legacy-debt'))
+## [Legacy debt]($section.id('legacy-debt'))
 
-### [Inherited debt does not absorb new failures]($heading.id('inherited-debt-does-not-absorb-new-failures'))
+### [Inherited debt does not absorb new failures]($section.id('inherited-debt-does-not-absorb-new-failures').attrs('verified'))
 
-Tags: baseline, regressions.
+[baseline]($text.attrs('tag')) [regressions]($text.attrs('tag'))
 
 - **Given** The session starts with 29 inherited warnings under the default policy.
 - **When** The agent attempts completion and publication.
@@ -75,57 +75,57 @@ Tags: baseline, regressions.
 - **When** A change increases the warning count to 30.
 - **Then** The new failure guards completion.
 
-### [Strict inherited-finding policy still permits inspection]($heading.id('strict-inherited-finding-policy-still-permits-inspection'))
+### [Strict inherited-finding policy still permits inspection]($section.id('strict-inherited-finding-policy-still-permits-inspection').attrs('verified'))
 
-Tags: baseline, strict.
+[baseline]($text.attrs('tag')) [strict]($text.attrs('tag'))
 
 - **Given** Inherited findings are configured to block.
 - **And** The session starts with 29 inherited warnings.
 - **When** The agent attempts completion, publication, and inspection.
 - **Then** Completion and publication are denied while inspection remains available.
 
-# [Proposed behavior (not implemented)]($heading.id('proposed-behavior-not-implemented'))
+# [Proposed behavior (not implemented)]($section.id('proposed-behavior-not-implemented'))
 
-## [Changed-code cleanup]($heading.id('changed-code-cleanup'))
+## [Changed-code cleanup]($section.id('changed-code-cleanup'))
 
-### [Editing a function activates its inherited findings]($heading.id('editing-a-function-activates-its-inherited-findings'))
+### [Editing a function activates its inherited findings]($section.id('editing-a-function-activates-its-inherited-findings').attrs('proposed'))
 
-Tags: changed-code.
+[changed-code]($text.attrs('tag'))
 
 - **Given** A function has three inherited warnings and another function has twelve.
 - **When** The agent changes the first function.
 - **Then** Its three warnings require cleanup while the other twelve remain backlog.
 - **And** Repair tools remain available while completion is guarded.
 
-### [Changed code activates the cross-file findings it participates in]($heading.id('changed-code-activates-the-cross-file-findings-it-participates-in'))
+### [Changed code activates the cross-file findings it participates in]($section.id('changed-code-activates-the-cross-file-findings-it-participates-in').attrs('proposed'))
 
-Tags: changed-code, cross-file.
+[changed-code]($text.attrs('tag')) [cross-file]($text.attrs('tag'))
 
 - **Given** An inherited finding involves functions in two files.
 - **When** The agent changes one of those participating functions.
 - **Then** That cross-file finding requires cleanup while unrelated findings remain backlog.
 
-### [Disabling a rule is not a resolution]($heading.id('disabling-a-rule-is-not-a-resolution'))
+### [Disabling a rule is not a resolution]($section.id('disabling-a-rule-is-not-a-resolution').attrs('proposed'))
 
-Tags: rules, resolution.
+[rules]($text.attrs('tag')) [resolution]($text.attrs('tag'))
 
 - **Given** A finding requires cleanup in changed code.
 - **When** Its rule is disabled or its source path is excluded.
 - **Then** The finding is not recorded as fixed.
 
-## [Finding age]($heading.id('finding-age'))
+## [Finding age]($section.id('finding-age'))
 
-### [Moving a finding preserves its identity and age]($heading.id('moving-a-finding-preserves-its-identity-and-age'))
+### [Moving a finding preserves its identity and age]($section.id('moving-a-finding-preserves-its-identity-and-age').attrs('proposed'))
 
-Tags: identity, age.
+[identity]($text.attrs('tag')) [age]($text.attrs('tag'))
 
 - **Given** An inherited finding has a recorded identity and first-seen date.
 - **When** Unrelated lines are inserted above it or the agent session restarts.
 - **Then** Its identity and age remain unchanged and movement alone does not activate it.
 
-### [Untouched debt escalates at its configured deadline]($heading.id('untouched-debt-escalates-at-its-configured-deadline'))
+### [Untouched debt escalates at its configured deadline]($section.id('untouched-debt-escalates-at-its-configured-deadline').attrs('proposed'))
 
-Tags: age, deadlines.
+[age]($text.attrs('tag')) [deadlines]($text.attrs('tag'))
 
 - **Given** An inherited finding has a project-configured deadline.
 - **When** A check runs after that deadline.

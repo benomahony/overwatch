@@ -50,6 +50,22 @@ def heading(line: str) -> str:
     return f"{hashes} [{title}]($heading.id('{slug}'))"
 
 
+def scenarios(body: list[str]) -> list[str]:
+    """The behavior guide with every heading starting a section, each scenario's marked verified or proposed, and
+    its tags as chips, so the site can style and search them."""
+    status, marked = "verified", []
+    for line in body:
+        if line.startswith("# "):
+            status = "proposed" if line.startswith("# [Proposed") else "verified"
+        if line.startswith("#"):
+            attrs = f".attrs('{status}')" if line.startswith("### ") else ""
+            line = re.sub(r"\$heading\.id\('([^']*)'\)\)$", rf"$section.id('\1'){attrs})", line)
+        if line.startswith("Tags: "):
+            line = " ".join(f"[{tag}]($text.attrs('tag'))" for tag in line.removeprefix("Tags: ").rstrip(".").split(", "))
+        marked.append(line)
+    return marked
+
+
 def page(metadata: tuple[str, str, str], body: list[str], order: int) -> str:
     """A SuperMD page: its title, description and layout, then body. order sets the date, which orders the pages,
     newest first, so the first page has the latest."""
@@ -65,7 +81,8 @@ def main() -> None:
     for order, (name, (title, description, layout, start, end)) in enumerate(PAGES.items()):
         metadata = (title, description, layout)
         source = (DOCS / "behavior.md").read_text().splitlines() if name == "behavior.smd" else readme
-        (CONTENT / name).write_text(page(metadata, section(source, start, end), order))
+        body = section(source, start, end)
+        (CONTENT / name).write_text(page(metadata, scenarios(body) if name == "behavior.smd" else body, order))
         print(CONTENT / name)
 
 
