@@ -29,7 +29,7 @@ class ScenarioContractTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.document = scenarios.BehaviorDocument(Path(temporary.name))
-        assert self.document.path().parent == Path(temporary.name).resolve(), f"behavior document at {self.document.path()} escaped {temporary.name}"
+        assert self.document.target.parent == Path(temporary.name).resolve(), f"behavior document at {self.document.target} escaped {temporary.name}"
         assert self.document.read() == "", f"fresh behavior document already holds {self.document.read()!r}; tests need it empty"
 
     def test_implemented_steps_require_executable_bindings(self) -> None:
@@ -71,19 +71,22 @@ class ScenarioContractTests(unittest.TestCase):
                     .given("Setup is complete", lambda world: world.fail("deliberate failure"))
                     .when("The action runs", lambda world: None)
                     .then("An outcome is checked", lambda world: None))
-        self.document.write("previously verified documentation")
+        self.document.write("previously verified documentation\n")
         with contextlib.redirect_stderr(io.StringIO()):
-            self.assertEqual(scenarios.publish_scenarios((scenario,), document=self.document), 1)
-        self.assertEqual(self.document.read(), "previously verified documentation")
+            with self.assertRaisesRegex(scenarios.PublishError, "scenarios failed"):
+                scenarios.publish_scenarios((scenario,), document=self.document)
+        self.assertEqual(self.document.read(), "previously verified documentation\n")
 
     def test_check_mode_rejects_stale_docs_without_rewriting_them(self) -> None:
         scenario = sample_scenario()
-        self.document.write("stale documentation")
+        self.document.write("stale documentation\n")
         with contextlib.redirect_stderr(io.StringIO()):
-            self.assertEqual(scenarios.publish_scenarios((scenario,), check=True, document=self.document), 1)
-            self.assertEqual(self.document.read(), "stale documentation")
-            self.assertEqual(scenarios.publish_scenarios((scenario,), document=self.document), 0)
-            self.assertEqual(scenarios.publish_scenarios((scenario,), check=True, document=self.document), 0)
+            with self.assertRaisesRegex(scenarios.PublishError, "out of date"):
+                scenarios.publish_scenarios((scenario,), check=True, document=self.document)
+            self.assertEqual(self.document.read(), "stale documentation\n")
+            scenarios.publish_scenarios((scenario,), document=self.document)
+            scenarios.publish_scenarios((scenario,), check=True, document=self.document)
+        self.assertEqual(self.document.read(), scenarios.render_scenarios((scenario,)))
 
 
 if __name__ == "__main__":
