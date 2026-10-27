@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import inspect
 from pathlib import Path
 import sys
@@ -11,9 +12,9 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE = "https://github.com/benomahony/overwatch/blob/main"
 sys.path.insert(0, str(ROOT / "tests"))
 
-from acceptance.catalog import SCENARIOS  # noqa: E402
-from acceptance.dsl import Scenario, Step  # noqa: E402
-from acceptance.runner import scenario_suite  # noqa: E402
+catalog = importlib.import_module("acceptance.catalog")
+dsl = importlib.import_module("acceptance.dsl")
+runner = importlib.import_module("acceptance.runner")
 
 class BehaviorDocument:
     """An output boundary confined to one filename beneath its trusted directory."""
@@ -37,21 +38,21 @@ def source_link(path: Path, line: int) -> str:
     return f"{SOURCE}/{path.resolve().relative_to(ROOT).as_posix()}#L{line}"
 
 
-def scenario_link(scenario: Scenario) -> str | None:
+def scenario_link(scenario: dsl.Scenario) -> str | None:
     catalog = ROOT / "tests" / "acceptance" / "catalog.py"
     lines = catalog.read_text().splitlines()
     line = next((number for number, text in enumerate(lines, 1) if f'Scenario("{scenario.title}"' in text), None)
     return None if line is None else source_link(catalog, line)
 
 
-def step_text(step: Step) -> str:
+def step_text(step: dsl.Step) -> str:
     if step.action is None:
         return step.text
     path = Path(inspect.getsourcefile(step.action) or "")
     return f"[{step.text}]({source_link(path, inspect.getsourcelines(step.action)[1])})"
 
 
-def render_scenarios(scenarios: tuple[Scenario, ...]) -> str:
+def render_scenarios(scenarios: tuple[dsl.Scenario, ...]) -> str:
     lines = ["# How Overwatch behaves", "",
              "Generated from the executable scenarios in `tests/acceptance/catalog.py`.",
              "Run `python3 scripts/scenarios.py` to verify the scenarios and regenerate this page.", ""]
@@ -75,9 +76,9 @@ def render_scenarios(scenarios: tuple[Scenario, ...]) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
-def publish_scenarios(scenarios: tuple[Scenario, ...], check: bool = False,
+def publish_scenarios(scenarios: tuple[dsl.Scenario, ...], check: bool = False,
                       document: BehaviorDocument | None = None) -> int:
-    result = unittest.TextTestRunner(stream=sys.stderr).run(scenario_suite(scenarios))
+    result = unittest.TextTestRunner(stream=sys.stderr).run(runner.scenario_suite(scenarios))
     if not result.wasSuccessful():
         return 1
     document = document or BehaviorDocument(ROOT / "docs")
@@ -96,7 +97,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true", help="Run the scenarios and reject stale docs without rewriting them")
     args = parser.parse_args()
-    return publish_scenarios(SCENARIOS, args.check)
+    return publish_scenarios(catalog.SCENARIOS, args.check)
 
 
 if __name__ == "__main__":

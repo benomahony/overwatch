@@ -10,14 +10,12 @@ import textwrap
 import time
 import unittest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "hooks"))
-import codex  # noqa: E402
-import triage  # noqa: E402
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-import table  # noqa: E402
+from paths import ROOT
+import codex
+import table
+import triage
 
 
-ROOT = Path(__file__).resolve().parents[1]
 HOOK = ROOT / "hooks" / "codex.py"
 HOOKS_CONFIG = ROOT / "hooks" / "codex-hooks.json"
 CODEX_MANIFEST = ROOT / ".codex-plugin" / "plugin.json"
