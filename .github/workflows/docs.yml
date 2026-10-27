@@ -28,7 +28,6 @@ jobs:
       - name: Check generated site pages
         run: |
           python3 docs/sync.py
-          git diff --exit-code docs/content
 
       - name: Install Zine
         run: |

@@ -14,7 +14,7 @@ Add a scenario by composing `Scenario(...).given(...).when(...).then(...)` with 
 python3 scripts/table.py      # after editing watchers.json
 python3 scripts/scenarios.py  # verify scenarios and regenerate the behavior guide
 python3 scripts/scenarios.py --check  # verify scenarios and reject stale behavior docs
-python3 docs/sync.py          # regenerate site pages from README and the verified behavior guide
+python3 docs/sync.py --write  # regenerate site pages from README and the verified behavior guide
 python3 -m unittest discover -s tests -p 'test_*.py'
 node --test tests/test_integrations.mjs
 nvim --headless -l tests/overwatch_spec.lua
