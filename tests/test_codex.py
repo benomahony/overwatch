@@ -200,12 +200,13 @@ class CodexHookTests(unittest.TestCase):
 
     def test_triage_filters_and_pages_a_large_baseline(self) -> None:
         _, _, inventory = self.legacy_project()
-        selected = triage.triage(json.loads(read(inventory)), "GO", "TestCase99")
+        checks = triage.parse_inventory(json.loads(read(inventory)))
+        selected = triage.triage(checks, "GO", "TestCase99")
         batch = triage.triage_page(selected, 3, 3)
-        self.assertEqual(batch["total"], 111)
-        self.assertEqual(len(batch["issues"]), 3)
-        self.assertEqual(batch["issues"], selected["issues"][3:6])
-        self.assertEqual(triage.triage(json.loads(read(inventory)), "missing")["total"], 0)
+        self.assertEqual(batch.total, 111)
+        self.assertEqual(len(batch.issues), 3)
+        self.assertEqual(batch.issues, selected.issues[3:6])
+        self.assertEqual(len(triage.triage(checks, "missing").issues), 0)
 
     def test_legacy_cleanup_preserves_the_new_failure_gate(self) -> None:
         """A new issue keeps completion guarded while cleanup preserves the inherited snapshot."""
