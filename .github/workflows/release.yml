@@ -1,0 +1,49 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          ref: main
+
+      # Claude Code installs a plugin update only when its version changes, so every change to main is released.
+      - name: Bump the patch version in every manifest
+        id: version
+        shell: python
+        run: |
+          import json
+          import os
+          from pathlib import Path
+
+          manifests = [Path(".claude-plugin/plugin.json"), Path(".codex-plugin/plugin.json"), Path("package.json")]
+          current = json.loads(manifests[0].read_text())["version"]
+          major, minor, patch = current.split(".")
+          following = f"{major}.{minor}.{int(patch) + 1}"
+          for manifest in manifests:
+              text = manifest.read_text()
+              if json.loads(text)["version"] != current:
+                  raise SystemExit(f"{manifest} is not at version {current}; make every manifest's version match")
+              manifest.write_text(text.replace(f'"version": "{current}"', f'"version": "{following}"', 1))
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"next={following}\n")
+
+      - name: Commit and tag the release
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "Release ${{ steps.version.outputs.next }}"
+          git tag "v${{ steps.version.outputs.next }}"
+          git push origin main "v${{ steps.version.outputs.next }}"
