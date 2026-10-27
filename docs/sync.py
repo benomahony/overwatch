@@ -51,10 +51,13 @@ def heading(line: str) -> str:
 
 
 def scenarios(body: list[str]) -> list[str]:
-    """The behavior guide with every heading starting a section, each scenario's marked verified or proposed, and
-    its tags as chips, so the site can style and search them."""
-    status, marked = "verified", []
+    """The behavior guide with every heading starting a section, each scenario's marked verified or proposed, its
+    tags as chips, and each step's keyword marked with its phase, so the site can style and search them."""
+    status, phase, marked = "verified", "given", []
     for line in body:
+        if keyword := re.match(r"- \*\*(\w+)\*\* ", line):
+            phase = phase if keyword[1] == "And" else keyword[1].lower()
+            line = f"- [{keyword[1]}]($text.attrs('{phase}')) {line[keyword.end():]}"
         if line.startswith("# "):
             status = "proposed" if line.startswith("# [Proposed") else "verified"
         if line.startswith("#"):

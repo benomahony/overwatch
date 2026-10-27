@@ -56,7 +56,7 @@ function buildSearch() {
   const filter = () => {
     const words = input.value.toLowerCase().split(/\s+/).filter(Boolean)
     for (const scenario of scenarios) {
-      const text = scenario.textContent.toLowerCase()
+      const text = [...scenario.querySelectorAll("h4, .tag, li")].map((part) => part.textContent).join(" ").toLowerCase()
       scenario.hidden = !words.every((word) => text.includes(word))
     }
     let feature = false, status = false
@@ -80,6 +80,15 @@ function buildSearch() {
   })
   for (const tag of prose.querySelectorAll(".tag")) {
     tag.addEventListener("click", () => { input.value = tag.textContent; filter(); input.focus() })
+  }
+  for (const scenario of scenarios) {
+    const source = scenario.querySelector(":scope > p a")
+    if (!source) continue
+    scenario.addEventListener("click", (event) => {
+      if (event.target.closest("a, .tag") || getSelection()?.toString()) return
+      if (event.metaKey || event.ctrlKey) window.open(source.href, "_blank", "noopener")
+      else location.href = source.href
+    })
   }
   filter()
 }
