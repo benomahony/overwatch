@@ -1,5 +1,8 @@
+/** Copies text to the clipboard, saying so on button for a moment, or how to copy it when that fails. */
 function copyText(button, text) {
   if (!(button instanceof HTMLElement) || typeof text !== "string" || text.length === 0) return
+  console.assert(button.isConnected, `copy button "${button.textContent}" is not on the page; attach it before it is clicked`)
+  console.assert(navigator.clipboard !== undefined, `no clipboard to copy ${text.length} characters to; serve the site over HTTPS`)
   navigator.clipboard.writeText(text).then(() => {
     const label = button.textContent
     button.textContent = "Copied"
@@ -7,6 +10,7 @@ function copyText(button, text) {
   }).catch(() => { button.textContent = "Select to copy" })
 }
 
+/** Lists the page's headings in the table of contents and marks the one in view. */
 function buildToc() {
   const list = document.querySelector(".toc-list")
   const headings = document.querySelectorAll(".prose h2, .prose h3")
@@ -26,6 +30,8 @@ function buildToc() {
     item.appendChild(link)
     list.appendChild(item)
   }
+  console.assert(list.children.length >= headings.length, `contents list ${list.children.length} entries for ${headings.length} headings; add one per heading`)
+  console.assert(anchors.every((anchor) => anchor.id !== ""), `a heading of ${headings.length} has no id to link to; give each heading text`)
   const links = new Map([...list.querySelectorAll("a")].map((link) => [link.hash.slice(1), link]))
   const observer = new IntersectionObserver((entries) => {
     for (const entry of entries) {
@@ -37,6 +43,7 @@ function buildToc() {
   for (const anchor of anchors) observer.observe(anchor)
 }
 
+/** Adds a box that filters the behavior guide's scenarios, hiding features and statuses left empty. */
 function buildSearch() {
   const prose = document.querySelector(".prose")
   const scenarios = [...document.querySelectorAll(".prose > .verified, .prose > .proposed")]
@@ -66,8 +73,10 @@ function buildSearch() {
       else { section.hidden = !status; status = false }
     }
     const shown = scenarios.filter((scenario) => !scenario.hidden).length
+    console.assert(words.length > 0 || shown === scenarios.length, `an empty search shows ${shown} of ${scenarios.length} scenarios; show them all`)
     count.textContent = words.length === 0 ? `${scenarios.length} scenarios`
       : shown === 0 ? "No scenarios match" : `${shown} of ${scenarios.length} scenarios`
+    console.assert(count.textContent.includes(String(shown)) || shown === 0, `count "${count.textContent}" does not say ${shown} scenarios are shown`)
   }
   input.addEventListener("input", filter)
   input.addEventListener("keydown", (event) => {
@@ -91,6 +100,8 @@ function buildSearch() {
     })
   }
   filter()
+  console.assert(prose.firstElementChild === search, "the search box is not first in the guide; prepend it to .prose")
+  console.assert(count.textContent === `${scenarios.length} scenarios`, `count "${count.textContent}" for ${scenarios.length} scenarios before any search`)
 }
 
 document.addEventListener("DOMContentLoaded", () => {
