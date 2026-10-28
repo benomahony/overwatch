@@ -24,15 +24,25 @@ PACKAGE_MANIFEST = ROOT / "package.json"
 
 
 def write(path: Path, text: str) -> None:
+    """Writes text to a fixture file whose directory already exists."""
+    assert path.parent.is_dir(), f"{path.parent} does not exist; make it before writing {path.name}"
     path.write_text(text)
+    assert path.read_text() == text, f"{path} reads back differently from what was written"
 
 
 def read(path: Path) -> str:
-    return path.read_text()
+    """The text of a fixture file the hook or a fake tool wrote."""
+    assert path.is_file(), f"{path} was not written; check the step that should create it"
+    text = path.read_text()
+    assert len(text.encode()) == path.stat().st_size, f"{path} changed while it was read"
+    return text
 
 
 def mkdir(path: Path) -> None:
+    """Makes a fixture directory that does not exist yet."""
+    assert not path.exists(), f"{path} already exists; give each fixture directory its own name"
     path.mkdir(parents=True)
+    assert path.is_dir(), f"{path} was not made"
 
 
 class CodexHookTests(unittest.TestCase):
@@ -45,14 +55,19 @@ class CodexHookTests(unittest.TestCase):
         subprocess.run(["git", "init", "-q", str(self.cwd)], check=True)
         self.bin = Path(self.temporary.name) / "bin"
         self.bin.mkdir()
+        assert (self.cwd / ".git").is_dir(), f"git init made no repository in {self.cwd}"
+        assert not any(self.bin.iterdir()), f"{self.bin} starts with tools in it; each test adds its own"
 
     def tool(self, name: str, output: str, code: int) -> None:
         """Puts a fake `name` on PATH that prints `output` and exits with `code`."""
+        assert "\nEOF\n" not in f"\n{output}\n", f"output for {name} holds the heredoc's EOF line; pick another fixture output"
         script = self.bin / name
         script.write_text(f"#!/bin/sh\ncat <<'EOF'\n{output}\nEOF\nexit {code}\n")
         script.chmod(0o755)
+        assert os.access(script, os.X_OK), f"{script} is not executable; chmod it"
 
     def configure(self, *, watch: bool = False) -> tuple[Path, Path]:
+        """Configures a fixture check that prints result.txt and counts its runs in count.txt; watch keeps it running."""
         result = self.cwd / "result.txt"
         count = self.cwd / "count.txt"
         runner = self.cwd / "check.py"
@@ -77,9 +92,12 @@ class CodexHookTests(unittest.TestCase):
             "argv" if watch else "baseline": command,
         }
         (self.cwd / ".overwatch.json").write_text(json.dumps(config))
+        assert codex.find_watchers(self.cwd)[0]["name"] == "fixture", f"{self.cwd} does not run the fixture check first"
+        assert not count.exists(), f"{count} exists before the fixture check ran"
         return result, count
 
     def call(self, event: str, **fields: object) -> tuple[dict[str, object], float]:
+        """Sends one hook event to the hook script, returning its output and how long it took."""
         payload = {
             "session_id": "session-1",
             "cwd": str(self.cwd),
@@ -102,10 +120,15 @@ class CodexHookTests(unittest.TestCase):
             timeout=5,
             check=True,
         )
-        return json.loads(process.stdout), time.monotonic() - started
+        output, elapsed = json.loads(process.stdout), time.monotonic() - started
+        assert type(output) is dict, f"the hook answered {event} with {process.stdout[:80]}, not a JSON object"
+        assert not process.stderr, f"the hook wrote to stderr for {event}: {process.stderr[-400:]}"
+        return output, elapsed
 
     def prime_tools(self) -> None:
+        """Starts the session with every fake tool passing, then restores them and changes the workspace."""
         scripts = {path: read(path) for path in self.bin.iterdir()}
+        assert scripts, f"{self.bin} has no tools to prime; add them with tool() first"
         for path in scripts:
             summary = {"gotestsum": "DONE 2 tests, 0 failures", "pytest": "=== 3 passed in 0.01s ==="}.get(path.name, "")
             write(path, f"#!/bin/sh\necho '{summary}'\nexit 0\n")
@@ -113,6 +136,7 @@ class CodexHookTests(unittest.TestCase):
         for path, text in scripts.items():
             write(path, text)
         write(self.cwd / "changed.txt", "changed")
+        assert all(read(path) == text for path, text in scripts.items()), f"tools in {self.bin} were not restored after priming"
 
     def test_failure_notifies_once_but_completion_remains_guarded(self) -> None:
         result, count = self.configure()
@@ -181,11 +205,16 @@ class CodexHookTests(unittest.TestCase):
         self.assertTrue(codex.block_stop({"hook_event_name": "Stop"}, remaining))
 
     def legacy_project(self) -> tuple[list[str], dict[str, object], Path]:
+        """Starts a session in a Go project with 10,000 inherited failures, returning them, the hook output and the
+        inventory it saved."""
         write(self.cwd / "go.mod", "module legacy")
         failures = [f"--- FAIL: TestCase{i} (0.00s)" for i in range(10_000)]
         self.tool("go", "\n".join([*failures, "FAIL"]), 1)
         started = self.call("SessionStart")[0]
-        return failures, started, next(self.data.glob("*.baseline.json"))
+        inventories = list(self.data.glob("*.baseline.json"))
+        assert len(inventories) == 1, f"the session saved inventories {inventories}; it should save one"
+        assert "hookSpecificOutput" in started, f"the session start said nothing of the inherited backlog: {started}"
+        return failures, started, inventories[0]
 
     def test_large_legacy_baseline_is_compact_and_inspectable(self) -> None:
         _, started, inventory = self.legacy_project()
@@ -326,14 +355,14 @@ class CodexHookTests(unittest.TestCase):
     def test_colour_codes_are_read_through(self) -> None:
         output = "\x1b[0m\x1b[31mFAILED\x1b[0m | 1 passed | 1 failed\n\x1b[0m\x1b[38;5;12mWatcher\x1b[0m Test failed. Restarting..."
         report = codex.read_report(next(w for w in codex.WATCHERS if w["name"] == "deno"), output)
-        assert report is not None
+        assert report is not None, f"deno's summary was not found in {output!r}; check its summary pattern"
         self.assertTrue(report["failed"])
         self.assertEqual(report["summary"], "FAILED | 1 passed | 1 failed")
 
     def test_a_run_with_no_summary_that_exits_nonzero_fails(self) -> None:
         python = codex.WATCHERS[1]
         report = codex.read_report(python, "error: Failed to parse uv.lock", 2)
-        assert report is not None
+        assert report is not None, "a nonzero exit with no summary gave no report; read it by its exit code"
         self.assertEqual((report["failed"], report["summary"]), (True, "exited with code 2"))
         self.assertIsNone(codex.read_report(python, "nothing", 0))
 
