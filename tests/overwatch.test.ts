@@ -1,5 +1,6 @@
 import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
+import { assert } from '../hooks/assert'
 import { CHECKERS, WATCHERS, environmentIn, failureMessage, hasRegression, readReport, statusLine } from '../hooks/watchers'
 
 const zig = WATCHERS[0]!
@@ -67,6 +68,8 @@ type Project = {
 }
 
 const project = (on: On, { files, output, spawned, then }: Project) => {
+  assert(files.every(file => file !== '' && !file.startsWith('/')), `project files ${files} must be names relative to /repo`)
+  assert(spawned.length === 0, `project starts with ${spawned.length} commands already spawned; pass an empty list`)
   mock.env(on, { PATH: '/usr/bin' })
   on('fs.read', () => ({ deny: 'no such file' }))
   on('fs.exists', ($, e) => ({ value: e.path === '/repo/.git' || files.some(file => e.path.endsWith(`/${file}`)) }))
@@ -296,8 +299,10 @@ test('an override with no command starts nothing in a project with no marker', a
 const ZIG_WATCH = ['zig', 'build', '-Doptimize=fast', 'test', '--watch']
 
 const turnHooks = (on: On) => {
-  on('turn.start', ($, e) => ({ turnId: e.turnId }))
-  on('turn.complete', ($, e) => ({ text: e.answer }))
+  const starts = on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  const completes = on('turn.complete', ($, e) => ({ text: e.answer }))
+  assert(starts !== completes, 'turn.start and turn.complete share one registration; register each hook on its own')
+  assert(typeof starts.catch === 'function' && typeof completes.catch === 'function', `turn hooks registered as ${typeof starts.catch}; on() must return a registration`)
 }
 
 const ended = { turnId: 't1', answer: '', durationMs: 1, isAborted: false, reason: 'answer' as const }
@@ -389,6 +394,8 @@ const quickExitWatcher = (on: On) => {
   })
   on('session.start', ($, e) => ({ cwd: e.cwd }))
   turnHooks(on)
+  assert(attempts === 0, `the watcher was tried ${attempts} times before the session started`)
+  assert(prompts.length === 0 && statuses.length === 0, `prompts ${prompts} or statuses ${statuses} arrived before the session started`)
   return { clock, attempts: () => attempts, prompts, statuses }
 }
 
@@ -477,10 +484,14 @@ test('a turn that starts while the session is still looking spawns one watcher',
   turnHooks(on)
   /** Answers every look in flight, and the looks those lead to, until none is left. */
   const answerAll = async () => {
+    let rounds = 0
     while (looking.length > 0) {
+      assert(rounds < 100, `looks still in flight after ${rounds} rounds; a look must not lead to looks forever`)
       looking.splice(0).forEach(resolve => resolve())
       await clock.settle()
+      rounds += 1
     }
+    assert(looking.length === 0, `${looking.length} looks are left unanswered`)
   }
   await $.session.start(start)
   await $.turn.start({ text: 'go', turnId: 't1' })
@@ -687,8 +698,13 @@ test('the status line drops the summary decoration and names the first failing t
   )
 })
 
-const watcherNamed = (name: string, marker?: string) =>
-  WATCHERS.find(watcher => watcher.name === name && (marker === undefined || watcher.marker === marker))!
+const watcherNamed = (name: string, marker?: string) => {
+  const found = WATCHERS.filter(watcher => watcher.name === name && (marker === undefined || watcher.marker === marker))
+  const [first] = found
+  assert(first !== undefined, `no watcher named ${name} with marker ${marker} in watchers.json`)
+  assert(marker === undefined || found.length === 1, `${found.length} watchers named ${name} with marker ${marker}; name one`)
+  return first
+}
 
 const VITEST_FAILING = `
  ❯ calc.test.js (2 tests | 1 failed) 4ms
@@ -787,8 +803,11 @@ error: could not compile \`calc\` (lib test) due to 1 previous error
 `
 
 const readResult = (watcher: (typeof WATCHERS)[number], output: string, code?: number) => {
-  const report = readReport(watcher, output, code)!
-  return [statusLine(watcher, report), report.failures]
+  const report = readReport(watcher, output, code)
+  assert(report !== undefined, `${watcher.name} read no report from ${output.length} characters of output; check its summary pattern`)
+  const status = statusLine(watcher, report)
+  assert(status.startsWith(`overwatch ${watcher.name} `), `status ${status} does not name ${watcher.name}`)
+  return [status, report.failures]
 }
 
 test('JavaScript runners report what failed', () => {
@@ -925,6 +944,8 @@ test('a one-shot run that gives no summary but exits nonzero fails', () => {
 type Commands = { spawned: string[][]; output: Record<string, string>; code?: number }
 
 const commands = (on: On, run: Commands) => {
+  assert(run.spawned.length === 0, `commands start with ${run.spawned.length} already spawned; pass an empty list`)
+  assert(Object.keys(run.output).every(name => name !== '' && !name.includes(' ')), `outputs ${Object.keys(run.output)} must be keyed by executable name`)
   on('process.spawn', async function* ($, e) {
     run.spawned.push([...e.argv])
     const text = run.output[e.argv[0]!]
@@ -936,7 +957,12 @@ const commands = (on: On, run: Commands) => {
 }
 
 /** Slots look for their watchers side by side, so the order they start in is not fixed. */
-const sorted = (argvs: string[][]) => [...argvs].sort((a, b) => a.join(' ').localeCompare(b.join(' ')))
+const sorted = (argvs: string[][]) => {
+  const result = [...argvs].sort((a, b) => a.join(' ').localeCompare(b.join(' ')))
+  assert(result.length === argvs.length, `sorting ${argvs.length} commands gave ${result.length}`)
+  assert(result.every((argv, index) => index === 0 || (result[index - 1] ?? []).join(' ').localeCompare(argv.join(' ')) <= 0), `commands ${result} are out of order`)
+  return result
+}
 
 const SUBPROJECT_TREE: Record<string, string[]> = {
   '/repo': ['services/', 'tools/', 'node_modules/', '.git/', 'README.md'],
@@ -949,13 +975,18 @@ const SUBPROJECT_TREE: Record<string, string[]> = {
   '/repo/node_modules/left-pad': ['go.mod'],
 }
 
-const treeEntry = (name: string) => ({
-  name: name.replace(/\/$/, ''),
-  kind: name.endsWith('/') ? ('dir' as const) : ('file' as const),
-  size: 0,
-  mtimeMs: 0,
-  isLink: false,
-})
+const treeEntry = (name: string) => {
+  const entry = {
+    name: name.replace(/\/$/, ''),
+    kind: name.endsWith('/') ? ('dir' as const) : ('file' as const),
+    size: 0,
+    mtimeMs: 0,
+    isLink: false,
+  }
+  assert(entry.name !== '' && !entry.name.includes('/'), `tree entry ${name} must be one name, with a trailing / for a directory`)
+  assert((entry.kind === 'dir') === name.endsWith('/'), `tree entry ${name} read as a ${entry.kind}`)
+  return entry
+}
 
 test('a language the root lacks is watched in each sub-project that has it', async ($, on) => {
   const clock = mock.clock(on)
