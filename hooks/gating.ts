@@ -1,3 +1,5 @@
+import { assert } from './assert'
+
 /** Only explicitly protected actions are subject to a pre-tool failure gate. */
 export type GatePolicy = {
   inherited?: 'allow' | 'block'
@@ -17,5 +19,7 @@ export function protectedChecks(tool: string, input: object, policy: GatePolicy)
     if (!action.checks?.length) return []
     for (const name of action.checks) names.add(name)
   }
+  assert(matched || names.size === 0, `no action protects ${tool} yet it selected checks ${[...names]}; select only from matching actions`)
+  assert([...names].every(name => name !== ''), `${tool} selected an unnamed check from ${[...names]}; name each check in .overwatch.json`)
   return matched ? [...names] : undefined
 }
