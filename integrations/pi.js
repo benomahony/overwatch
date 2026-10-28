@@ -1,18 +1,28 @@
+import assert from "node:assert/strict"
 import { contextOf, deniedAction, serialChecker } from "./check.js"
 
 const EDITING_TOOLS = new Set(["bash", "edit", "powershell", "write"])
 
+/** The checker's hook event for event in pi's current session. */
 function base(event, ctx) {
+  assert(typeof event === "string" && event !== "", `base for event ${event}; name the hook event`)
   const sessionID = ctx.sessionManager.getSessionId()
   if (!sessionID) throw new Error(`pi gave overwatch ${event} no session ID`)
-  return { hook_event_name: event, session_id: sessionID, cwd: ctx.cwd }
+  const payload = { hook_event_name: event, session_id: sessionID, cwd: ctx.cwd }
+  assert(typeof payload.cwd === "string" && payload.cwd !== "", `pi gave ${event} cwd ${payload.cwd}; the checker needs the project's directory`)
+  return payload
 }
 
+/** Hooks overwatch's checker into pi's session, tool and settle events. */
 export function registerPi(pi, checker = serialChecker()) {
+  assert(typeof pi?.on === "function", "pi has no on() to register events with; pass pi's extension API")
+  assert(typeof checker === "function", `checker is ${typeof checker}; pass a function from payload to output`)
   const check = checker
   let startupContext
 
   const showStatus = (ctx, output) => {
+    assert(typeof ctx.ui?.setStatus === "function", "pi's context has no ui.setStatus; pass the event's context")
+    assert(output.systemMessage === undefined || typeof output.systemMessage === "string", `status is ${typeof output.systemMessage}; the checker writes it as text`)
     ctx.ui.setStatus("overwatch", output.systemMessage)
   }
 

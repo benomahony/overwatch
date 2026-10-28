@@ -1,24 +1,40 @@
+import assert from "node:assert/strict"
 import { contextOf, deniedAction, serialChecker } from "./check.js"
 
 const EDITING_TOOLS = new Set(["apply_patch", "bash", "edit", "shell", "write"])
 
+/** The checker's hook event for event in cwd's session sessionID. */
 function payload(event, cwd, sessionID) {
+  assert(typeof event === "string" && event !== "", `payload for event ${event}; name the hook event`)
+  assert(typeof cwd === "string" && cwd !== "", `payload for ${event} has cwd ${cwd}; pass OpenCode's directory`)
   return { hook_event_name: event, session_id: sessionID, cwd }
 }
 
+/** The session an OpenCode event belongs to, wherever that version puts it. */
 function sessionIDOf(event) {
+  assert(event !== null && typeof event === "object", `OpenCode gave event ${String(event)}; pass the event object`)
   const properties = event.properties
   const info = properties?.info
-  return event.sessionID ?? properties?.sessionID ?? info?.id
+  const sessionID = event.sessionID ?? properties?.sessionID ?? info?.id
+  assert(sessionID === undefined || typeof sessionID === "string", `event ${event.type} has session ID ${String(sessionID)}, not text`)
+  return sessionID
 }
 
+/** What to show for a refused Stop: the reason, else the status, else the context. */
 function warningText(output) {
-  return output?.reason ?? output?.systemMessage ?? contextOf(output)
+  assert(output !== null && typeof output === "object", `hook output ${String(output)} is not an object; pass the checker's JSON`)
+  const text = output.reason ?? output.systemMessage ?? contextOf(output)
+  assert(text === undefined || typeof text === "string", `warning is ${typeof text}; the checker writes it as text`)
+  return text
 }
 
 export function createV1Hooks({ directory, client }, checker = serialChecker()) {
+  assert(typeof directory === "string" && directory !== "", `OpenCode gave directory ${directory}; the hooks need the project's directory`)
+  assert(typeof checker === "function", `checker is ${typeof checker}; pass a function from payload to output`)
   const check = checker
   const warn = async message => {
+    assert(message === undefined || typeof message === "string", `warning is ${typeof message}; pass text`)
+    assert(!message || message.trim() !== "", `warning ${JSON.stringify(message)} is only whitespace; pass the checker's reason or status`)
     if (!message) return
     try {
       await client.tui.showToast({ body: { message, variant: "warning" } })
@@ -61,8 +77,10 @@ export function createV1Hooks({ directory, client }, checker = serialChecker()) 
 }
 
 export async function setupV2(ctx, checker = serialChecker()) {
+  assert(typeof checker === "function", `checker is ${typeof checker}; pass a function from payload to output`)
   const check = checker
   const cwd = ctx.location.directory
+  assert(typeof cwd === "string" && cwd !== "", `OpenCode gave directory ${cwd}; the hooks need the project's directory`)
 
   await ctx.tool.hook("execute.before", async event => {
     const output = await check({ ...payload("PreToolUse", cwd, event.sessionID),
@@ -107,7 +125,9 @@ export async function setupV2(ctx, checker = serialChecker()) {
 
 /** OpenCode 1 discovers named plugin functions. */
 export async function OverwatchPlugin(context) {
+  assert(context !== null && typeof context === "object", `OpenCode gave plugin context ${String(context)}; pass its context object`)
   const hooks = createV1Hooks(context)
+  assert(["tool.execute.before", "tool.execute.after", "event"].every(name => typeof hooks[name] === "function"), `hooks ${Object.keys(hooks)} miss one OpenCode 1 calls`)
   return hooks
 }
 
