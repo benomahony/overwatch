@@ -4,8 +4,10 @@ import test from "node:test"
 import OpenCode, { OverwatchPlugin, createV1Hooks, setupV2 } from "../integrations/opencode.js"
 import { registerPi } from "../integrations/pi.js"
 
+/** The checker's output for a failing fixture that tells message, or a passing one. */
 function output(message, failed = true) {
-  return failed
+  assert(typeof message === "string" && message !== "", `fixture message ${JSON.stringify(message)}; give the failure some text`)
+  const result = failed
     ? {
         decision: "block",
         reason: message,
@@ -13,9 +15,13 @@ function output(message, failed = true) {
         hookSpecificOutput: { additionalContext: message },
       }
     : {}
+  assert((result.decision === "block") === failed, `fixture output ${JSON.stringify(result)} for failed=${failed}; block only a failure`)
+  return result
 }
 
+/** The hooks OpenCode 2's setup registers with checker, by surface and name. */
 async function v2Hooks(checker) {
+  assert(typeof checker === "function", `checker is ${typeof checker}; pass a function from payload to output`)
   const hooks = {}
   const ctx = {
     location: { directory: "/project" },
@@ -27,6 +33,8 @@ async function v2Hooks(checker) {
     event: { subscribe: async function* () {} },
   }
   await setupV2(ctx, checker)
+  assert.deepEqual(Object.keys(hooks).sort(), ["session:context", "tool:execute.after", "tool:execute.before"])
+  assert(Object.values(hooks).every(hook => typeof hook === "function"), `setup registered ${Object.keys(hooks)} with a hook that is not a function`)
   return hooks
 }
 
@@ -101,9 +109,13 @@ test("Pi appends failures and guards settlement until the check passes", async (
   assert.equal(await handlers.agent_before_settle(settling, ctx), undefined)
 })
 
+/** The checker's output for a project whose 29 warnings protect only the publish tool while failing. */
 function protectionOutput(event, failing) {
+  assert(event.hook_event_name === "PreToolUse", `protection asked of ${event.hook_event_name}; only PreToolUse protects a tool`)
   if (!failing || event.tool_name !== "publish") return {}
-  return { hookSpecificOutput: { permissionDecision: "deny", permissionDecisionReason: "29 warnings" } }
+  const denial = { hookSpecificOutput: { permissionDecision: "deny", permissionDecisionReason: "29 warnings" } }
+  assert(event.tool_name === "publish" && failing, `denied ${event.tool_name} while failing=${failing}; deny only publish while failing`)
+  return denial
 }
 
 test("Pi permits repair tools and blocks a protected tool before it runs", async () => {
