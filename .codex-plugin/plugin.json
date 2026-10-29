@@ -1,6 +1,6 @@
 {
   "name": "overwatch",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Runs project checks beside coding agents and feeds failures back into their turns.",
   "hooks": "./hooks/codex-hooks.json",
   "interface": {
