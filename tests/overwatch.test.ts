@@ -1,7 +1,7 @@
 import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 import { assert } from '../hooks/assert'
-import { CHECKERS, WATCHERS, environmentIn, failureMessage, hasRegression, readReport, statusLine } from '../hooks/watchers'
+import { CHECKERS, WATCHERS, commandLine, environmentIn, failureMessage, hasRegression, readReport, statusLine } from '../hooks/watchers'
 import { SUBPROJECT_TREE, readResult, sorted, treeEntry, watcherNamed } from './fixtures/watchers'
 
 const zig = WATCHERS[0]!
@@ -1075,4 +1075,15 @@ test('a summary-only legacy backlog guards count increases and permits reduction
   expect(hasRegression({ ...baseline, summary: '9999 errors and 20 warnings' }, baseline)).toBe(false)
   expect(hasRegression({ ...baseline, summary: '10001 errors and 20 warnings' }, baseline)).toBe(true)
   expect(hasRegression({ ...baseline, summary: '9999 errors and 21 warnings' }, baseline)).toBe(true)
+})
+
+test('a summary with two failure counts compares each with its own', () => {
+  const baseline = { summary: 'Build Summary: 3/5 steps succeeded (1 failed); 1/3 tests passed (2 failed)', isFailed: true, text: '', failures: [] }
+  expect(hasRegression({ ...baseline, summary: 'Build Summary: 3/5 steps succeeded (2 failed); 1/3 tests passed (2 failed)' }, baseline)).toBe(true)
+  expect(hasRegression({ ...baseline, summary: 'Build Summary: 4/5 steps succeeded (1 failed); 2/3 tests passed (1 failed)' }, baseline)).toBe(false)
+})
+
+test('a command line quotes an argument a shell would split', () => {
+  const watcher = { ...watcherNamed('zig'), argv: ['zig', 'build', 'test', '-Dfilter=two words', 'say "hi"'] }
+  expect(commandLine(watcher)).toBe('zig build test "-Dfilter=two words" "say \\"hi\\""')
 })

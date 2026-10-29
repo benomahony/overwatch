@@ -1,3 +1,9 @@
+/**
+ * The watchers overwatch can run, compiled from watchers.json, and how their
+ * output is read into reports, status lines and messages for the agent.
+ *
+ * Copyright (c) 2026 benomahony. SPDX-License-Identifier: MIT
+ */
 import { TABLE } from './table'
 import { assert } from './assert'
 import type { GatePolicy } from './gating'
@@ -75,19 +81,40 @@ const table: {
  */
 export const SEARCH = { depth: table.search.depth, skip: new Set(table.search.skip) }
 
-/** A watchers.json entry with its patterns compiled: summary and result multiline, failure global too. */
+/**
+ * A watchers.json entry with its patterns compiled: summary and result
+ * multiline, failure global too. Entries come from table.ts, which
+ * scripts/table.py generates from watchers.json at build time and which
+ * refuses an entry without a name and marker, so this compiles the program's
+ * own table, never outside input.
+ */
 function watcherOf({ summary, failed, result, failure, ...entry }: Entry): Watcher {
-  assert(entry.name !== '' && entry.marker !== '', `watchers.json entry ${entry.name} needs a name and a marker; set both`)
+  if (entry.name === '' || entry.marker === '') throw new Error(`watchers.json entry "${entry.name}" with marker "${entry.marker}" needs both; set them in watchers.json`)
   const watcher: Watcher = {
     ...entry,
-    ...(summary === undefined ? {} : { summary: new RegExp(summary, 'm') }),
-    ...(failed === undefined ? {} : { failed: new RegExp(failed) }),
-    ...(result === undefined ? {} : { result: new RegExp(result, 'm') }),
-    ...(failure === undefined ? {} : { failure: new RegExp(failure, 'gm') }),
+    ...(summary === undefined ? {} : { summary: pattern(entry.name, 'summary', summary, 'm') }),
+    ...(failed === undefined ? {} : { failed: pattern(entry.name, 'failed', failed, '') }),
+    ...(result === undefined ? {} : { result: pattern(entry.name, 'result', result, 'm') }),
+    ...(failure === undefined ? {} : { failure: pattern(entry.name, 'failure', failure, 'gm') }),
   }
-  assert(watcher.failure?.global !== false, `${entry.name}'s failure pattern is not global; matchAll needs the g flag`)
-  assert((watcher.summary === undefined) === (summary === undefined), `${entry.name}'s summary ${summary} was not compiled; compile each pattern it has`)
+  const given = [summary, failed, result, failure].filter(each => each !== undefined).length
+  const compiled = [watcher.summary, watcher.failed, watcher.result, watcher.failure].filter(each => each !== undefined).length
+  assert(compiled === given, `${entry.name} compiled ${compiled} of its ${given} patterns; compile each with pattern()`)
+  assert(watcher.failure?.global !== false, `${entry.name}'s failure pattern is not global; compile it with the g flag for matchAll`)
   return watcher
+}
+
+/** One of a watchers.json entry's patterns compiled with `flags`, or an error naming the entry and field to correct. */
+function pattern(name: string, field: string, source: string, flags: string): RegExp {
+  let compiled: RegExp
+  try {
+    compiled = new RegExp(source, flags)
+  } catch (error) {
+    throw new Error(`watchers.json entry "${name}" has an invalid ${field} pattern ${source}: ${(error as Error).message}; correct it in watchers.json`)
+  }
+  assert(compiled.flags.length === flags.length, `${name}'s ${field} pattern has flags ${compiled.flags}, not ${flags}; pass each flag once`)
+  assert([...flags].every(flag => compiled.flags.includes(flag)), `${name}'s ${field} pattern has flags ${compiled.flags}, not ${flags}; pass them to new RegExp`)
+  return compiled
 }
 
 /** Alternatives of one language are tried in order, so a project's own test runner, installed in node_modules, comes before bun's. */
@@ -117,7 +144,8 @@ export const FAILURE_LIMIT = 10
 /** The language a watcher checks: its language, else its name. */
 export function languageOf(watcher: Watcher): string {
   const language = watcher.language ?? watcher.name
-  assert(language !== '', `watcher ${watcher.name} has an empty language; set language or name in watchers.json`)
+  if (language === '') throw new Error(`watcher "${watcher.name}" has an empty language; set language or name in watchers.json`)
+  assert(language === watcher.language || language === watcher.name, `watcher ${watcher.name} got language ${language}, neither its language nor its name`)
   assert(watcher.language !== undefined || language === watcher.name, `watcher ${watcher.name} got language ${language}; fall back to its name`)
   return language
 }
@@ -160,15 +188,21 @@ export type Report = {
   environment?: string
 }
 
-/** Compare counts when a runner does not give enough issue identities to identify a regression. */
-function summaryCounts(summary: string): Map<string, number> {
+/**
+ * Each count a summary gives, keyed by its kind (error, warning or failure)
+ * and its place among the counts of that kind, so a summary with two failure
+ * counts, such as zig's failed steps and failed tests, compares each with its own.
+ */
+function summaryCounts(summary: string): ReadonlyMap<string, number> {
   const counts = new Map<string, number>()
+  const seen = { error: 0, warning: 0, failure: 0 }
   for (const match of summary.matchAll(/(\d+)\s+(errors?|warnings?|failures?|failed|fail)\b/g)) {
     const label = match[2] ?? ''
     const kind = label.startsWith('error') ? 'error' : label.startsWith('warning') ? 'warning' : 'failure'
-    counts.set(kind, Math.max(counts.get(kind) ?? 0, Number(match[1])))
+    counts.set(`${kind} ${seen[kind]}`, Number(match[1]))
+    seen[kind] += 1
   }
-  assert([...counts.keys()].every(kind => ['error', 'warning', 'failure'].includes(kind)), `summary ${summary} counted kinds ${[...counts.keys()]}; fold each label into error, warning or failure`)
+  assert(counts.size === seen.error + seen.warning + seen.failure, `summary ${summary} gave ${counts.size} counts from ${JSON.stringify(seen)}; key each by its kind and place`)
   assert([...counts.values()].every(count => summary.includes(String(count))), `counts ${[...counts.values()]} are not in summary ${summary}; take each from it`)
   return counts
 }
@@ -234,17 +268,31 @@ export function readReport(watcher: Watcher, output: string, code?: number | nul
 
 /** A watcher's command as one line, its watch command unless argv is given. */
 export function commandLine(watcher: Watcher, argv: readonly string[] = watcher.argv ?? watcher.baseline ?? []): string {
-  const line = argv.join(' ')
-  assert(argv.every(part => line.includes(part)), `command line ${line} for ${watcher.name} leaves out part of ${argv}`)
-  assert(argv.length === 0 || line.startsWith(argv[0] ?? ''), `command line ${line} for ${watcher.name} does not start with ${argv[0]}`)
+  const words = argv.map(shellWord)
+  const line = words.join(' ')
+  assert(words.length === argv.length, `command line ${line} for ${watcher.name} has ${words.length} words for ${argv.length} arguments; quote each argument`)
+  assert(words.every(word => !/\s/.test(word) || word.startsWith('"')), `command line ${line} for ${watcher.name} has an unquoted word with a space; quote it with shellWord`)
   return line
+}
+
+/**
+ * One argument as the command lines overwatch shows write it; nothing runs
+ * them through a shell. An argument made only of letters, digits and
+ * `_@%+=:,./-` stays as it is; any other is written as a JSON string, so its
+ * bounds and every character in it are unambiguous.
+ */
+function shellWord(part: string): string {
+  const word = /^[A-Za-z0-9_@%+=:,./-]+$/.test(part) ? part : JSON.stringify(part)
+  assert(word === part || JSON.parse(word) === part, `argument ${part} became ${word}; leave it or write it as a JSON string`)
+  assert(word.length >= part.length, `argument ${part} lost characters as ${word}; only add quotes`)
+  return word
 }
 
 /** The command as the agent is told of it, with the sub-project it runs in. */
 function command(watcher: Watcher): string {
   const text = `\`${commandLine(watcher)}\`${watcher.dir === undefined ? '' : ` in \`${watcher.dir}\``}`
-  assert(text.startsWith(`\`${commandLine(watcher)}\``), `command ${text} does not quote ${watcher.name}'s command first`)
-  assert(watcher.dir === undefined || text.endsWith(`\`${watcher.dir}\``), `command ${text} does not name ${watcher.name}'s dir ${watcher.dir}`)
+  assert(text.startsWith(`\`${commandLine(watcher)}\``), `command ${text} does not quote ${watcher.name}'s command first; put commandLine first`)
+  assert(watcher.dir === undefined || text.endsWith(`\`${watcher.dir}\``), `command ${text} does not name ${watcher.name}'s dir ${watcher.dir}; end with the dir in backticks`)
   return text
 }
 
@@ -287,8 +335,13 @@ export function failureMessage(watcher: Watcher, report: Report, known: readonly
   return message
 }
 
-/** Tells the agent a watcher is green again, or back to only the failures it started with. */
+/**
+ * Tells the agent a watcher is green again, or back to only the failures it
+ * started with. `report` is one readReport built, so its fields are always
+ * set; only its summary, taken from the watcher's output, can be empty.
+ */
 export function recoveryMessage(watcher: Watcher, report: Report): string {
+  if (report.summary === '') throw new Error(`${watcher.name} gave an empty summary; make its summary pattern in watchers.json match the line with the counts`)
   const state = report.isFailed ? 'is back to the failures it had when the session started.' : 'is green again.'
   const message = `overwatch: ${command(watcher)} ${state} ${report.summary}`
   assert(message.endsWith(report.summary), `recovery ${message} drops ${watcher.name}'s summary; end with it`)
@@ -345,7 +398,7 @@ export function statusLine(watcher: Watcher, report: Report): string {
   const [first, ...rest] = report.failures
   const failing = first === undefined ? '' : `: ${first}${rest.length > 0 ? ` +${rest.length} more` : ''}`
   const line = `overwatch ${watcher.name} ${mark} ${report.summary.replace(SUMMARY_DECORATION, '')}${failing}`
-  assert(line.startsWith(`overwatch ${watcher.name} ${mark} `), `status ${line} does not open with ${watcher.name} and its mark`)
-  assert(first === undefined || line.includes(`: ${first}`), `status ${line} does not name ${watcher.name}'s first failure ${first}`)
+  assert(line.startsWith(`overwatch ${watcher.name} ${mark} `), `status ${line} does not open with ${watcher.name} and its mark; build it from the name, mark and summary`)
+  assert(first === undefined || line.includes(`: ${first}`), `status ${line} does not name ${watcher.name}'s first failure ${first}; append it after a colon`)
   return line
 }
