@@ -4,7 +4,7 @@ import test from "node:test"
 import OpenCode, { OverwatchPlugin, createV1Hooks, setupV2 } from "../integrations/opencode.js"
 import { registerPi } from "../integrations/pi.js"
 import { WATCHERS, findWatchers, readReport, registerVSCode, statusLine } from "../integrations/vscode.js"
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -221,7 +221,7 @@ test("VS Code watches each language, in its sub-project when the root lacks it, 
 
 test("VS Code reruns a suite with no watch command after each save and shows it in the status bar", async () => {
   const dir = project({
-    ".overwatch.json": JSON.stringify({ baseline: ["sh", "-c", "cat result"], summary: "^(?:pass|fail)$", failed: "fail" }),
+    ".overwatch.json": JSON.stringify({ baseline: ["sh", "-c", "cat result; echo run >> runs"], summary: "^(?:pass|fail)$", failed: "fail" }),
     result: "pass\n",
   })
   const { vscode, item, seen } = fakeVSCode(dir)
@@ -234,9 +234,29 @@ test("VS Code reruns a suite with no watch command after each save and shows it 
   await until(() => item.text === "overwatch project ✗ fail")
   assert.match(seen.channel, /overwatch project\nfail/)
   assert.equal(item.backgroundColor.id, "statusBarItem.errorBackground")
+  assert.deepEqual(seen.messages, ["overwatch project ✗ fail"])
+  seen.onSave()
+  await until(() => readFileSync(join(dir, "runs"), "utf8").split("\n").length === 4)
+  await new Promise(resolve => setTimeout(resolve, 50))
+  assert.deepEqual(seen.messages, ["overwatch project ✗ fail"])
   writeFileSync(join(dir, "result"), "pass\n")
   seen.onSave()
   await until(() => item.text === "overwatch project ✓ pass")
-  assert.match(seen.messages.at(-1), /green again/)
+  assert.equal(seen.messages.at(-1), "overwatch project ✓ pass, green again")
   overwatch.stop()
+})
+
+test("VS Code keeps the full run's result in the status bar while the watcher it starts is quiet", async () => {
+  const dir = project({
+    ".overwatch.json": JSON.stringify({ argv: ["sh", "-c", "echo started > watching; sleep 30"], baseline: ["sh", "-c", "cat result"], summary: "^(?:pass|fail)$", failed: "fail" }),
+    result: "fail\n",
+  })
+  const { vscode, item } = fakeVSCode(dir)
+  const overwatch = registerVSCode(vscode, { subscriptions: [] })
+  try {
+    await until(() => existsSync(join(dir, "watching")))
+    assert.equal(item.text, "overwatch project ✗ fail")
+  } finally {
+    overwatch.stop()
+  }
 })

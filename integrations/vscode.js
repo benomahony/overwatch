@@ -191,18 +191,18 @@ export function registerVSCode(vscode, context, start = spawn) {
   }
 
   const deliver = (run, report) => {
-    setStatus(run, statusLine(run.watcher, report))
-    const isRecovery = !report.isFailed && run.wasFailing
-    run.wasFailing = report.isFailed
+    const line = statusLine(run.watcher, report)
+    setStatus(run, line)
+    run.hasReport = true
+    const failing = report.isFailed ? report.failures.join("\n") || report.summary : undefined
+    const isNew = failing !== undefined && failing !== run.failing
+    const isRecovery = !report.isFailed && run.failing !== undefined
+    run.failing = failing
     run.failingText = report.isFailed ? report.text : undefined
     redraw()
     if (report.isFailed || isRecovery) updateChannel()
-    if (report.isFailed) {
-      const failing = report.failures.length > 0 ? ` (${report.failures.slice(0, 3).join(", ")})` : ""
-      notify("showErrorMessage", `overwatch ${run.watcher.name}: ${report.summary}${failing}`)
-    } else if (isRecovery) {
-      vscode.window.showInformationMessage(`overwatch ${run.watcher.name}: green again. ${report.summary}`)
-    }
+    if (isNew) notify("showErrorMessage", line)
+    else if (isRecovery) vscode.window.showInformationMessage(`${line}, green again`)
   }
 
   const reportBroken = (run, argv, why, output) => {
@@ -289,7 +289,7 @@ export function registerVSCode(vscode, context, start = spawn) {
     let recent = ""
     let flush
     const startedAt = Date.now()
-    setStatus(run, `overwatch ${watcher.name}: starting ${commandLine(watcher.argv)}`)
+    if (!run.hasReport) setStatus(run, `overwatch ${watcher.name}: starting ${commandLine(watcher.argv)}`)
     launch(run, watcher.argv, data => {
       output += data
       recent = (recent + data).slice(-4000)
@@ -336,7 +336,7 @@ export function registerVSCode(vscode, context, start = spawn) {
     stop()
     cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
     if (cwd === undefined) return
-    runs = findWatchers(cwd).map((watcher, index) => ({ index, watcher, status: "", wasFailing: false, quickExits: 0 }))
+    runs = findWatchers(cwd).map((watcher, index) => ({ index, watcher, status: "", quickExits: 0 }))
     for (const run of runs) begin(run)
   }
 
