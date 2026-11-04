@@ -1,7 +1,8 @@
 import assert from "node:assert/strict"
 import { spawn } from "node:child_process"
-import { accessSync, constants, existsSync, readFileSync, readdirSync } from "node:fs"
-import { delimiter, join } from "node:path"
+import { accessSync, appendFileSync, constants, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, watch as watchFiles, writeFileSync } from "node:fs"
+import { homedir } from "node:os"
+import { basename, delimiter, join } from "node:path"
 
 export const OVERRIDE_PATH = ".overwatch.json"
 const QUIET_MS = 400
@@ -145,6 +146,15 @@ export function readReport(watcher, output, code) {
   return { summary, isFailed, text: clean.trim(), failures: isFailed ? failures : [] }
 }
 
+/** Where the Claude Code plugin finds the reports of a watcher run in dir: the same name for the same language and real path. */
+export function feedOf(watcher, dir) {
+  let real = dir
+  try {
+    real = realpathSync(dir)
+  } catch {}
+  return join(homedir(), ".cache", "overwatch", "feeds", `${watcher.language}:${real}`.replace(/[^\w.-]+/g, "-"))
+}
+
 /** The watcher's part of the status line for report. */
 export function statusLine(watcher, report) {
   const summary = DECORATION.reduce((text, decoration) => text.replace(decoration, ""), report.summary)
@@ -162,6 +172,7 @@ export function registerVSCode(vscode, context, start = spawn) {
   const channel = vscode.window.createOutputChannel("overwatch")
   let cwd
   let runs = []
+  let requests
 
   const show = () => channel.show(true)
   const commandLine = argv => argv.join(" ")
@@ -205,6 +216,14 @@ export function registerVSCode(vscode, context, start = spawn) {
     else if (isRecovery) vscode.window.showInformationMessage(`${line}, green again`)
   }
 
+  const publish = (run, text, code) => {
+    const line = JSON.stringify({ text, code })
+    try {
+      writeFileSync(`${run.feed}.json`, line)
+      appendFileSync(`${run.feed}.jsonl`, `${line}\n`)
+    } catch {}
+  }
+
   const reportBroken = (run, argv, why, output) => {
     const tail = output.trim().split("\n").slice(-10).join("\n")
     setStatus(run, `overwatch ${run.watcher.name}: ${commandLine(argv)} ${why}`)
@@ -238,6 +257,7 @@ export function registerVSCode(vscode, context, start = spawn) {
       if (!isRunning(run)) return
       if (!isStale?.()) {
         const report = readReport(run.watcher, output, code)
+        if (report) publish(run, output, code)
         if (report) deliver(run, report)
         else reportBroken(run, argv, code === -1 ? "could not start" : "gave no summary", output)
       }
@@ -297,6 +317,7 @@ export function registerVSCode(vscode, context, start = spawn) {
       flush = setTimeout(() => {
         const report = readReport(watcher, output)
         if (report === undefined) return
+        publish(run, output)
         output = ""
         deliver(run, report)
       }, QUIET_MS)
@@ -305,6 +326,7 @@ export function registerVSCode(vscode, context, start = spawn) {
       if (!isRunning(run)) return
       run.process = undefined
       const report = readReport(watcher, output)
+      if (report) publish(run, output)
       if (report) deliver(run, report)
       restart(run, startedAt, code === -1 ? "could not start" : `exited with code ${code}`, recent)
     })
@@ -328,7 +350,12 @@ export function registerVSCode(vscode, context, start = spawn) {
   const stop = () => {
     const stopping = runs
     runs = []
-    for (const run of stopping) run.process?.kill("SIGTERM")
+    requests?.close()
+    requests = undefined
+    for (const run of stopping) {
+      run.process?.kill("SIGTERM")
+      rmSync(`${run.feed}.pid`, { force: true })
+    }
     redraw()
   }
 
@@ -336,7 +363,19 @@ export function registerVSCode(vscode, context, start = spawn) {
     stop()
     cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
     if (cwd === undefined) return
-    runs = findWatchers(cwd).map((watcher, index) => ({ index, watcher, status: "", quickExits: 0 }))
+    runs = findWatchers(cwd).map((watcher, index) => ({ index, watcher, status: "", quickExits: 0, feed: feedOf(watcher, watcher.dir ? join(cwd, watcher.dir) : cwd) }))
+    if (runs.length > 0) {
+      try {
+        const feeds = join(homedir(), ".cache", "overwatch", "feeds")
+        mkdirSync(feeds, { recursive: true })
+        for (const run of runs) {
+          rmSync(`${run.feed}.json`, { force: true })
+          writeFileSync(`${run.feed}.jsonl`, "")
+          writeFileSync(`${run.feed}.pid`, String(process.pid))
+        }
+        requests = watchFiles(feeds, (_event, name) => runs.find(run => name === `${basename(run.feed)}.changed`)?.rerun?.())
+      } catch {}
+    }
     for (const run of runs) begin(run)
   }
 

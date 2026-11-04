@@ -3,8 +3,8 @@ import test from "node:test"
 
 import OpenCode, { OverwatchPlugin, createV1Hooks, setupV2 } from "../integrations/opencode.js"
 import { registerPi } from "../integrations/pi.js"
-import { WATCHERS, findWatchers, readReport, registerVSCode, statusLine } from "../integrations/vscode.js"
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import { WATCHERS, feedOf, findWatchers, readReport, registerVSCode, statusLine } from "../integrations/vscode.js"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -172,6 +172,7 @@ function project(files) {
 
 /** A fake of the vscode API with a workspace at cwd, recording its status bar, output channel and messages. */
 function fakeVSCode(cwd) {
+  process.env.HOME = mkdtempSync(join(tmpdir(), "overwatch-home-"))
   const seen = { commands: {}, messages: [], channel: "", onSave: undefined }
   const item = { text: "", show: () => undefined, hide: () => undefined, dispose: () => undefined }
   const vscode = {
@@ -259,4 +260,27 @@ test("VS Code keeps the full run's result in the status bar while the watcher it
   } finally {
     overwatch.stop()
   }
+})
+
+test("VS Code writes each watcher's reports where the Claude Code plugin follows them, and reruns when it asks", async () => {
+  const dir = project({
+    ".overwatch.json": JSON.stringify({ baseline: ["sh", "-c", "cat result; echo run >> runs"], summary: "^(?:pass|fail)$", failed: "fail" }),
+    result: "fail\n",
+  })
+  const { vscode, item } = fakeVSCode(dir)
+  const overwatch = registerVSCode(vscode, { subscriptions: [] })
+  const feed = feedOf({ language: "project" }, dir)
+  try {
+    assert.equal(feed, join(process.env.HOME, ".cache", "overwatch", "feeds", `project:${realpathSync(dir)}`.replace(/[^\w.-]+/g, "-")))
+    assert.equal(readFileSync(`${feed}.pid`, "utf8"), String(process.pid))
+    await until(() => item.text === "overwatch project ✗ fail")
+    assert.deepEqual(JSON.parse(readFileSync(`${feed}.json`, "utf8")), { text: "fail\n", code: 0 })
+    writeFileSync(join(dir, "result"), "pass\n")
+    writeFileSync(`${feed}.changed`, "")
+    await until(() => item.text === "overwatch project ✓ pass")
+    assert.deepEqual(readFileSync(`${feed}.jsonl`, "utf8").trim().split("\n").map(line => JSON.parse(line).text), ["fail\n", "pass\n"])
+  } finally {
+    overwatch.stop()
+  }
+  assert.equal(existsSync(`${feed}.pid`), false)
 })
