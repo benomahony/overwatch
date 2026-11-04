@@ -1,6 +1,6 @@
 {
   "name": "overwatch",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "description": "Runs project checks beside coding agents and feeds failures back into their turns.",
   "type": "module",
   "displayName": "overwatch",

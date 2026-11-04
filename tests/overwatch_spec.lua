@@ -81,7 +81,7 @@ test('each language reads its runner’s report and names what failed', function
   eq(read(named('deno'), deno), { 'overwatch deno ✗ 1 passed | 1 failed (2ms): adds => ./calc_test.ts:1:6', { 'adds => ./calc_test.ts:1:6' } })
   eq(read(named('go', 'go.mod'), '=== FAIL: . TestAdd (0.00s)\n\nDONE 2 tests, 1 failure in 0.184s'),
     { 'overwatch go ✗ 2 tests, 1 failure in 0.184s: . TestAdd', { '. TestAdd' } })
-  local go = overwatch.WATCHERS[#overwatch.WATCHERS - 1]
+  local go = vim.iter(overwatch.WATCHERS):find(function(watcher) return watcher.name == 'go' and watcher.requires == nil end)
   eq(overwatch.read_report(go, '--- FAIL: TestAdd (0.00s)\nFAIL'), nil)
   eq(read(go, '--- FAIL: TestAdd (0.00s)\nFAIL', 1), { 'overwatch go ✗ 1 failed: TestAdd', { 'TestAdd' } })
   eq(read(go, './calc_test.go:5:1: expected declaration, found syntax', 1)[2], { './calc_test.go:5:1: expected declaration, found syntax' })

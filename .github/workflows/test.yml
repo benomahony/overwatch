@@ -1,0 +1,65 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+
+      - name: Test the hooks
+        run: python3 -m unittest discover -s tests -p 'test_*.py'
+
+      - name: Test the integrations against fake hosts
+        run: node --test tests/test_integrations.mjs
+
+  agents:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+
+      # Codex sandboxes commands with bubblewrap, which Ubuntu's AppArmor stops from creating user namespaces.
+      - name: Allow sandboxes to create user namespaces
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: Install the agents and the mock model
+        run: |
+          npm install --no-save @copilotkit/aimock@1.47.0 @mariozechner/pi-coding-agent@0.73.1 opencode-ai@1.19.5 @openai/codex@0.166.0 @anthropic-ai/claude-code@2.1.318
+          echo "$PWD/node_modules/.bin" >> "$GITHUB_PATH"
+
+      - name: Test each agent against a scripted model
+        run: node --test tests/test_agents.mjs
+
+      - name: Test the Claude Code plugin in its runtime
+        run: claude plugin test .
+
+  neovim:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Install Neovim
+        run: |
+          curl -sSfL https://github.com/neovim/neovim/releases/download/v0.11.4/nvim-linux-x86_64.tar.gz | tar -xz -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/nvim-linux-x86_64/bin" >> "$GITHUB_PATH"
+
+      - name: Test the Neovim plugin
+        run: nvim --headless -l tests/overwatch_spec.lua

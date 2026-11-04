@@ -18,6 +18,7 @@ python3 docs/sync.py --write  # regenerate site pages from README and the verifi
 python3 -m unittest discover -s tests -p 'test_*.py'
 node --test tests/test_integrations.mjs
 npm install --no-save @vscode/test-electron && xvfb-run -a node tests/vscode/run.mjs
+node --test tests/test_agents.mjs  # pi, opencode and codex against a scripted model; npm install --no-save @copilotkit/aimock first
 nvim --headless -l tests/overwatch_spec.lua
 claude plugin validate .
 claude plugin test .
