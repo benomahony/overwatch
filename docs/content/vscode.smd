@@ -1,0 +1,9 @@
+---
+.title = "VS Code",
+.description = "The same watchers beside VS Code, in its status bar and output channel.",
+.date = .date("2026-10-21T00:00:02"),
+.layout = "page.shtml",
+---
+
+
+The same test watchers run beside VS Code as beside Neovim, from the same `watchers.json` and `.overwatch.json`: the full suite first, then the watcher, with no agent involved. zanity does not run here either; its own `zanity lsp` gives the editor its findings. The latest result of each language's watcher is in the status bar, which turns red while any build fails. Every failing build goes into the overwatch output channel, titled with its watcher and cleared of each one as it goes green; clicking the status bar, or Show report on the notification, opens it. A watcher with no `argv` reruns `baseline` after every save, stopping a run that a newer save has overtaken. A watcher that exits is restarted as it is in Neovim, at once or after 30 and then 60 seconds; after three quick exits in a row it stays stopped, with what it last printed, until `Overwatch: Start`. It starts with VS Code in the first workspace folder when that has a watcher; `Overwatch: Start`, `Overwatch: Stop` and `Overwatch: Show Report` are in the command palette. It needs VS Code 1.100 or later.

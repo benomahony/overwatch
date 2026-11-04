@@ -13,6 +13,7 @@
 			<a href="$site.page('behavior').link()" class="$site.page('behavior').isCurrent().then('active', '')">Behavior</a>
 			<p class="sidebar-group">Integrations</p>
 			<a href="$site.page('neovim').link()" class="$site.page('neovim').isCurrent().then('active', '')">Neovim</a>
+			<a href="$site.page('vscode').link()" class="$site.page('vscode').isCurrent().then('active', '')">VS Code</a>
 			<p class="sidebar-group">Project</p>
 			<a href="$site.page('develop').link()" class="$site.page('develop').isCurrent().then('active', '')">Develop</a>
 		</nav>

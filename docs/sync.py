@@ -35,8 +35,9 @@ PAGES = {
     "watchers.smd": ("Watchers", "The test runners overwatch finds in a project, and how it reads what they print.", "page.shtml", "## Watchers", "## Per-project override"),
     "configuration.smd": ("Configuration", "Turning overwatch off, or giving a project its own commands, with .overwatch.json.", "page.shtml", "## Per-project override", "## Install"),
     "behavior.smd": ("Behavior", "Executable examples of failure gates, recovery, and inherited-finding policies.", "page.shtml", "# How Overwatch behaves", None),
-    "install.smd": ("Install", "Adding overwatch to Claude Code, Codex, OpenCode, Pi, or Neovim.", "page.shtml", "## Install", "## Neovim"),
-    "neovim.smd": ("Neovim", "The same watchers beside the editor, with no agent involved.", "page.shtml", "## Neovim", "## Develop"),
+    "install.smd": ("Install", "Adding overwatch to Claude Code, Codex, OpenCode, Pi, Neovim, or VS Code.", "page.shtml", "## Install", "## Neovim"),
+    "neovim.smd": ("Neovim", "The same watchers beside the editor, with no agent involved.", "page.shtml", "## Neovim", "## VS Code"),
+    "vscode.smd": ("VS Code", "The same watchers beside VS Code, in its status bar and output channel.", "page.shtml", "## VS Code", "## Develop"),
     "develop.smd": ("Develop", "Running overwatch's own tests and trying a local checkout.", "page.shtml", "## Develop", None),
 }
 

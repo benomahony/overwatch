@@ -1,7 +1,7 @@
 ---
 .title = "Install",
-.description = "Adding overwatch to Claude Code, Codex, OpenCode, Pi, or Neovim.",
-.date = .date("2026-10-21T00:00:03"),
+.description = "Adding overwatch to Claude Code, Codex, OpenCode, Pi, Neovim, or VS Code.",
+.date = .date("2026-10-21T00:00:04"),
 .layout = "page.shtml",
 ---
 
@@ -70,3 +70,14 @@ vim.pack.add({ "https://github.com/benomahony/overwatch" })
 ```
 
 The dedicated Neovim guide covers the quickfix list, status line, and commands.
+
+# [VS Code]($heading.id('vs-code'))
+
+From a local checkout:
+
+```sh
+npx @vscode/vsce package
+code --install-extension overwatch-*.vsix
+```
+
+The dedicated VS Code guide covers the status bar, output channel, and commands.

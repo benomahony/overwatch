@@ -1,3 +1,4 @@
 .claude-plugin/types/
 __pycache__/
 *.py[cod]
+*.vsix

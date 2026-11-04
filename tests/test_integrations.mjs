@@ -3,6 +3,10 @@ import test from "node:test"
 
 import OpenCode, { OverwatchPlugin, createV1Hooks, setupV2 } from "../integrations/opencode.js"
 import { registerPi } from "../integrations/pi.js"
+import { WATCHERS, findWatchers, readReport, registerVSCode, statusLine } from "../integrations/vscode.js"
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 
 /** The checker's output for a failing fixture that tells message, or a passing one. */
 function output(message, failed = true) {
@@ -148,4 +152,91 @@ test("OpenCode V2 allows diagnostics while protecting publication until recovery
   await assert.rejects(hooks["tool:execute.before"]({ tool: "publish", sessionID: "s1", input: {} }), /29 warnings/)
   failing = false
   await hooks["tool:execute.before"]({ tool: "publish", sessionID: "s1", input: {} })
+})
+
+const PYTEST_FAILING = `tests/test_add.py:9: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_add.py::test_add - assert 10 == 11
+========================= 1 failed, 2 passed in 0.03s ==========================
+`
+
+/** A temporary project holding files, by path relative to its root. */
+function project(files) {
+  const dir = mkdtempSync(join(tmpdir(), "overwatch-vscode-"))
+  for (const [path, text] of Object.entries(files)) {
+    mkdirSync(join(dir, path, ".."), { recursive: true })
+    writeFileSync(join(dir, path), text)
+  }
+  return dir
+}
+
+/** A fake of the vscode API with a workspace at cwd, recording its status bar, output channel and messages. */
+function fakeVSCode(cwd) {
+  const seen = { commands: {}, messages: [], channel: "", onSave: undefined }
+  const item = { text: "", show: () => undefined, hide: () => undefined, dispose: () => undefined }
+  const vscode = {
+    StatusBarAlignment: { Left: 1 },
+    ThemeColor: class { constructor(id) { this.id = id } },
+    window: {
+      createStatusBarItem: () => item,
+      createOutputChannel: () => ({ replace: text => { seen.channel = text }, appendLine: text => { seen.channel += text }, show: () => undefined, dispose: () => undefined }),
+      showErrorMessage: async message => { seen.messages.push(message) },
+      showInformationMessage: async message => { seen.messages.push(message) },
+      showWarningMessage: async message => { seen.messages.push(message) },
+    },
+    commands: { registerCommand: (name, callback) => { seen.commands[name] = callback; return { dispose: () => undefined } } },
+    workspace: {
+      workspaceFolders: [{ uri: { fsPath: cwd } }],
+      onDidSaveTextDocument: callback => { seen.onSave = callback; return { dispose: () => undefined } },
+      onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined }),
+    },
+  }
+  return { vscode, item, seen }
+}
+
+/** Waits until condition holds, failing after timeout milliseconds. */
+async function until(condition, timeout = 5000) {
+  const deadline = Date.now() + timeout
+  while (!condition()) {
+    assert(Date.now() < deadline, `condition ${condition} did not hold within ${timeout}ms`)
+    await new Promise(resolve => setTimeout(resolve, 20))
+  }
+}
+
+test("VS Code reads the pytest summary line and names what failed", () => {
+  const python = WATCHERS.find(watcher => watcher.name === "python")
+  const report = readReport(python, PYTEST_FAILING)
+  assert.equal(report.isFailed, true)
+  assert.equal(statusLine(python, report), "overwatch python ✗ 1 failed, 2 passed in 0.03s: tests/test_add.py::test_add")
+  assert.equal(readReport(python, "=== no tests ran in 0.00s ===").isFailed, false)
+  assert.equal(readReport(python, "collected 3 items"), undefined)
+})
+
+test("VS Code watches each language, in its sub-project when the root lacks it, unless the override turns it off", () => {
+  const dir = project({ "Cargo.toml": "", "services/api/go.mod": "" })
+  assert.deepEqual(findWatchers(dir).map(watcher => [watcher.name, watcher.dir]), [["go services/api", "services/api"], ["rust", undefined]])
+  writeFileSync(join(dir, ".overwatch.json"), JSON.stringify({ enabled: false }))
+  assert.deepEqual(findWatchers(dir), [])
+})
+
+test("VS Code reruns a suite with no watch command after each save and shows it in the status bar", async () => {
+  const dir = project({
+    ".overwatch.json": JSON.stringify({ baseline: ["sh", "-c", "cat result"], summary: "^(?:pass|fail)$", failed: "fail" }),
+    result: "pass\n",
+  })
+  const { vscode, item, seen } = fakeVSCode(dir)
+  const subscriptions = []
+  const overwatch = registerVSCode(vscode, { subscriptions })
+  assert.deepEqual(Object.keys(seen.commands).sort(), ["overwatch.show", "overwatch.start", "overwatch.stop"])
+  await until(() => item.text === "overwatch project ✓ pass")
+  writeFileSync(join(dir, "result"), "fail\n")
+  seen.onSave()
+  await until(() => item.text === "overwatch project ✗ fail")
+  assert.match(seen.channel, /overwatch project\nfail/)
+  assert.equal(item.backgroundColor.id, "statusBarItem.errorBackground")
+  writeFileSync(join(dir, "result"), "pass\n")
+  seen.onSave()
+  await until(() => item.text === "overwatch project ✓ pass")
+  assert.match(seen.messages.at(-1), /green again/)
+  overwatch.stop()
 })

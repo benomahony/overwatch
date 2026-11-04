@@ -3,7 +3,25 @@
   "version": "0.4.2",
   "description": "Runs project checks beside coding agents and feeds failures back into their turns.",
   "type": "module",
+  "displayName": "overwatch",
+  "publisher": "benomahony",
+  "license": "MIT",
+  "repository": "https://github.com/benomahony/overwatch",
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "main": "./integrations/vscode.js",
   "exports": "./integrations/opencode.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      { "command": "overwatch.start", "title": "Overwatch: Start" },
+      { "command": "overwatch.stop", "title": "Overwatch: Stop" },
+      { "command": "overwatch.show", "title": "Overwatch: Show Report" }
+    ]
+  },
   "files": [
     "hooks/codex.py",
     "hooks/gating.py",
@@ -13,6 +31,7 @@
   ],
   "keywords": [
     "opencode-plugin",
+    "vscode-extension",
     "pi-package"
   ],
   "pi": {
