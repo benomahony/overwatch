@@ -223,7 +223,7 @@ local function lines(path)
 end
 
 test('a watcher that keeps exiting backs off, then is left stopped', function()
-  overwatch.RETRY_MS = 50
+  overwatch.RETRY_MS = 300
   local dir = project({ name = 'sh', argv = { 'sh', '-c', 'echo run >> starts; exit 1' }, baseline = {}, summary = '^SUMMARY$', failed = 'y' })
   overwatch.start(dir)
   vim.wait(3000, function() return overwatch.status():find('in a row', 1, true) ~= nil end)
