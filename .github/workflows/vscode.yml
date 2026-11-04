@@ -1,0 +1,28 @@
+name: VS Code
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  extension:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Test the extension against a fake VS Code
+        run: node --test tests/test_integrations.mjs
+
+      - name: Test the extension in VS Code
+        run: |
+          npm install --no-save @vscode/test-electron
+          xvfb-run -a node tests/vscode/run.mjs

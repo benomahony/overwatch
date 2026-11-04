@@ -220,6 +220,7 @@ python3 scripts/scenarios.py --check  # verify scenarios and reject stale behavi
 python3 docs/sync.py --write  # regenerate site pages from README and the verified behavior guide
 python3 -m unittest discover -s tests -p 'test_*.py'
 node --test tests/test_integrations.mjs
+npm install --no-save @vscode/test-electron && xvfb-run -a node tests/vscode/run.mjs
 nvim --headless -l tests/overwatch_spec.lua
 claude plugin validate .
 claude plugin test .
