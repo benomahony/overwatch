@@ -19,7 +19,10 @@ exports.run = async () => {
   const project = vscode.workspace.workspaceFolders[0].uri.fsPath
   await until(() => existsSync(join(project, "ran")))
   const commands = (await vscode.commands.getCommands(true)).filter(command => command.startsWith("overwatch."))
-  assert.deepEqual(commands.sort(), ["overwatch.show", "overwatch.start", "overwatch.stop"])
+  assert.deepEqual(commands.sort(), ["overwatch.doctor", "overwatch.show", "overwatch.start", "overwatch.stop"])
+  const report = await vscode.commands.executeCommand("overwatch.doctor")
+  assert.equal(report[0], "overwatch doctor")
+  assert(report.some(line => /^✓ project runs with sh: /.test(line)), `the doctor did not report the project's watcher:\n${report.join("\n")}`)
   await vscode.commands.executeCommand("overwatch.show")
   await vscode.commands.executeCommand("overwatch.stop")
 }
