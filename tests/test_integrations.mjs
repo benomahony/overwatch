@@ -3,7 +3,7 @@ import test from "node:test"
 
 import OpenCode, { OverwatchPlugin, createV1Hooks, setupV2 } from "../integrations/opencode.js"
 import { registerPi } from "../integrations/pi.js"
-import { WATCHERS, feedOf, findWatchers, readReport, registerVSCode, statusLine } from "../integrations/vscode.js"
+import { WATCHERS, diagnose, feedOf, findWatchers, readReport, registerVSCode, repositoryOf, statusLine } from "../integrations/vscode.js"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -228,7 +228,7 @@ test("VS Code reruns a suite with no watch command after each save and shows it 
   const { vscode, item, seen } = fakeVSCode(dir)
   const subscriptions = []
   const overwatch = registerVSCode(vscode, { subscriptions })
-  assert.deepEqual(Object.keys(seen.commands).sort(), ["overwatch.show", "overwatch.start", "overwatch.stop"])
+  assert.deepEqual(Object.keys(seen.commands).sort(), ["overwatch.doctor", "overwatch.show", "overwatch.start", "overwatch.stop"])
   await until(() => item.text === "overwatch project ✓ pass")
   writeFileSync(join(dir, "result"), "fail\n")
   seen.onSave()
@@ -249,7 +249,7 @@ test("VS Code reruns a suite with no watch command after each save and shows it 
 
 test("VS Code keeps the full run's result in the status bar while the watcher it starts is quiet", async () => {
   const dir = project({
-    ".overwatch.json": JSON.stringify({ argv: ["sh", "-c", "echo started > watching; sleep 30"], baseline: ["sh", "-c", "cat result"], summary: "^(?:pass|fail)$", failed: "fail" }),
+    ".overwatch.json": JSON.stringify({ argv: ["sh", "-c", "echo started > watching; exec sleep 30"], baseline: ["sh", "-c", "cat result"], summary: "^(?:pass|fail)$", failed: "fail" }),
     result: "fail\n",
   })
   const { vscode, item } = fakeVSCode(dir)
@@ -283,4 +283,62 @@ test("VS Code writes each watcher's reports where the Claude Code plugin follows
     overwatch.stop()
   }
   assert.equal(existsSync(`${feed}.pid`), false)
+})
+
+const VERSION = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version
+
+/** A doctor's view of a git project with one watcher, its plugin list answered by `plugins`, its feed followed by Claude when `isFollowed`. */
+async function doctor({ plugins, isFollowed = true, isGit = true, tool = "sh" }) {
+  process.env.HOME = mkdtempSync(join(tmpdir(), "overwatch-home-"))
+  const folder = project(isGit ? { ".git/HEAD": "" } : {})
+  const watcher = { name: "project", language: "project", baseline: [tool, "-c", "cat result"] }
+  const feed = feedOf(watcher, folder)
+  mkdirSync(join(feed, ".."), { recursive: true })
+  writeFileSync(`${feed}.claude`, isFollowed === true ? String(process.pid) : isFollowed || "")
+  const runs = [{ watcher, status: "overwatch project ✓ pass", feed }]
+  const run = async () => plugins === undefined ? { code: -1, stdout: "" } : { code: 0, stdout: JSON.stringify(plugins) }
+  return (await diagnose({ folder, repository: repositoryOf(folder), runs, run })).join("\n")
+}
+
+test("the VS Code doctor finds a git project's watcher, the matching Claude Code plugin, and Claude following it", async () => {
+  const report = await doctor({ plugins: [{ id: "overwatch@overwatch", version: VERSION, enabled: true }] })
+  assert.match(report, /✓ watching the git repository at /)
+  assert.match(report, /✓ project runs with sh: overwatch project ✓ pass/)
+  assert.match(report, new RegExp(`✓ overwatch@overwatch ${VERSION.replaceAll(".", "\\.")} is installed and enabled`))
+  assert.match(report, new RegExp(`✓ Claude Code \\(pid ${process.pid}\\) is following project`))
+  assert.doesNotMatch(report, /[⚠✗]/)
+})
+
+test("the VS Code doctor names each thing that stops Claude sharing VS Code's watchers", async () => {
+  assert.match(await doctor({ plugins: [], isGit: false }), /⚠ .+ is not in a git repository/)
+  assert.match(await doctor({ plugins: [], tool: "no-such-tool-anywhere" }), /✗ project: no-such-tool-anywhere is not on PATH/)
+  assert.match(await doctor({ plugins: [{ id: "overwatch@overwatch", version: "0.0.1", enabled: true }] }), /⚠ overwatch@overwatch 0\.0\.1 differs from this extension's/)
+  assert.match(await doctor({ plugins: [{ id: "overwatch@overwatch", version: VERSION, enabled: false }] }), /✗ overwatch@overwatch .+ is installed but disabled/)
+  assert.match(await doctor({ plugins: [] }), /✗ the overwatch plugin is not installed; in Claude Code run \/plugin install overwatch/)
+  assert.match(await doctor({ plugins: undefined }), /⚠ claude is not on PATH/)
+  assert.match(await doctor({ plugins: [{ id: "overwatch@overwatch", version: VERSION, enabled: true }], isFollowed: false }), /⚠ Claude is not following project; a Claude Code session in .+ follows it from its next turn/)
+  assert.match(await doctor({ plugins: [{ id: "overwatch@overwatch", version: VERSION, enabled: true }], isFollowed: "2147483646" }), /⚠ Claude is not following project/)
+})
+
+test("VS Code's status bar shows when Claude is following a watcher", async () => {
+  const dir = project({
+    ".overwatch.json": JSON.stringify({ baseline: ["sh", "-c", "cat result"], summary: "^(?:pass|fail)$", failed: "fail" }),
+    result: "pass\n",
+  })
+  const { vscode, item } = fakeVSCode(dir)
+  const feed = feedOf({ language: "project" }, dir)
+  mkdirSync(join(feed, ".."), { recursive: true })
+  writeFileSync(`${feed}.claude`, String(process.pid))
+  const overwatch = registerVSCode(vscode, { subscriptions: [] })
+  try {
+    await until(() => item.text === "overwatch project ✓ pass → Claude")
+    writeFileSync(`${feed}.claude`, "")
+    await until(() => item.text === "overwatch project ✓ pass")
+    writeFileSync(`${feed}.claude`, String(process.pid))
+    await until(() => item.text === "overwatch project ✓ pass → Claude")
+  } finally {
+    writeFileSync(`${feed}.pid`, "1")
+    overwatch.stop()
+  }
+  assert.equal(readFileSync(`${feed}.pid`, "utf8"), "1")
 })

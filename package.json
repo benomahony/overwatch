@@ -19,7 +19,8 @@
     "commands": [
       { "command": "overwatch.start", "title": "Overwatch: Start" },
       { "command": "overwatch.stop", "title": "Overwatch: Stop" },
-      { "command": "overwatch.show", "title": "Overwatch: Show Report" }
+      { "command": "overwatch.show", "title": "Overwatch: Show Report" },
+      { "command": "overwatch.doctor", "title": "Overwatch: Doctor" }
     ]
   },
   "files": [

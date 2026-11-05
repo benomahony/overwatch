@@ -55,6 +55,8 @@ type Slot = {
   changed: (() => void) | undefined
   /** Where VS Code's overwatch writes this watcher's reports, while the slot follows them in place of running the watcher. */
   feed: string | undefined
+  /** Whether the slot is being stopped to start again the other way: following a feed that appeared, or running the watcher whose feed went. */
+  isSwitching: boolean
   wasFailing: boolean
   /** The first result that was not an environment error: what the project was like when the session found it. */
   baseline: Report | undefined
@@ -89,6 +91,8 @@ type State = {
   slots: Slot[]
   /** The home directory, read as watchers are found, where VS Code's overwatch keeps its feeds; undefined without one. */
   home: string | undefined
+  /** This Claude Code process's pid, which a followed feed's `.claude` file holds for the extension to check; read when first needed. */
+  pid: string | undefined
 }
 
 /** One watcher running in its slot: what each step of a run needs. */
@@ -299,6 +303,18 @@ async function liveFeed($: EngineInterface, { home }: State, slot: Slot): Promis
   }
 }
 
+/** This Claude Code process's pid: the parent of a shell it starts. */
+async function claudePid($: EngineInterface, state: State, cwd: string): Promise<string> {
+  if (state.pid !== undefined) return state.pid
+  const shell = $.process.spawn({ argv: ['sh', '-c', 'echo $PPID'], cwd })
+  let output = ''
+  try {
+    for await (const { text } of shell) output += text
+  } catch {}
+  state.pid = output.trim()
+  return state.pid
+}
+
 /** Delivers a report VS Code's overwatch read, reading it again as this watcher would have. */
 async function deliverEntry($: EngineInterface, run: Run, entry: FeedEntry) {
   const report = readReport(run.watcher, entry.text, entry.code ?? undefined)
@@ -309,12 +325,13 @@ async function deliverEntry($: EngineInterface, run: Run, entry: FeedEntry) {
  * Follows the reports VS Code's overwatch writes to `feed` for this watcher,
  * in place of running the watcher a second time: its latest report first, as
  * a run of the full suite would be, then each new one. The agent's edits ask
- * the extension to rerun a watcher that has no watch command. A feed found
- * gone starts the watcher as overwatch's own at once, not as a quick exit.
+ * the extension to rerun a watcher that has no watch command. `<feed>.claude`
+ * holds this process's pid while it follows, for the extension to show.
  */
 async function follow($: EngineInterface, run: Run, feed: string): Promise<Ending | undefined> {
   const { state, slot, watcher, cwd } = run
   setStatus($, state, slot, `overwatch ${watcher.name}: following VS Code`)
+  await $.fs.write(`${feed}.claude`, await claudePid($, state, cwd)).catch(() => undefined)
   slot.changed = () => void $.fs.write(`${feed}.changed`, '').catch(() => undefined)
   const latest = await $.fs.read(`${feed}.json`).then(text => JSON.parse(text) as FeedEntry, () => undefined)
   if (latest !== undefined) await deliverEntry($, run, latest)
@@ -337,14 +354,9 @@ async function follow($: EngineInterface, run: Run, feed: string): Promise<Endin
     $.ui.log(`overwatch: ${String(error)}`, { to: 'debug' })
   } finally {
     slot.kill = undefined
+    await $.fs.write(`${feed}.claude`, '').catch(() => undefined)
   }
   if (!slot.isWatching) return undefined
-  if (slot.feed !== feed) {
-    slot.isWatching = false
-    slot.changed = undefined
-    void ensureAll($, state)
-    return undefined
-  }
   return { isStarted: true, startedAt, endedAt: await $.clock.now(), output: '' }
 }
 
@@ -563,13 +575,16 @@ async function ensureAll($: EngineInterface, state: State) {
       found = slot(key, dir)
       state.slots.push(found)
     }
-    if (found.isWatching && found.feed !== undefined) {
+    if (found.isWatching) {
       const feed = await liveFeed($, state, found)
       if (state.epoch !== epoch) return
-      if (feed === undefined) {
-        found.feed = undefined
+      if (feed !== undefined && feed === found.feed && state.pid !== undefined) void $.fs.write(`${feed}.claude`, state.pid).catch(() => undefined)
+      if (feed !== found.feed) {
+        found.isSwitching = found.kill !== undefined
+        found.isWatching = false
+        found.changed = undefined
         await found.kill?.()
-        continue
+        if (found.isSwitching) continue
       }
     }
     if (found.isWatching || now < found.retryAt) continue
@@ -583,9 +598,16 @@ async function start($: EngineInterface, state: State, slot: Slot, watcher: Watc
   const { epoch } = state
   slot.watcher = watcher
   slot.isWatching = true
+  slot.isSwitching = false
   slot.retryAt = 0
   const ending = await watch($, { state, slot, watcher, cwd: slot.dir })
-  if (ending === undefined || state.epoch !== epoch) return
+  if (state.epoch !== epoch) return
+  if (slot.isSwitching) {
+    slot.isSwitching = false
+    void ensureAll($, state)
+    return
+  }
+  if (ending === undefined) return
   await restart($, { state, slot, watcher, ending })
 }
 
@@ -642,6 +664,7 @@ async function stop($: EngineInterface, state: State) {
     each.quickExits = 0
     each.changed = undefined
     each.feed = undefined
+    each.isSwitching = false
     each.wasFailing = false
     each.baseline = undefined
     each.report = undefined
@@ -664,6 +687,7 @@ const slot = (key: string, dir: string): Slot => ({
   kill: undefined,
   changed: undefined,
   feed: undefined,
+  isSwitching: false,
   wasFailing: false,
   baseline: undefined,
   told: undefined,
@@ -715,6 +739,7 @@ const initialState = (): State => ({
   isFindDue: false,
   slots: [],
   home: undefined,
+  pid: undefined,
 })
 
 export const register: Register = on => {

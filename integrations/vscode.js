@@ -1,14 +1,15 @@
 import assert from "node:assert/strict"
-import { spawn } from "node:child_process"
+import { execFile, spawn } from "node:child_process"
 import { accessSync, appendFileSync, constants, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, watch as watchFiles, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
-import { basename, delimiter, join } from "node:path"
+import { basename, delimiter, dirname, join } from "node:path"
 
 export const OVERRIDE_PATH = ".overwatch.json"
 const QUIET_MS = 400
 export const RETRY_MS = 30_000
 const GIVE_UP_AFTER = 3
 const TABLE = JSON.parse(readFileSync(new URL("../watchers.json", import.meta.url), "utf8"))
+const VERSION = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version
 export const WATCHERS = TABLE.watchers
 const SEARCH_SKIP = new Set(TABLE.search.skip)
 const ANSI = /\x1b\[[\d;?]*[A-Za-z]/g
@@ -146,6 +147,81 @@ export function readReport(watcher, output, code) {
   return { summary, isFailed, text: clean.trim(), failures: isFailed ? failures : [] }
 }
 
+/** The real path of the git repository holding dir, the nearest directory with a `.git`, as the Claude Code plugin finds it; undefined outside one. */
+export function repositoryOf(dir) {
+  let at
+  try {
+    at = realpathSync(dir)
+  } catch {
+    return undefined
+  }
+  while (!existsSync(join(at, ".git"))) {
+    if (dirname(at) === at) return undefined
+    at = dirname(at)
+  }
+  return at
+}
+
+/** Runs a command to its end, resolving its exit code and output; -1 when it could not start. */
+function execute(command, args, cwd) {
+  return new Promise(resolve => execFile(command, args, { cwd, timeout: 30_000 }, (error, stdout) => {
+    resolve({ code: error ? (typeof error.code === "number" ? error.code : -1) : 0, stdout })
+  }))
+}
+
+/** The pid of the Claude Code process following feed, from its `.claude` file, while that process runs; undefined otherwise. */
+export function followerOf(feed) {
+  try {
+    const pid = Number(readFileSync(`${feed}.claude`, "utf8").trim())
+    if (!Number.isInteger(pid) || pid <= 0) return undefined
+    process.kill(pid, 0)
+    return pid
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * The doctor's report for the workspace folder: which repository overwatch
+ * watches, each watcher and whether its tool is installed, whether the Claude
+ * Code plugin is installed and matches, and whether Claude follows each
+ * watcher's feed. Each line starts ✓, ⚠ or ✗.
+ */
+export async function diagnose({ folder, repository, runs, run = execute }) {
+  assert(Array.isArray(runs), `diagnose was given runs ${typeof runs}; pass the running watchers`)
+  const lines = ["overwatch doctor", "", "VS Code", `✓ overwatch extension ${VERSION}`]
+  if (folder === undefined) return [...lines, "✗ no workspace folder is open; open a project folder"]
+  const cwd = repository ?? folder
+  if (repository === undefined) lines.push(`⚠ ${folder} is not in a git repository, so Claude Code, which watches only inside one, cannot share these watchers`)
+  else lines.push(`✓ watching the git repository at ${repository}${realpathSync(folder) === repository ? "" : `, which holds ${folder}`}`)
+  lines.push("", "Watchers")
+  if (runs.length === 0) lines.push(`✗ no watcher for this project: no marker from watchers.json, and no command in ${OVERRIDE_PATH}`)
+  for (const each of runs) {
+    const tool = (each.watcher.argv ?? each.watcher.baseline ?? [])[0]
+    const where = each.watcher.dir ? ` in ${each.watcher.dir}` : ""
+    const isInstalled = tool === undefined || isExecutable(tool)
+    lines.push(isInstalled ? `✓ ${each.watcher.name}${where} runs with ${tool}: ${each.status || "starting"}` : `✗ ${each.watcher.name}${where}: ${tool} is not on PATH`)
+  }
+  lines.push("", "Claude Code")
+  const listed = await run("claude", ["plugin", "list", "--json"], cwd)
+  let plugin
+  try {
+    plugin = JSON.parse(listed.stdout).find(each => typeof each.id === "string" && each.id.startsWith("overwatch@"))
+  } catch {}
+  if (listed.code === -1) return [...lines, "⚠ claude is not on PATH, so its plugin cannot be checked"]
+  if (plugin === undefined) return [...lines, "✗ the overwatch plugin is not installed; in Claude Code run /plugin install overwatch --marketplace benomahony/overwatch"]
+  if (!plugin.enabled) lines.push(`✗ ${plugin.id} ${plugin.version} is installed but disabled; run claude plugin enable ${plugin.id}`)
+  else if (plugin.version !== VERSION) lines.push(`⚠ ${plugin.id} ${plugin.version} differs from this extension's ${VERSION}; update the older one so both read the same feeds`)
+  else lines.push(`✓ ${plugin.id} ${plugin.version} is installed and enabled`)
+  for (const each of runs) {
+    const follower = followerOf(each.feed)
+    lines.push(follower === undefined
+      ? `⚠ Claude is not following ${each.watcher.name}; a Claude Code session in ${cwd} follows it from its next turn`
+      : `✓ Claude Code (pid ${follower}) is following ${each.watcher.name}`)
+  }
+  return lines
+}
+
 /** Where the Claude Code plugin finds the reports of a watcher run in dir: the same name for the same language and real path. */
 export function feedOf(watcher, dir) {
   let real = dir
@@ -170,6 +246,9 @@ export function registerVSCode(vscode, context, start = spawn) {
   const item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left)
   item.command = "overwatch.show"
   const channel = vscode.window.createOutputChannel("overwatch")
+  const doctorChannel = vscode.window.createOutputChannel("overwatch doctor")
+  let folder
+  let repository
   let cwd
   let runs = []
   let requests
@@ -179,7 +258,7 @@ export function registerVSCode(vscode, context, start = spawn) {
   const isRunning = run => runs[run.index] === run
 
   const redraw = () => {
-    const text = runs.map(run => run.status).filter(status => status !== "").join(" · ")
+    const text = runs.filter(run => run.status !== "").map(run => `${run.status}${run.isFollowed ? " → Claude" : ""}`).join(" · ")
     item.text = text
     item.tooltip = text
     item.backgroundColor = runs.some(run => run.failingText) ? new vscode.ThemeColor("statusBarItem.errorBackground") : undefined
@@ -354,16 +433,23 @@ export function registerVSCode(vscode, context, start = spawn) {
     requests = undefined
     for (const run of stopping) {
       run.process?.kill("SIGTERM")
-      rmSync(`${run.feed}.pid`, { force: true })
+      try {
+        if (readFileSync(`${run.feed}.pid`, "utf8") === String(process.pid)) rmSync(`${run.feed}.pid`)
+      } catch {}
     }
     redraw()
   }
 
   const startWatching = () => {
     stop()
-    cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
-    if (cwd === undefined) return
-    runs = findWatchers(cwd).map((watcher, index) => ({ index, watcher, status: "", quickExits: 0, feed: feedOf(watcher, watcher.dir ? join(cwd, watcher.dir) : cwd) }))
+    folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
+    if (folder === undefined) return
+    repository = repositoryOf(folder)
+    cwd = repository ?? folder
+    runs = findWatchers(cwd).map((watcher, index) => {
+      const feed = feedOf(watcher, watcher.dir ? join(cwd, watcher.dir) : cwd)
+      return { index, watcher, status: "", quickExits: 0, feed, isFollowed: followerOf(feed) !== undefined }
+    })
     if (runs.length > 0) {
       try {
         const feeds = join(homedir(), ".cache", "overwatch", "feeds")
@@ -373,7 +459,15 @@ export function registerVSCode(vscode, context, start = spawn) {
           writeFileSync(`${run.feed}.jsonl`, "")
           writeFileSync(`${run.feed}.pid`, String(process.pid))
         }
-        requests = watchFiles(feeds, (_event, name) => runs.find(run => name === `${basename(run.feed)}.changed`)?.rerun?.())
+        requests = watchFiles(feeds, (_event, name) => {
+          const run = runs.find(each => name?.startsWith(`${basename(each.feed)}.`))
+          if (run === undefined) return
+          if (name.endsWith(".changed")) run.rerun?.()
+          if (name.endsWith(".claude")) {
+            run.isFollowed = followerOf(run.feed) !== undefined
+            redraw()
+          }
+        })
       } catch {}
     }
     for (const run of runs) begin(run)
@@ -383,18 +477,27 @@ export function registerVSCode(vscode, context, start = spawn) {
     for (const run of runs) run.rerun?.()
   }
 
+  const doctor = async () => {
+    const lines = await diagnose({ folder, repository, runs })
+    doctorChannel.replace(lines.join("\n"))
+    doctorChannel.show(true)
+    return lines
+  }
+
   context.subscriptions.push(
     item,
     channel,
+    doctorChannel,
     { dispose: stop },
     vscode.commands.registerCommand("overwatch.start", startWatching),
     vscode.commands.registerCommand("overwatch.stop", stop),
     vscode.commands.registerCommand("overwatch.show", show),
+    vscode.commands.registerCommand("overwatch.doctor", doctor),
     vscode.workspace.onDidSaveTextDocument(changed),
     vscode.workspace.onDidChangeWorkspaceFolders(startWatching),
   )
   startWatching()
-  return { start: startWatching, stop, changed, status: () => item.text }
+  return { start: startWatching, stop, changed, doctor, status: () => item.text }
 }
 
 /** VS Code's entry point. */
