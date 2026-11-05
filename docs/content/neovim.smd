@@ -1,7 +1,7 @@
 ---
 .title = "Neovim",
 .description = "The same watchers beside the editor, with no agent involved.",
-.date = .date("2026-10-21T00:00:02"),
+.date = .date("2026-10-21T00:00:03"),
 .layout = "page.shtml",
 ---
 

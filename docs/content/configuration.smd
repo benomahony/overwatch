@@ -1,12 +1,12 @@
 ---
 .title = "Configuration",
 .description = "Turning overwatch off, or giving a project its own commands, with .overwatch.json.",
-.date = .date("2026-10-21T00:00:05"),
+.date = .date("2026-10-21T00:00:06"),
 .layout = "page.shtml",
 ---
 
 
-`.overwatch.json` at the project root, every field optional. Claude Code, Codex, OpenCode, Pi, and Neovim all read it; `summary` and `failed` are JavaScript-style regexes, which the Neovim plugin translates.
+`.overwatch.json` at the project root, every field optional. Claude Code, Codex, OpenCode, Pi, Neovim, and VS Code all read it; `summary` and `failed` are JavaScript-style regexes, which the Neovim plugin translates.
 
 ```json
 {

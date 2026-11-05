@@ -1,6 +1,6 @@
 # overwatch
 
-Watchers for agentic engineering. overwatch runs your project's tests beside Claude Code, Codex, OpenCode, Pi, or Neovim and hands failures back immediately, so the agent fixes what it broke before it moves on. The [site](https://benomahony.github.io/overwatch/) has this README as pages.
+Watchers for agentic engineering. overwatch runs your project's tests beside Claude Code, Codex, OpenCode, Pi, Neovim, or VS Code and hands failures back immediately, so the agent fixes what it broke before it moves on. The [site](https://benomahony.github.io/overwatch/) has this README as pages.
 
 With Claude Code:
 
@@ -16,6 +16,8 @@ With OpenCode, overwatch checks the project at session start, before model calls
 With Pi, overwatch runs the full suite at session start, adds failures to editing tool results, keeps the latest failure in Pi's status line, and requests a correction pass whenever guarded failures remain at settlement.
 
 With Neovim, the same long-running watchers put failures in the quickfix list and expose their latest result to status lines, with no agent involved.
+
+With VS Code, the same watchers show their latest result in the status bar and every failing build in the overwatch output channel, again with no agent involved.
 
 Every integration runs the whole suite once to establish the session baseline. Existing failures remain visible in status and a triage inventory; only regressions against that baseline demand a correction.
 
@@ -51,7 +53,7 @@ Add a language by adding an entry to `watchers` in `watchers.json`, the one tabl
 
 ## Per-project override
 
-`.overwatch.json` at the project root, every field optional. Claude Code, Codex, OpenCode, Pi, and Neovim all read it; `summary` and `failed` are JavaScript-style regexes, which the Neovim plugin translates.
+`.overwatch.json` at the project root, every field optional. Claude Code, Codex, OpenCode, Pi, Neovim, and VS Code all read it; `summary` and `failed` are JavaScript-style regexes, which the Neovim plugin translates.
 
 ```json
 {
@@ -181,6 +183,17 @@ vim.pack.add({ "https://github.com/benomahony/overwatch" })
 
 The dedicated Neovim guide covers the quickfix list, status line, and commands.
 
+### VS Code
+
+From a local checkout:
+
+```sh
+npx @vscode/vsce package
+code --install-extension overwatch-*.vsix
+```
+
+The dedicated VS Code guide covers the status bar, output channel, and commands.
+
 ## Neovim
 
 The same test watchers run beside Neovim (zanity does not; its own `zanity lsp` gives Neovim its findings on save): the full suite first, then the watcher, with no agent involved. The latest result of each language's watcher is in `require('overwatch').status()`, every failing build goes into one quickfix list (`:copen`), titled with the watchers whose builds failed and cleared of each one as it goes green. A watcher with no `argv` reruns `baseline` after every save, stopping a run that a newer save has overtaken. A watcher that exits is restarted as it is in Claude Code, at once or after 30 and then 60 seconds; after three quick exits in a row it stays stopped, with what it last printed, until `:OverwatchStart`. It starts with Neovim in a project that has a watcher; `:OverwatchStart` and `:OverwatchStop` start and stop it.
@@ -189,6 +202,14 @@ The same test watchers run beside Neovim (zanity does not; its own `zanity lsp` 
 vim.pack.add({ "https://github.com/benomahony/overwatch" })
 require("lualine").setup({ sections = { lualine_x = { require("overwatch").status } } })
 ```
+
+## VS Code
+
+The same test watchers run beside VS Code as beside Neovim, from the same `watchers.json` and `.overwatch.json`: the full suite first, then the watcher, with no agent involved. zanity does not run here either; its own `zanity lsp` gives the editor its findings. The latest result of each language's watcher is in the status bar, which turns red while any build fails. Every failing build goes into the overwatch output channel, titled with its watcher and cleared of each one as it goes green; clicking the status bar, or Show report on the notification, opens it. A watcher with no `argv` reruns `baseline` after every save, stopping a run that a newer save has overtaken. A watcher that exits is restarted as it is in Neovim, at once or after 30 and then 60 seconds; after three quick exits in a row it stays stopped, with what it last printed, until `Overwatch: Start`. It starts with VS Code in the first workspace folder when that has a watcher; `Overwatch: Start`, `Overwatch: Stop`, `Overwatch: Show Report` and `Overwatch: Doctor` are in the command palette. It needs VS Code 1.100 or later.
+
+With overwatch's Claude Code plugin installed as well, Claude follows VS Code's watchers instead of running its own, so a suite runs once for both. The extension watches the git repository holding the workspace folder, as Claude Code does, and writes each watcher's reports to `~/.cache/overwatch/feeds`. A Claude Code session in that repository reads them there as it would its own watcher's: failures it caused wake or join its turns, and its edits ask the extension to rerun a watcher that has no watch command. The status bar shows `→ Claude` beside each watcher a running Claude Code session follows. Claude checks at each turn: a session started before VS Code switches to VS Code's watchers, and one whose VS Code has closed goes back to running its own. A watcher the extension does not run, such as zanity, Claude still runs itself.
+
+`Overwatch: Doctor` checks all of this: the repository being watched, each watcher and whether its tool is on PATH, whether the Claude Code plugin is installed, enabled and the same version as the extension, and whether Claude is following each watcher, naming the fix for anything that is not.
 
 ## Develop
 
@@ -204,6 +225,7 @@ python3 docs/sync.py --write  # regenerate site pages from README and the verifi
 python3 -m unittest discover -s tests -p 'test_*.py'
 node --test tests/test_integrations.mjs
 node --test tests/test_agents.mjs  # pi, opencode and codex against a scripted model; npm install --no-save @copilotkit/aimock first
+npm install --no-save @vscode/test-electron && xvfb-run -a node tests/vscode/run.mjs
 nvim --headless -l tests/overwatch_spec.lua
 claude plugin validate .
 claude plugin test .

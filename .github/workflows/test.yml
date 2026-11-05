@@ -74,3 +74,13 @@ jobs:
 
       - name: Test the Neovim plugin
         run: nvim --headless -l tests/overwatch_spec.lua
+
+  vscode:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Test the extension in VS Code
+        run: |
+          npm install --no-save @vscode/test-electron
+          xvfb-run -a node tests/vscode/run.mjs

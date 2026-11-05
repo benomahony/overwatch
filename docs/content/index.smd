@@ -1,12 +1,12 @@
 ---
 .title = "overwatch",
 .description = "Test watchers that hand every failing build to the agent the moment it happens.",
-.date = .date("2026-10-21T00:00:07"),
+.date = .date("2026-10-21T00:00:08"),
 .layout = "index.shtml",
 ---
 
 
-Watchers for agentic engineering. overwatch runs your project's tests beside Claude Code, Codex, OpenCode, Pi, or Neovim and hands failures back immediately, so the agent fixes what it broke before it moves on. The [site](https://benomahony.github.io/overwatch/) has this README as pages.
+Watchers for agentic engineering. overwatch runs your project's tests beside Claude Code, Codex, OpenCode, Pi, Neovim, or VS Code and hands failures back immediately, so the agent fixes what it broke before it moves on. The [site](https://benomahony.github.io/overwatch/) has this README as pages.
 
 With Claude Code:
 
@@ -22,6 +22,8 @@ With OpenCode, overwatch checks the project at session start, before model calls
 With Pi, overwatch runs the full suite at session start, adds failures to editing tool results, keeps the latest failure in Pi's status line, and requests a correction pass whenever guarded failures remain at settlement.
 
 With Neovim, the same long-running watchers put failures in the quickfix list and expose their latest result to status lines, with no agent involved.
+
+With VS Code, the same watchers show their latest result in the status bar and every failing build in the overwatch output channel, again with no agent involved.
 
 Every integration runs the whole suite once to establish the session baseline. Existing failures remain visible in status and a triage inventory; only regressions against that baseline demand a correction.
 

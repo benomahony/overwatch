@@ -54,6 +54,10 @@ type Slot = {
   quickExits: number
   kill: (() => Promise<unknown>) | undefined
   changed: (() => void) | undefined
+  /** Where VS Code's overwatch writes this watcher's reports, while the slot follows them in place of running the watcher. */
+  feed: string | undefined
+  /** Whether the slot is being stopped to start again the other way: following a feed that appeared, or running the watcher whose feed went. */
+  isSwitching: boolean
   wasFailing: boolean
   /** The first result that was not an environment error: what the project was like when the session found it. */
   baseline: Report | undefined
@@ -94,6 +98,10 @@ type State = {
   onWatcherEnded: (() => void) | undefined
   /** One for each watcher found so far, in the order found, which is the status line's order. */
   slots: Slot[]
+  /** The home directory, read as watchers are found, where VS Code's overwatch keeps its feeds; undefined without one. */
+  home: string | undefined
+  /** This Claude Code process's pid, which a followed feed's `.claude` file holds for the extension to check; read when first needed. */
+  pid: string | undefined
 }
 
 /** One watcher running in its slot: what each step of a run needs. */
@@ -312,6 +320,105 @@ function rerunOnChange($: EngineInterface, run: Run, argv: readonly string[]) {
 
 /** How a watcher ended of itself, its process exited or never started, when, and what it printed after its last report. */
 type Ending = { isStarted: boolean; startedAt: number; endedAt: number; output: string }
+
+/** One report VS Code's overwatch read: the output it read it from, and the exit code of a run that ended. */
+type FeedEntry = { text: string; code?: number | null }
+
+/** The feed VS Code's overwatch keeps for this slot's watcher, when the extension host that writes it is running. */
+async function liveFeed($: EngineInterface, { home }: State, slot: Slot): Promise<string | undefined> {
+  assert(slot.key !== '' && slot.dir !== '', `slot ${JSON.stringify(slot.key)} in ${JSON.stringify(slot.dir)} has no key or directory to name its feed by`)
+  if (home === undefined || home === '') return undefined
+  const feed = `${home}/.cache/overwatch/feeds/${slot.key.replace(/[^\w.-]+/g, '-')}`
+  const pid = await $.fs.read(`${feed}.pid`).then(text => text.trim(), () => '')
+  if (!/^\d+$/.test(pid)) return undefined
+  try {
+    const check = $.process.spawn({ argv: ['kill', '-0', pid], cwd: slot.dir })
+    for await (const _ of check);
+    const isLive = (await check.result).code === 0
+    assert(feed.startsWith(`${home}/.cache/overwatch/feeds/`), `feed ${feed} for ${slot.key} is outside the feeds directory`)
+    return isLive ? feed : undefined
+  } catch (error) {
+    $.ui.log(`overwatch: could not check VS Code's process ${pid} for ${feed}: ${String(error)}`, { to: 'debug' })
+    return undefined
+  }
+}
+
+/** This Claude Code process's pid: the parent of a shell it starts; empty when no shell would start. */
+async function claudePid($: EngineInterface, state: State, cwd: string): Promise<string> {
+  assert(cwd !== '', `claudePid was given the directory ${JSON.stringify(cwd)}; pass the slot's directory to start the shell in`)
+  if (state.pid !== undefined) return state.pid
+  let output = ''
+  try {
+    const shell = $.process.spawn({ argv: ['sh', '-c', 'echo $PPID'], cwd })
+    for await (const { text } of shell) output += text
+  } catch (error) {
+    $.ui.log(`overwatch: could not read Claude Code's pid from a shell in ${cwd}: ${String(error)}`, { to: 'debug' })
+  }
+  state.pid = output.trim()
+  assert(/^\d*$/.test(state.pid), `the shell printed ${JSON.stringify(state.pid)} for Claude Code's pid, not a number`)
+  return state.pid
+}
+
+/** Delivers a report VS Code's overwatch read, reading it again as this watcher would have. */
+async function deliverEntry($: EngineInterface, run: Run, entry: FeedEntry) {
+  const { slot, watcher } = run
+  assert(typeof entry.text === 'string', `a feed entry for ${slot.key} holds ${JSON.stringify(entry)}, with no text to read`)
+  const report = readReport(watcher, entry.text, entry.code ?? undefined)
+  if (report === undefined) return
+  await deliver($, run, report)
+  const kept = slot.report
+  assert(kept === report, `${slot.key} kept ${kept?.summary} after delivering ${report.summary}`)
+}
+
+/**
+ * Follows the reports VS Code's overwatch writes to `feed` for this watcher,
+ * in place of running the watcher a second time: its latest report first, as
+ * a run of the full suite would be, then each new one. The agent's edits ask
+ * the extension to rerun a watcher that has no watch command. `<feed>.claude`
+ * holds this process's pid while it follows, for the extension to show.
+ */
+async function follow($: EngineInterface, run: Run, feed: string): Promise<Ending | undefined> {
+  const { state, slot, watcher, cwd } = run
+  assert(slot.feed === feed, `${slot.key} is asked to follow ${feed} while its feed is ${slot.feed}; set slot.feed first`)
+  setStatus($, state, slot, `overwatch ${watcher.name}: following VS Code`)
+  await $.fs.write(`${feed}.claude`, await claudePid($, state, cwd)).catch(() => undefined)
+  slot.changed = () => void $.fs.write(`${feed}.changed`, '').catch(() => undefined)
+  const latest = await $.fs.read(`${feed}.json`).then(text => JSON.parse(text) as FeedEntry, () => undefined)
+  if (latest !== undefined) await deliverEntry($, run, latest)
+  const startedAt = await $.clock.now()
+  if (!slot.isWatching) return undefined
+  const child = $.process.spawn({ argv: ['tail', '-n', '0', '-F', `${feed}.jsonl`], cwd })
+  slot.kill = () => child.return({ code: null, signal: null })
+  let pending = ''
+  try {
+    for await (const { stream, text } of child) {
+      if (stream !== 'stdout') continue
+      const lines = (pending + text).split('\n')
+      pending = lines.pop() ?? ''
+      for (const line of lines) {
+        if (line.trim() === '' || !slot.isWatching) continue
+        await deliverEntry($, run, JSON.parse(line) as FeedEntry)
+      }
+    }
+  } catch (error) {
+    $.ui.log(`overwatch: ${String(error)}`, { to: 'debug' })
+  } finally {
+    slot.kill = undefined
+    await $.fs.write(`${feed}.claude`, '').catch(() => undefined)
+  }
+  assert(slot.kill === undefined, `${slot.key} stopped following ${feed} but is still killable`)
+  if (!slot.isWatching) return undefined
+  return { isStarted: true, startedAt, endedAt: await $.clock.now(), output: '' }
+}
+
+/** Follows VS Code's feed for the watcher while the extension runs it, else runs it here; resolves how it ended. */
+async function attend($: EngineInterface, run: Run): Promise<Ending | undefined> {
+  const { state, slot, watcher } = run
+  assert(slot.isWatching, `${slot.key} is asked to watch ${watcher.name} while not watching; set isWatching first`)
+  slot.feed = await liveFeed($, state, slot)
+  assert(slot.feed === undefined || slot.feed.endsWith(slot.key.replace(/[^\w.-]+/g, '-')), `${slot.key} follows feed ${slot.feed}, named for another slot`)
+  return slot.feed === undefined ? watch($, run) : follow($, run, slot.feed)
+}
 
 /** Watches until the watcher ends of itself, resolving how; a watcher with no command never ends. */
 async function watch($: EngineInterface, run: Run): Promise<Ending | undefined> {
@@ -570,12 +677,45 @@ async function ensureAll($: EngineInterface, state: State) {
     return
   }
   // A search asked for during one runs once after it; asks come from hooks and exits, so each round answers all so far.
+  // A round lasts until its slots are started, since following a feed waits on the extension between them.
+  try {
+    await findRounds($, state, cwd, epoch)
+  } finally {
+    state.isFinding = false
+  }
+  assert(!state.isFinding, `a search of ${cwd} is still marked running after its rounds ended`)
+  // A new session that asked for a search while the last one's round finished gets it now.
+  if (state.epoch !== epoch && state.isFindDue) state.onWatcherEnded?.()
+  assert(state.epoch !== epoch || !state.isFindDue, `a search of ${cwd} was asked for during the last round and not run`)
+}
+
+/**
+ * Whether a running slot is left as it is this round: it follows the feed it should, or the search's session has
+ * ended. One whose feed appeared or went is stopped to start again the other way, now if nothing ran in it.
+ */
+async function isSettled($: EngineInterface, state: State, found: Slot, epoch: number): Promise<boolean> {
+  assert(found.isWatching, `${found.key} is not watching; only a running slot can be settled or switched`)
+  const feed = await liveFeed($, state, found)
+  if (state.epoch !== epoch) return true
+  if (feed !== undefined && feed === found.feed && state.pid !== undefined) void $.fs.write(`${feed}.claude`, state.pid).catch(() => undefined)
+  if (feed === found.feed) return true
+  found.isSwitching = found.kill !== undefined
+  found.isWatching = false
+  found.changed = undefined
+  await found.kill?.()
+  assert(!found.isWatching, `${found.key} still watches after switching from feed ${found.feed} to ${feed}`)
+  return found.isSwitching
+}
+
+/** Searches until no further search was asked for, starting each watcher found that is not running or waiting out a retry. */
+async function findRounds($: EngineInterface, state: State, cwd: string, epoch: number) {
+  assert(state.cwd === cwd && state.epoch === epoch, `a search of ${cwd} at epoch ${epoch} began in session ${state.cwd} at epoch ${state.epoch}`)
   do {
     state.isFinding = true
     state.isFindDue = false
     state.finding = findIn($, cwd)
+    state.home ??= await $.env.get('HOME').catch(() => undefined)
     const watchers = await state.finding.finally(() => {
-      state.isFinding = false
       state.finding = undefined
     })
     if (state.epoch !== epoch) return
@@ -587,13 +727,15 @@ async function ensureAll($: EngineInterface, state: State) {
         found = slot(key, dir)
         state.slots.push(found)
       }
+      if (found.isWatching && (await isSettled($, state, found, epoch))) continue
+      if (state.epoch !== epoch) return
       if (found.isWatching || now < found.retryAt) continue
       found.isWatching = true
       void start($, state, found, watcher)
     }
     assert(watchers.every(({ watcher, dir }) => state.slots.some(each => each.key === `${languageOf(watcher)}:${dir}`)), `a watcher of ${cwd} has no slot`)
   } while (state.isFindDue && state.epoch === epoch)
-  assert(!state.isFinding, `a search of ${cwd} is still marked running after it ended`)
+  assert(state.finding === undefined, `a search of ${cwd} is still in flight after its last round`)
 }
 
 async function start($: EngineInterface, state: State, slot: Slot, watcher: Watcher) {
@@ -601,10 +743,17 @@ async function start($: EngineInterface, state: State, slot: Slot, watcher: Watc
   assert(state.slots.includes(slot), `slot ${slot.key} is not one of the session's; push it to state.slots first`)
   slot.watcher = watcher
   slot.isWatching = true
+  slot.isSwitching = false
   slot.retryAt = 0
-  const ending = await watch($, { state, slot, watcher, cwd: slot.dir })
+  const ending = await attend($, { state, slot, watcher, cwd: slot.dir })
   assert(ending === undefined || ending.endedAt >= ending.startedAt, `${watcher.name} ended at ${ending?.endedAt}, before it started at ${ending?.startedAt}`)
-  if (ending === undefined || state.epoch !== epoch) return
+  if (state.epoch !== epoch) return
+  if (slot.isSwitching) {
+    slot.isSwitching = false
+    state.onWatcherEnded?.()
+    return
+  }
+  if (ending === undefined) return
   await restart($, { state, slot, watcher, ending })
 }
 
@@ -668,6 +817,8 @@ async function stop($: EngineInterface, state: State) {
     each.retryAt = 0
     each.quickExits = 0
     each.changed = undefined
+    each.feed = undefined
+    each.isSwitching = false
     each.wasFailing = false
     each.baseline = undefined
     each.isEdited = false
@@ -695,6 +846,8 @@ const slot = (key: string, dir: string): Slot => {
     quickExits: 0,
     kill: undefined,
     changed: undefined,
+    feed: undefined,
+    isSwitching: false,
     wasFailing: false,
     baseline: undefined,
     isEdited: false,
@@ -829,6 +982,8 @@ const initialState = (): State => {
     isFindDue: false,
     onWatcherEnded: undefined,
     slots: [],
+    home: undefined,
+    pid: undefined,
   }
   assert(state.slots.length === 0 && state.outbox.size === 0, `a new session starts with ${state.slots.length} slots and ${state.outbox.size} messages`)
   assert(!state.isTurnRunning && !state.isFinding, 'a new session starts with a turn or search running')
