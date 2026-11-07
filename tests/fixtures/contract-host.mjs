@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { setTimeout as delay } from 'node:timers/promises'
-import { serialChecker } from '../../integrations/check.js'
+import { serialChecker } from '../../engine/check.js'
 import { piHost, v1Host, v2Host, buildOutput } from './integration-model-host.mjs'
 
 const NAMES = { primary: 'zig', secondary: 'zanity' }

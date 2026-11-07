@@ -99,9 +99,9 @@ A legacy project can start with thousands of errors. Overwatch records the first
 Inspect a small batch from the inventory path in the notice:
 
 ```sh
-python3 hooks/triage.py /path/from/notice.baseline.json --limit 20
-python3 hooks/triage.py /path/from/notice.baseline.json --check go --match TestAdd --limit 10
-python3 hooks/triage.py /path/from/notice.baseline.json --offset 20 --limit 20 --json
+python3 engine/triage.py /path/from/notice.baseline.json --limit 20
+python3 engine/triage.py /path/from/notice.baseline.json --check go --match TestAdd --limit 10
+python3 engine/triage.py /path/from/notice.baseline.json --offset 20 --limit 20 --json
 ```
 
 Run the script from your Overwatch checkout or use its installed absolute path. `--check` matches the check, command, or subproject; `--match` searches issue names, both without case sensitivity. The view groups by check and pages the initial snapshot, with links to full logs. It does not rerun checks or silently accept new regressions. When a runner does not name individual issues, the inventory contains its summary and full log instead. An increase in its reported error, warning, or failure counts is treated as a regression; a replacement issue with the same count cannot be distinguished without issue names.

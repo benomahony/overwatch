@@ -206,7 +206,7 @@ async function baselineInventory($: EngineInterface, run: Run, report: Report) {
   const detail = report.failures.length > 0 ? report.failures.length + ' named issues' : 'individual issue names unavailable; see full log'
   const text = 'overwatch: inherited backlog (' + detail + '). ' +
     'Inherited findings follow the configured failure policy. Triage inventory: ' + path +
-    '. Filter or page it with hooks/triage.py; full output is linked there.'
+    '. Filter or page it with engine/triage.py; full output is linked there.'
   assert(path === `${log}.json`, `inventory ${path} is not beside its log ${log}`)
   assert(text.includes(path), `the backlog notice for ${live.key} does not name its inventory ${path}`)
   state.outbox.set(live.key + ':baseline', { text, isWaking: false, kind: 'baseline' })

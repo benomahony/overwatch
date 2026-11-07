@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readdirSync, readFileSyn
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
-import { serialChecker } from '../../integrations/check.js'
+import { serialChecker } from '../../engine/check.js'
 import { createV1Hooks, setupV2 } from '../../integrations/opencode.js'
 import { registerPi } from '../../integrations/pi.js'
 

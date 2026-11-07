@@ -1,6 +1,6 @@
 /**
- * Overwatch's shared checker for the agent integrations in this directory. Each event runs the engine,
- * hooks/engine.py, once and reads its JSON answer, so every integration reports exactly what the engine does.
+ * Overwatch's shared checker for the in-process agent integrations. Each event runs the engine,
+ * engine/engine.py, once and reads its JSON answer, so every integration reports exactly what the engine does.
  *
  * Copyright (c) 2026 benomahony. SPDX-License-Identifier: MIT
  */
@@ -8,7 +8,7 @@ import assert from "node:assert/strict"
 import { spawn } from "node:child_process"
 import { fileURLToPath } from "node:url"
 
-const HOOK = fileURLToPath(new URL("../hooks/engine.py", import.meta.url))
+const HOOK = fileURLToPath(new URL("./engine.py", import.meta.url))
 const TIMEOUT_MS = 550_000
 
 /**
@@ -36,13 +36,13 @@ function checkedPayload(payload) {
 
 /**
  * Runs overwatch's checker on one harness event and resolves to its JSON output. Private to this module, which
- * calls it only through serialChecker. It always runs hooks/engine.py with the python3 on PATH, in the event's
+ * calls it only through serialChecker. It always runs engine/engine.py with the python3 on PATH, in the event's
  * project directory, with the environment of the agent the user started: nothing a caller passes chooses what runs.
  */
 function runCheck(payload, timeout = TIMEOUT_MS) {
   const event = checkedPayload(payload)
   assert(Number.isFinite(timeout) && timeout > 0, `timeout ${timeout}ms must be a positive number; pass it in milliseconds`)
-  assert(HOOK.endsWith("engine.py"), `the checker is ${HOOK}, not hooks/engine.py; resolve it beside this file`)
+  assert(HOOK.endsWith("engine.py"), `the checker is ${HOOK}, not engine/engine.py; resolve it beside this file`)
 
   return new Promise((resolve, reject) => {
     const child = spawn("python3", [HOOK], {
@@ -77,14 +77,14 @@ function runCheck(payload, timeout = TIMEOUT_MS) {
     child.stdin.on("error", error => finish(error))
     child.on("close", code => {
       if (code !== 0) {
-        finish(new Error(`overwatch checker exited with code ${code}: ${stderr.join("").trim()}; run hooks/engine.py with this event to see why`))
+        finish(new Error(`overwatch checker exited with code ${code}: ${stderr.join("").trim()}; run engine/engine.py with this event to see why`))
         return
       }
       try {
         const text = stdout.join("").trim()
         finish(undefined, text ? JSON.parse(text) : {})
       } catch (error) {
-        finish(new Error(`overwatch checker returned invalid JSON: ${String(error)}; run hooks/engine.py with this event to see its output`))
+        finish(new Error(`overwatch checker returned invalid JSON: ${String(error)}; run engine/engine.py with this event to see its output`))
       }
     })
     child.stdin.end(JSON.stringify(event))

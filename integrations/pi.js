@@ -7,7 +7,7 @@
  * Copyright (c) 2026 benomahony. SPDX-License-Identifier: MIT
  */
 import assert from "node:assert/strict"
-import { contextOf, deniedAction, serialChecker } from "./check.js"
+import { contextOf, deniedAction, serialChecker } from "../engine/check.js"
 
 const EDITING_TOOLS = new Set(["bash", "edit", "powershell", "write"])
 

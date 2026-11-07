@@ -1017,7 +1017,7 @@ def baseline_inventory(old: State, current: State, session: Session) -> str:
               else "It is not a Stop blocker; only new failures are guarded. ")
     return (f"overwatch: inherited backlog in {len(added)} checks ({detail}). "
             f"{policy}"
-            f"Triage inventory: `{inventory}`. Filter or page it with hooks/triage.py; full logs are linked there."
+            f"Triage inventory: `{inventory}`. Filter or page it with engine/triage.py; full logs are linked there."
             f"{' The earlier inventory could not be read, so it now lists only these checks.' if listed is None else ''}")
 
 

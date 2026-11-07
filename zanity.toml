@@ -16,18 +16,19 @@ watcher = ["slot"]
 report = ["outcome"]
 outside = ["external"]
 
-# What every host shares: the table, reading reports, the gate, and the formal model.
-[contexts.domain]
-include = ["watchers.json", "hooks/watchers.ts", "hooks/table.ts", "hooks/gating.ts", "hooks/gating.py", "hooks/records.py", "hooks/assert.ts", "spec/**"]
+# The shared engine that the agent hosts without a hook engine of their own drive: the Python engine, its daemon,
+# and the JavaScript that runs it for in-process plugins. engine/gating.py and engine/records.py are domain, below.
+[contexts.engine]
+include = ["engine/**"]
 # No host is named outside integrations.
 forbidden = ["claude", "codex", "opencode", "pi", "neovim", "nvim"]
 
-# The shared engine that the agent hosts without a hook engine of their own drive.
-[contexts.engine]
-include = ["hooks/engine.py", "hooks/daemon.py", "hooks/triage.py", "hooks/unix.py", "integrations/check.js", "integrations/delivery.js"]
+# What every host shares: the table, reading reports, the gate, and the formal model.
+[contexts.domain]
+include = ["watchers.json", "hooks/watchers.ts", "hooks/table.ts", "hooks/gating.ts", "engine/gating.py", "engine/records.py", "hooks/assert.ts", "spec/**"]
 # No host is named outside integrations.
 forbidden = ["claude", "codex", "opencode", "pi", "neovim", "nvim"]
 
 # Every host's adapter, in one context, so they all use the same words.
 [contexts.integrations]
-include = ["hooks/register.ts", "integrations/codex.py", "integrations/codex-hooks.json", "integrations/opencode.js", "integrations/pi.js", "lua/**", "plugin/**"]
+include = ["integrations/**", "hooks/register.ts", "lua/**", "plugin/**"]

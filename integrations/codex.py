@@ -11,10 +11,10 @@ import importlib
 import sys
 from pathlib import Path
 
-ENGINE = Path(__file__).resolve().parent.parent / "hooks"
+ENGINE = Path(__file__).resolve().parent.parent / "engine"
 
 if __name__ == "__main__":
-    assert (ENGINE / "engine.py").is_file(), f"no engine at {ENGINE}; install the plugin with its hooks directory"
+    assert (ENGINE / "engine.py").is_file(), f"no engine at {ENGINE}; install the plugin with its engine directory"
     # The engine imports its sibling modules by name, so its directory goes on the path before it loads.
     sys.path.insert(0, str(ENGINE))
     importlib.import_module("engine").main()

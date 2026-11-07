@@ -8,8 +8,8 @@
  * Copyright (c) 2026 benomahony. SPDX-License-Identifier: MIT
  */
 import assert from "node:assert/strict"
-import { contextOf, deniedAction, serialChecker } from "./check.js"
-import { SessionDelivery } from "./delivery.js"
+import { contextOf, deniedAction, serialChecker } from "../engine/check.js"
+import { SessionDelivery } from "../engine/delivery.js"
 
 const EDITING_TOOLS = new Set(["apply_patch", "bash", "edit", "shell", "write"])
 

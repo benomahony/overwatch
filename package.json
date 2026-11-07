@@ -5,11 +5,7 @@
   "type": "module",
   "exports": "./integrations/opencode.js",
   "files": [
-    "hooks/engine.py",
-    "hooks/gating.py",
-    "hooks/records.py",
-    "hooks/triage.py",
-    "hooks/unix.py",
+    "engine",
     "integrations",
     "watchers.json"
   ],
