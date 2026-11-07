@@ -54,6 +54,18 @@ def read_available(selector: selectors.BaseSelector) -> bytes:
     return chunk
 
 
+def try_exclusive(descriptor: int) -> bool:
+    """Takes an exclusive flock on the open descriptor without waiting, and whether it got it. The lock lasts until the
+    descriptor closes, which the process's exit does too, so a process that holds it for life never releases it."""
+    assert descriptor >= 0, f"lock descriptor {descriptor} is not an open one; pass what os.open returned"
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return False
+    assert os.fstat(descriptor) is not None, f"lock descriptor {descriptor} closed while it was locked"
+    return True
+
+
 def is_private(path: Path) -> bool:
     """Whether the existing file or directory at path is the current user's alone to change: owned by them, and not
     writable by its group or anyone else."""

@@ -24,7 +24,7 @@ forbidden = ["claude", "codex", "opencode", "pi", "neovim", "nvim"]
 
 # The shared engine that the agent hosts without a hook engine of their own drive.
 [contexts.engine]
-include = ["hooks/engine.py", "hooks/triage.py", "hooks/unix.py", "integrations/check.js", "integrations/delivery.js"]
+include = ["hooks/engine.py", "hooks/daemon.py", "hooks/triage.py", "hooks/unix.py", "integrations/check.js", "integrations/delivery.js"]
 # No host is named outside integrations.
 forbidden = ["claude", "codex", "opencode", "pi", "neovim", "nvim"]
 
