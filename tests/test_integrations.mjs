@@ -1,5 +1,5 @@
 /**
- * Tests of overwatch's OpenCode and pi integrations, each given a fake checker in place of hooks/codex.py.
+ * Tests of overwatch's OpenCode and pi integrations, each given a fake checker in place of hooks/engine.py.
  *
  * Copyright (c) 2026 benomahony. SPDX-License-Identifier: MIT
  */

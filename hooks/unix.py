@@ -1,4 +1,4 @@
-"""The POSIX calls overwatch's Codex hook makes, kept here so the rest of the hook is platform-neutral: an exclusive
+"""The POSIX calls overwatch's engine makes, kept here so the rest of the hook is platform-neutral: an exclusive
 file lock, waiting on a pipe for a command's output, and whether the current user owns a file.
 
 Copyright (c) 2026 benomahony. SPDX-License-Identifier: MIT

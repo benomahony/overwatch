@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Writes hooks/table.ts from watchers.json, since a Claude Code plugin module cannot import JSON.
 
-Run it after editing watchers.json; tests/test_codex.py fails while the two differ.
+Run it after editing watchers.json; tests/test_engine.py fails while the two differ.
 """
 
 from __future__ import annotations

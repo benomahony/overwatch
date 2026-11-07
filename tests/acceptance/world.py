@@ -69,7 +69,7 @@ class AcceptanceWorld(unittest.TestCase):
         payload = {"session_id": "acceptance", "cwd": str(self.project),
                    "hook_event_name": event, **fields}
         result = subprocess.run(
-            [sys.executable, str(ROOT / "hooks" / "codex.py")],
+            [sys.executable, str(ROOT / "integrations" / "codex.py")],
             input=json.dumps(payload), text=True, capture_output=True, check=True,
             env={**os.environ, "PATH": f"{self.bin}:/usr/bin:/bin", "PLUGIN_DATA": str(self.data)},
             timeout=5,

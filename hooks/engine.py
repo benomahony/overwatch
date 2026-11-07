@@ -37,7 +37,7 @@ from unix import exclusive, is_private, on_path, output_selector, read_available
 
 
 OVERRIDE_PATH = ".overwatch.json"
-# Tools that can change the workspace, by the names Codex, OpenCode and Pi give them. A change first seen at any other
+# Tools that can change the workspace, by the names each host gives them. A change first seen at any other
 # event came from another process, since each of these is followed by its own PostToolUse.
 EDITING_TOOLS = frozenset({"apply_patch", "Bash", "bash", "Edit", "edit", "MultiEdit", "powershell", "shell", "Write", "write"})
 COMMAND_TIMEOUT = 540
@@ -100,13 +100,13 @@ def read_event() -> Event:
     try:
         value = json.load(sys.stdin)
     except (json.JSONDecodeError, OSError) as error:
-        raise ConfigurationError(f"could not read the Codex hook event: {error}; send one JSON object on stdin") from error
+        raise ConfigurationError(f"could not read the hook event: {error}; send one JSON object on stdin") from error
     if not isinstance(value, dict):
-        raise ConfigurationError(f"the Codex hook event was a JSON {type(value).__name__}; send one JSON object on stdin")
+        raise ConfigurationError(f"the hook event was a JSON {type(value).__name__}; send one JSON object on stdin")
     fields = {name: value.get(name) or "" for name in EVENT_FIELDS}
     wrong = sorted(name for name, given in fields.items() if not isinstance(given, str))
     if wrong:
-        raise ConfigurationError(f"the Codex hook event's fields {wrong} must be strings; send each as a JSON string")
+        raise ConfigurationError(f"the hook event's fields {wrong} must be strings; send each as a JSON string")
     event = Event(**fields, tool_input=value.get("tool_input"))
     read = (event.hook_event_name, event.session_id, event.cwd, event.tool_name, event.integration)
     assert read == tuple(fields[name] for name in EVENT_FIELDS), f"event {event} lost one of the fields {fields}"
@@ -1111,7 +1111,7 @@ def report_output(event: Event, old: State, current: State, session: Session) ->
 
 
 def integration_report(current: State) -> dict[str, Any]:
-    """Internal plugin transport metadata; native Codex hook responses retain their existing schema and deduplication."""
+    """Internal plugin transport metadata; native hook responses retain their existing schema and deduplication."""
     reports = current.reports
     status = ' · '.join(f"{report.name} {'✗' if report.failed else '✓'} {SUMMARY_DECORATION.sub('', report.summary)}{failing_suffix(report.failures)}"
                         for report in reports)

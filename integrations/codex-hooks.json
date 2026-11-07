@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$PLUGIN_ROOT/hooks/codex.py\"",
+            "command": "python3 \"$PLUGIN_ROOT/integrations/codex.py\"",
             "timeout": 600,
             "statusMessage": "Overwatch: running the full test suite"
           }
@@ -19,7 +19,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$PLUGIN_ROOT/hooks/codex.py\"",
+            "command": "python3 \"$PLUGIN_ROOT/integrations/codex.py\"",
             "timeout": 600,
             "statusMessage": "Overwatch: checking protected-action policy"
           }
@@ -32,7 +32,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$PLUGIN_ROOT/hooks/codex.py\"",
+            "command": "python3 \"$PLUGIN_ROOT/integrations/codex.py\"",
             "timeout": 600,
             "statusMessage": "Overwatch: checking the latest changes"
           }
@@ -44,7 +44,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$PLUGIN_ROOT/hooks/codex.py\"",
+            "command": "python3 \"$PLUGIN_ROOT/integrations/codex.py\"",
             "timeout": 600,
             "statusMessage": "Overwatch: checking for external changes"
           }
@@ -56,7 +56,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$PLUGIN_ROOT/hooks/codex.py\"",
+            "command": "python3 \"$PLUGIN_ROOT/integrations/codex.py\"",
             "timeout": 600,
             "statusMessage": "Overwatch: confirming the project is green"
           }

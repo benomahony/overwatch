@@ -7,10 +7,10 @@ import unittest
 from unittest.mock import patch
 
 from paths import ROOT
-import codex
+import engine
 
 TRACES = json.loads((ROOT / 'tests/fixtures/model-traces.json').read_text())
-ZIG = codex.TABLE['watchers'][0]
+ZIG = engine.TABLE['watchers'][0]
 
 
 def build_output(failures: list[str]) -> str:
@@ -33,7 +33,7 @@ class CommandReplay:
         (self.project / '.git/HEAD').write_text('a' * 40 + '\n')
         (self.project / 'build.zig').write_text('version 0')
         (self.project / '.overwatch.json').write_text(json.dumps({'baseline': ['sh', '-c', 'cat result; if [ -f overlap ]; then echo changed > build.zig; rm overlap; fi'], 'gate': {'protected_actions': [{'tool': 'Publish'}]}}))
-        self.data = codex.data_root(str(directory / 'data'))
+        self.data = engine.data_root(str(directory / 'data'))
         self.trace = trace
         self.version = 0
         self.first = True
@@ -43,9 +43,9 @@ class CommandReplay:
         assert self.data != self.project, f'Hook state {self.data} must stay outside the project fingerprint'
 
     def event(self, name: str, tool: str = '') -> dict:
-        event = codex.Event(name, 'model', str(self.project), tool, {})
+        event = engine.Event(name, 'model', str(self.project), tool, {})
         with patch.dict('os.environ', {'PATH': '/usr/bin:/bin'}):
-            return codex.process_event(event, self.data)
+            return engine.process_event(event, self.data)
 
     def step(self, action: str) -> dict | None:
         if action in ('Edit', 'Move', 'Outside'):
@@ -97,8 +97,8 @@ class ModelPathsTests(unittest.TestCase):
                         self.assertEqual(output.get('decision') == 'block', expected['guarded'], (trace['name'], index))
                     published = replay.event('PreToolUse', 'Publish')
                     self.assertEqual(published.get('hookSpecificOutput', {}).get('permissionDecision') == 'deny', expected['guarded'], (trace['name'], index))
-                    with codex.locked(codex.state_path(codex.Event('', 'model', '', '', {}), replay.project, replay.data), replay.data) as session:
-                        state = codex.load_state(session)
+                    with engine.locked(engine.state_path(engine.Event('', 'model', '', '', {}), replay.project, replay.data), replay.data) as session:
+                        state = engine.load_state(session)
                     self.assertEqual(list(state.reports[0].failures), expected['failures'], (trace['name'], index))
 
     def test_command_reader_uses_latest_complete_build(self) -> None:
@@ -126,7 +126,7 @@ def reader_steps(trace: dict):
             partial = '' if action == 'Build' else action
         if action in ('Read', 'Poll'):
             lines = pending[:pending.rfind('\n') + 1]
-            report = codex.read_report(ZIG, lines)
+            report = engine.read_report(ZIG, lines)
             yield index, report, action == 'Poll'
             if report is not None:
-                pending = codex.last_build(ZIG, lines)[1] + pending[len(lines):]
+                pending = engine.last_build(ZIG, lines)[1] + pending[len(lines):]

@@ -1,4 +1,4 @@
-"""The records overwatch's Codex hook keeps between events, and how they are read back from the JSON it saves:
+"""The records overwatch's engine keeps between events, and how they are read back from the JSON it saves:
 a hook event, a check's report and first result, a session's files and its state. A saved file of another shape
 raises StateError, and the session starts afresh.
 

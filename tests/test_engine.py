@@ -18,13 +18,14 @@ import time
 import unittest
 
 from paths import ROOT
-import codex
+import engine
 import table
 import triage
 
 
-HOOK = ROOT / "hooks" / "codex.py"
-HOOKS_CONFIG = ROOT / "hooks" / "codex-hooks.json"
+# Codex runs the engine through its adapter, as the plugin installs it.
+HOOK = ROOT / "integrations" / "codex.py"
+HOOKS_CONFIG = ROOT / "integrations" / "codex-hooks.json"
 CODEX_MANIFEST = ROOT / ".codex-plugin" / "plugin.json"
 CLAUDE_MANIFEST = ROOT / ".claude-plugin" / "plugin.json"
 PACKAGE_MANIFEST = ROOT / "package.json"
@@ -59,9 +60,9 @@ def read(path: Path) -> str:
     return text
 
 
-def fixture_report(failed: bool = False, failures: tuple[str, ...] = (), summary: str = "passed", text: str = "") -> codex.Report:
+def fixture_report(failed: bool = False, failures: tuple[str, ...] = (), summary: str = "passed", text: str = "") -> engine.Report:
     """A report of the fixture check, as read_report would give it, with the given result."""
-    report = codex.Report("fixture", "project", "fixture", None, summary, failed, failures if failed else (), None, text)
+    report = engine.Report("fixture", "project", "fixture", None, summary, failed, failures if failed else (), None, text)
     assert report.failed or not report.failures, f"fixture report passed with failures {failures}; give failures only to a failure"
     assert report.summary == summary, f"fixture report summary {report.summary} is not {summary}"
     return report
@@ -105,9 +106,9 @@ def mkdir(path: Path) -> None:
 class CodexHookTests(unittest.TestCase):
     def test_inspection_does_not_wait_for_running_checks(self) -> None:
         """A baseline holding the session lock must not prevent inspection tools."""
-        root = codex.data_root(str(self.data))
-        event = codex.Event("PreToolUse", "session-1", str(self.cwd), "Bash", {"command": "git status"})
-        with codex.locked(codex.state_path(event, self.cwd, root), root):
+        root = engine.data_root(str(self.data))
+        event = engine.Event("PreToolUse", "session-1", str(self.cwd), "Bash", {"command": "git status"})
+        with engine.locked(engine.state_path(event, self.cwd, root), root):
             output, _ = self.call("PreToolUse", tool_name="Bash", tool_input={"command": "git status"})
         self.assertEqual(output, {})
 
@@ -168,7 +169,7 @@ class CodexHookTests(unittest.TestCase):
             "argv" if watch else "baseline": command,
         }
         write(self.cwd / ".overwatch.json", json.dumps(config))
-        watchers = codex.find_watchers(self.cwd)
+        watchers = engine.find_watchers(self.cwd)
         assert [watcher["name"] for watcher in watchers][:1] == ["fixture"], f"{self.cwd} runs {[watcher['name'] for watcher in watchers]}, not the fixture check first; check .overwatch.json"
         assert not count.exists(), f"{count} exists before the fixture check ran; nothing but check.py should write it"
         return result, count
@@ -274,29 +275,29 @@ class CodexHookTests(unittest.TestCase):
 
     def test_another_new_issue_gets_its_own_stop_guard(self) -> None:
         first = fixture_report(failed=True, failures=("legacy",), summary="1 failed")
-        baseline = codex.report_state([first], codex.State())
-        stop = codex.Event("Stop", "session-1", str(self.cwd), "", None)
+        baseline = engine.report_state([first], engine.State())
+        stop = engine.Event("Stop", "session-1", str(self.cwd), "", None)
         report = replace(first, failures=("legacy", "new-a"), summary="2 failed")
-        current = codex.report_state([report], baseline)
-        self.assertTrue(codex.block_stop(stop, current))
+        current = engine.report_state([report], baseline)
+        self.assertTrue(engine.block_stop(stop, current))
         report = replace(report, failures=("new-b", "new-a", "legacy"), summary="3 failed")
-        following = codex.report_state([report], current)
-        self.assertTrue(codex.block_stop(stop, following))
+        following = engine.report_state([report], current)
+        self.assertTrue(engine.block_stop(stop, following))
         report = replace(report, failures=("new-a",), summary="1 failed")
-        remaining = codex.report_state([report], following)
-        self.assertTrue(codex.block_stop(stop, remaining))
+        remaining = engine.report_state([report], following)
+        self.assertTrue(engine.block_stop(stop, remaining))
 
     def test_a_summary_with_two_failure_counts_compares_each_with_its_own(self) -> None:
         first = fixture_report(failed=True, summary="Build Summary: 3/5 steps succeeded (1 failed); 1/3 tests passed (2 failed)")
-        baseline = codex.report_state([first], codex.State()).baseline
+        baseline = engine.report_state([first], engine.State()).baseline
         more_steps = replace(first, summary="Build Summary: 3/5 steps succeeded (2 failed); 1/3 tests passed (2 failed)")
         fewer_tests = replace(first, summary="Build Summary: 4/5 steps succeeded (1 failed); 2/3 tests passed (1 failed)")
-        self.assertTrue(codex.is_regression(more_steps, baseline))
-        self.assertFalse(codex.is_regression(fewer_tests, baseline))
+        self.assertTrue(engine.is_regression(more_steps, baseline))
+        self.assertFalse(engine.is_regression(fewer_tests, baseline))
 
     def test_saved_state_reads_back_as_it_was_written(self) -> None:
-        state = codex.report_state([fixture_report(failed=True, failures=("legacy",), summary="1 failed")], codex.State())
-        self.assertEqual(codex.state_from(json.loads(json.dumps(codex.state_json(state)))), state)
+        state = engine.report_state([fixture_report(failed=True, failures=("legacy",), summary="1 failed")], engine.State())
+        self.assertEqual(engine.state_from(json.loads(json.dumps(engine.state_json(state)))), state)
 
     def test_saved_state_of_another_shape_starts_the_session_afresh(self) -> None:
         result, count = self.configure()
@@ -447,7 +448,7 @@ class CodexHookTests(unittest.TestCase):
         settings = {"rust": {"baseline": ["cargo", "test", "--lib"], "env": {"RUST_BACKTRACE": "1"}},
                     "zanity": {"enabled": False}, "git": {"env": {"OVERWATCH_GIT_INTERVAL": "300"}}}
         write(self.cwd / ".overwatch.json", json.dumps({"watchers": settings}))
-        watchers = {watcher["name"]: watcher for watcher in codex.find_watchers(self.cwd)}
+        watchers = {watcher["name"]: watcher for watcher in engine.find_watchers(self.cwd)}
         self.assertEqual(watchers["rust"]["baseline"], ["cargo", "test", "--lib"])
         self.assertEqual(watchers["rust"]["env"], {"RUST_BACKTRACE": "1"})
         self.assertNotIn("zanity", watchers)
@@ -477,14 +478,14 @@ class CodexHookTests(unittest.TestCase):
             text = json.dumps({"watchers": settings})
             write(self.cwd / ".overwatch.json", text, previous)
             previous = text
-            with self.subTest(settings=settings), self.assertRaisesRegex(codex.ConfigurationError, re.escape(field)):
-                codex.find_watchers(self.cwd)
+            with self.subTest(settings=settings), self.assertRaisesRegex(engine.ConfigurationError, re.escape(field)):
+                engine.find_watchers(self.cwd)
 
     def test_a_guard_names_each_check_once(self) -> None:
         summary = "zanity: 0 errors, 1 warning in 1/1 file."
-        report = codex.Report("zanity", "zanity", "zanity check .", None, summary, True, (), None, summary)
-        self.assertIn("\n- zanity: 0 errors, 1 warning in 1/1 file.\n", codex.gate_reason([report]))
-        self.assertNotIn("zanity: zanity:", codex.gate_reason([report]))
+        report = engine.Report("zanity", "zanity", "zanity check .", None, summary, True, (), None, summary)
+        self.assertIn("\n- zanity: 0 errors, 1 warning in 1/1 file.\n", engine.gate_reason([report]))
+        self.assertNotIn("zanity: zanity:", engine.gate_reason([report]))
 
     def test_the_typescript_table_is_generated_from_watchers_json(self) -> None:
         self.assertEqual(read(table.TARGET), table.render(), "run python3 scripts/table.py")
@@ -511,17 +512,17 @@ class CodexHookTests(unittest.TestCase):
 
     def test_colour_codes_are_read_through(self) -> None:
         output = "\x1b[0m\x1b[31mFAILED\x1b[0m | 1 passed | 1 failed\n\x1b[0m\x1b[38;5;12mWatcher\x1b[0m Test failed. Restarting..."
-        report = codex.read_report(next(w for w in codex.WATCHERS if w["name"] == "deno"), output)
+        report = engine.read_report(next(w for w in engine.WATCHERS if w["name"] == "deno"), output)
         assert report is not None, f"deno's summary was not found in {output!r}; check its summary pattern"
         self.assertTrue(report.failed)
         self.assertEqual(report.summary, "FAILED | 1 passed | 1 failed")
 
     def test_a_run_with_no_summary_that_exits_nonzero_fails(self) -> None:
-        python = codex.WATCHERS[1]
-        report = codex.read_report(python, "error: Failed to parse uv.lock", 2)
+        python = engine.WATCHERS[1]
+        report = engine.read_report(python, "error: Failed to parse uv.lock", 2)
         assert report is not None, "a nonzero exit with no summary gave no report; read it by its exit code"
         self.assertEqual((report.failed, report.summary), (True, "exited with code 2"))
-        self.assertIsNone(codex.read_report(python, "nothing", 0))
+        self.assertIsNone(engine.read_report(python, "nothing", 0))
 
     def test_every_codex_hook_has_a_branded_status_message(self) -> None:
         config = json.loads(read(HOOKS_CONFIG))
@@ -544,7 +545,7 @@ class CodexHookTests(unittest.TestCase):
         self.assertFalse((ROOT / "plugin.json").exists(), "a root Agent Plugin manifest suppresses Codex hooks")
         self.assertEqual(codex["version"], claude["version"])
         self.assertEqual(package["version"], claude["version"])
-        self.assertEqual(codex["hooks"], "./hooks/codex-hooks.json")
+        self.assertEqual(codex["hooks"], "./integrations/codex-hooks.json")
         self.assertEqual(codex["interface"]["displayName"], "Overwatch")
         self.assertEqual(package["exports"], "./integrations/opencode.js")
         self.assertEqual(package["pi"]["extensions"], ["./integrations/pi.js"])
