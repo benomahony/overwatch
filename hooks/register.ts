@@ -44,7 +44,7 @@ const GIVE_UP_AFTER = 3
 const EDITING_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Bash'])
 
 /** One watcher's place beside the others: a language in the project or one of its sub-projects, or a checker such as zanity. */
-type Slot = {
+type LiveWatcher = {
   watcher: Watcher | undefined
   report: Report | undefined
   /** The watcher's language and the real path it runs in, which stay the same while the watcher run there may change. */
@@ -72,7 +72,7 @@ type Slot = {
   status: string | undefined
 }
 
-/** A message for the agent, waiting to go with the others that arrive with it; each slot has at most one of each kind waiting. */
+/** A message for the agent, waiting to go with the others that arrive with it; each live has at most one of each kind waiting. */
 type Message = { text: string; isWaking: boolean; kind: 'report' | 'exit' | 'environment' | 'baseline' }
 
 type State = {
@@ -92,7 +92,7 @@ type State = {
   isEditedSinceCorrection: boolean
   /** Whether the running turn has had its one message from overwatch. */
   isToldThisTurn: boolean
-  /** The messages not yet sent, by their slot's key and kind. */
+  /** The messages not yet sent, by their live's key and kind. */
   outbox: Map<string, Message>
   flushing: Timer | undefined
   /** Each watcher's environment error the agent has been told of, so each is told once. */
@@ -104,21 +104,21 @@ type State = {
   /** Asks for a fresh search when a watcher ends: the session's answer to that event, set while it runs. */
   onWatcherEnded: (() => void) | undefined
   /** One for each watcher found so far, in the order found, which is the status line's order. */
-  slots: Slot[]
+  liveWatchers: LiveWatcher[]
 }
 
-/** One watcher running in its slot: what each step of a run needs. */
-type Run = { state: State; slot: Slot; watcher: Watcher; cwd: string }
+/** One watcher running in its live: what each step of a run needs. */
+type Run = { state: State; live: LiveWatcher; watcher: Watcher; cwd: string }
 
 /** Everything needed to decide whether and when a watcher should restart. */
-type Restart = { state: State; slot: Slot; watcher: Watcher; ending: Ending }
+type Restart = { state: State; live: LiveWatcher; watcher: Watcher; ending: Ending }
 
-/** Sets this slot's part of the status line, which shows every running watcher's. */
-function setStatus($: EngineInterface, state: State, slot: Slot, text: string | undefined) {
-  assert(state.slots.includes(slot), `slot ${slot.key} is not one of the session's; push it to state.slots first`)
-  slot.status = text
-  const parts = state.slots.flatMap(({ status }) => (status === undefined ? [] : [status]))
-  assert(text === undefined || parts.includes(text), `status ${text} for ${slot.key} is missing from the line ${parts}`)
+/** Sets this live's part of the status line, which shows every running watcher's. */
+function setStatus($: EngineInterface, state: State, live: LiveWatcher, text: string | undefined) {
+  assert(state.liveWatchers.includes(live), `live ${live.key} is not one of the session's; push it to state.liveWatchers first`)
+  live.status = text
+  const parts = state.liveWatchers.flatMap(({ status }) => (status === undefined ? [] : [status]))
+  assert(text === undefined || parts.includes(text), `status ${text} for ${live.key} is missing from the line ${parts}`)
   $.ui.status(parts.length === 0 ? undefined : parts.join(' · '))
 }
 
@@ -156,36 +156,36 @@ function schedule($: EngineInterface, state: State) {
   assert(state.flushing !== previous, `the flush timer ${typeof previous} was not replaced; schedule a new one each time`)
 }
 
-/** Holds a message for the agent in place of any of its kind this slot has waiting, unless the agent was already given it, by its `signature`. */
-function queue($: EngineInterface, { state, slot }: { state: State; slot: Slot }, signature: string, message: Message) {
-  assert(signature !== '', `message for ${slot.key} has signature ${JSON.stringify(signature)}; sign it by what it reports`)
-  const key = `${slot.key}:${message.kind}`
-  if (slot.told === signature && !state.outbox.has(key)) return
-  slot.told = signature
+/** Holds a message for the agent in place of any of its kind this live has waiting, unless the agent was already given it, by its `signature`. */
+function queue($: EngineInterface, { state, live }: { state: State; live: LiveWatcher }, signature: string, message: Message) {
+  assert(signature !== '', `message for ${live.key} has signature ${JSON.stringify(signature)}; sign it by what it reports`)
+  const key = `${live.key}:${message.kind}`
+  if (live.told === signature && !state.outbox.has(key)) return
+  live.told = signature
   state.outbox.set(key, message)
-  assert(state.outbox.get(key) === message, `the ${message.kind} message for ${slot.key} is not waiting after queueing it`)
+  assert(state.outbox.get(key) === message, `the ${message.kind} message for ${live.key} is not waiting after queueing it`)
   schedule($, state)
 }
 
 /** Holds a watcher's environment error for the one summary of them, once for each. */
-function queueEnvironment($: EngineInterface, { state, slot, watcher }: Omit<Run, 'cwd'>, line: string) {
-  assert(line !== '' && !line.includes('\n'), `environment line ${JSON.stringify(line)} for ${slot.key} must be one line of text`)
-  const key = `${slot.key}\n${line}`
+function queueEnvironment($: EngineInterface, { state, live, watcher }: Omit<Run, 'cwd'>, line: string) {
+  assert(line !== '' && !line.includes('\n'), `environment line ${JSON.stringify(line)} for ${live.key} must be one line of text`)
+  const key = `${live.key}\n${line}`
   if (state.environment.has(key)) return
   state.environment.add(key)
-  state.outbox.set(`${slot.key}:environment`, { text: environmentLine(watcher, line), isWaking: false, kind: 'environment' })
-  assert(state.outbox.get(`${slot.key}:environment`)?.isWaking === false, `${slot.key}'s environment error would wake the agent; it never should`)
+  state.outbox.set(`${live.key}:environment`, { text: environmentLine(watcher, line), isWaking: false, kind: 'environment' })
+  assert(state.outbox.get(`${live.key}:environment`)?.isWaking === false, `${live.key}'s environment error would wake the agent; it never should`)
   schedule($, state)
 }
 
 /** Writes a watcher's full output where the agent can read it, keeping it out of the conversation; undefined when it cannot. */
-async function writeLog($: EngineInterface, slot: Slot, text: string, suffix = ''): Promise<string | undefined> {
+async function writeLog($: EngineInterface, live: LiveWatcher, text: string, suffix = ''): Promise<string | undefined> {
   const home = await $.env.get('HOME').catch(() => undefined)
   if (home === undefined || home === '') return undefined
-  const name = slot.key.replace(/[^\w.-]+/g, '-')
+  const name = live.key.replace(/[^\w.-]+/g, '-')
   const path = `${home}/.cache/overwatch/logs/${name}${suffix}.log`
-  assert(name !== '' && !name.includes('/'), `log name ${name} for ${slot.key} must be one file name`)
-  assert(path.startsWith(`${home}/.cache/overwatch/logs/`), `log path ${path} for ${slot.key} is outside the logs directory`)
+  assert(name !== '' && !name.includes('/'), `log name ${name} for ${live.key} must be one file name`)
+  assert(path.startsWith(`${home}/.cache/overwatch/logs/`), `log path ${path} for ${live.key} is outside the logs directory`)
   return $.fs.write(path, text).then(
     () => path,
     () => undefined,
@@ -195,21 +195,21 @@ async function writeLog($: EngineInterface, slot: Slot, text: string, suffix = '
 /** Saves inherited issues once, with a compact pointer for deliberate backlog triage. */
 async function baselineInventory($: EngineInterface, run: Run, report: Report) {
   if (!report.isFailed) return
-  const { state, slot, watcher } = run
-  const log = await writeLog($, slot, report.text, '.baseline')
+  const { state, live, watcher } = run
+  const log = await writeLog($, live, report.text, '.baseline')
   if (log === undefined) return
   const path = log + '.json'
   const inventory = { checks: [{ name: watcher.name, dir: watcher.dir, command: commandLine(watcher),
     summary: report.summary, failures: report.failures, log }] }
   const saved = await $.fs.write(path, JSON.stringify(inventory)).then(() => true, () => false)
-  if (!saved || !slot.isWatching) return
+  if (!saved || !live.isWatching) return
   const detail = report.failures.length > 0 ? report.failures.length + ' named issues' : 'individual issue names unavailable; see full log'
   const text = 'overwatch: inherited backlog (' + detail + '). ' +
     'Inherited findings follow the configured failure policy. Triage inventory: ' + path +
     '. Filter or page it with hooks/triage.py; full output is linked there.'
   assert(path === `${log}.json`, `inventory ${path} is not beside its log ${log}`)
-  assert(text.includes(path), `the backlog notice for ${slot.key} does not name its inventory ${path}`)
-  state.outbox.set(slot.key + ':baseline', { text, isWaking: false, kind: 'baseline' })
+  assert(text.includes(path), `the backlog notice for ${live.key} does not name its inventory ${path}`)
+  state.outbox.set(live.key + ':baseline', { text, isWaking: false, kind: 'baseline' })
   schedule($, state)
 }
 
@@ -234,35 +234,35 @@ function sameResult(before: Report, after: Report): boolean {
  * once, apart from the code's failures.
  */
 async function deliver($: EngineInterface, run: Run, report: Report) {
-  const { state, slot, watcher } = run
-  assert(slot.watcher === undefined || slot.watcher.marker === watcher.marker, `${watcher.name} reported into slot ${slot.key}, which runs ${slot.watcher?.name}`)
-  const previous = slot.report
-  slot.report = report
-  setStatus($, state, slot, statusLine(watcher, report))
-  assert(slot.status === statusLine(watcher, report), `${slot.key}'s status was not set to ${watcher.name}'s report`)
+  const { state, live, watcher } = run
+  assert(live.watcher === undefined || live.watcher.marker === watcher.marker, `${watcher.name} reported into live ${live.key}, which runs ${live.watcher?.name}`)
+  const previous = live.report
+  live.report = report
+  setStatus($, state, live, statusLine(watcher, report))
+  assert(live.status === statusLine(watcher, report), `${live.key}'s status was not set to ${watcher.name}'s report`)
   if (report.environment !== undefined) {
     queueEnvironment($, run, report.environment)
     return
   }
   const isRepeat = previous !== undefined && sameResult(previous, report)
-  const origin = slot.isEditedSinceResult ? 'session' : isRepeat ? slot.origin : 'outside'
-  slot.origin = origin
-  slot.isEditedSinceResult = false
-  if (slot.baseline === undefined) {
-    slot.baseline = slot.isEdited ? UNTOUCHED : report
-    if (!slot.isEdited) await baselineInventory($, run, report)
-    if (!slot.isWatching) return
+  const origin = live.isEditedSinceResult ? 'session' : isRepeat ? live.origin : 'outside'
+  live.origin = origin
+  live.isEditedSinceResult = false
+  if (live.baseline === undefined) {
+    live.baseline = live.isEdited ? UNTOUCHED : report
+    if (!live.isEdited) await baselineInventory($, run, report)
+    if (!live.isWatching) return
   }
-  const isRegression = hasRegression(report, slot.baseline)
-  const wasFailing = slot.wasFailing
-  slot.wasFailing = isRegression
+  const isRegression = hasRegression(report, live.baseline)
+  const wasFailing = live.wasFailing
+  live.wasFailing = isRegression
   if (isRegression) {
     await tellRegression($, run, report)
     return
   }
   if (!wasFailing) return
-  if (state.outbox.delete(`${slot.key}:report`)) {
-    slot.told = undefined
+  if (state.outbox.delete(`${live.key}:report`)) {
+    live.told = undefined
     return
   }
   queue($, run, 'recovered', { text: recoveryMessage(watcher, report), isWaking: false, kind: 'report' })
@@ -273,16 +273,16 @@ async function deliver($: EngineInterface, run: Run, report: Report) {
  * at the agent's next turn; it never wakes the agent.
  */
 async function tellRegression($: EngineInterface, run: Run, report: Report) {
-  const { state, slot, watcher } = run
-  const { baseline, origin } = slot
-  assert(baseline !== undefined && slot.report === report, `${slot.key} tells ${report.summary} without a baseline or as a result it does not hold; deliver it first`)
+  const { state, live, watcher } = run
+  const { baseline, origin } = live
+  assert(baseline !== undefined && live.report === report, `${live.key} tells ${report.summary} without a baseline or as a result it does not hold; deliver it first`)
   assert(report.isFailed && hasRegression(report, baseline), `${watcher.name}'s ${report.summary} is no regression on ${baseline.summary}; tell only regressions`)
   const known = baseline.isFailed ? baseline.failures : []
   const knownNames = new Set(known)
   const fresh = report.failures.filter(name => !knownNames.has(name))
   const signature = `failed:${fresh.length > 0 ? [...fresh].sort().join('\n') : report.summary.replace(TIMING, '')}`
-  if (slot.told === signature && !state.outbox.has(`${slot.key}:report`)) return
-  const text = failureMessage(watcher, report, { known, log: await writeLog($, slot, report.text), origin })
+  if (live.told === signature && !state.outbox.has(`${live.key}:report`)) return
+  const text = failureMessage(watcher, report, { known, log: await writeLog($, live, report.text), origin })
   queue($, run, signature, { text, isWaking: origin === 'session', kind: 'report' })
 }
 
@@ -296,11 +296,11 @@ function envOf(watcher: Watcher): { env?: Record<string, string> } {
 
 /** Runs a command to its end and reports what it printed, unless it was stopped for a newer run first. */
 async function runOnce($: EngineInterface, run: Run, argv: readonly string[], isStale = () => false) {
-  const { state, slot, watcher, cwd } = run
+  const { state, live, watcher, cwd } = run
   assert(argv.length > 0, `${watcher.name} was asked to run an empty command; give it argv or baseline`)
-  assert(slot.kill === undefined, `${slot.key} starts ${commandLine(watcher, argv)} while another run is still killable; stop it first`)
+  assert(live.kill === undefined, `${live.key} starts ${commandLine(watcher, argv)} while another run is still killable; stop it first`)
   const child = $.process.spawn({ argv, cwd, ...envOf(watcher) })
-  slot.kill = () => child.return({ code: null, signal: null })
+  live.kill = () => child.return({ code: null, signal: null })
   let output = ''
   let code: number | null
   try {
@@ -308,13 +308,13 @@ async function runOnce($: EngineInterface, run: Run, argv: readonly string[], is
     ;({ code } = await child.result)
   } catch (error) {
     if (isStale()) return
-    setStatus($, state, slot, `${watcher.name}: could not start ${commandLine(watcher, argv)}`)
+    setStatus($, state, live, `${watcher.name}: could not start ${commandLine(watcher, argv)}`)
     $.ui.log(`overwatch: ${String(error)}`, { to: 'debug' })
     return
   } finally {
-    slot.kill = undefined
+    live.kill = undefined
   }
-  if (!slot.isWatching || isStale()) return
+  if (!live.isWatching || isStale()) return
   const report = readReport(watcher, output, code)
   if (report === undefined) {
     $.ui.log(`overwatch: ${commandLine(watcher, argv)} gave no summary:\n${output}`, { to: 'debug' })
@@ -334,25 +334,25 @@ function rerunOnChange($: EngineInterface, run: Run, argv: readonly string[]) {
   let isRunning = false
   let isPending = false
   const rerun = async () => {
-    if (!run.slot.isWatching) return
+    if (!run.live.isWatching) return
     if (isRunning) {
       isPending = true
-      await run.slot.kill?.()
+      await run.live.kill?.()
       return
     }
     isRunning = true
     isPending = false
     await runOnce($, run, argv, () => isPending)
-    assert(run.slot.kill === undefined, `${run.slot.key}'s run ended but is still killable; clear slot.kill when it ends`)
+    assert(run.live.kill === undefined, `${run.live.key}'s run ended but is still killable; clear live.kill when it ends`)
     isRunning = false
     if (isPending) await rerun()
-    assert(!isRunning || isPending, `${run.slot.key} is marked running after its last run ended`)
+    assert(!isRunning || isPending, `${run.live.key} is marked running after its last run ended`)
   }
-  run.slot.changed = () => {
+  run.live.changed = () => {
     timer?.cancel()
     timer = $.clock.after(QUIET_MS, () => void rerun())
   }
-  assert(run.slot.changed !== undefined, `${run.slot.key} has no change handler after rerunOnChange`)
+  assert(run.live.changed !== undefined, `${run.live.key} has no change handler after rerunOnChange`)
 }
 
 /** How a watcher ended of itself, its process exited or never started, when, and what it printed after its last report. */
@@ -360,24 +360,24 @@ type Ending = { isStarted: boolean; startedAt: number; endedAt: number; output: 
 
 /** Watches until the watcher ends of itself, resolving how; a watcher with no command never ends. */
 async function watch($: EngineInterface, run: Run): Promise<Ending | undefined> {
-  const { state, slot, watcher, cwd } = run
-  assert(slot.isWatching, `${slot.key} is asked to watch ${watcher.name} while not watching; set isWatching first`)
+  const { state, live, watcher, cwd } = run
+  assert(live.isWatching, `${live.key} is asked to watch ${watcher.name} while not watching; set isWatching first`)
   if (watcher.baseline !== undefined && watcher.baseline.length > 0) {
     const text = `${watcher.name}: running the full suite`
-    setStatus($, state, slot, text)
+    setStatus($, state, live, text)
     await runOnce($, run, watcher.baseline)
-    if (!slot.isWatching) return undefined
+    if (!live.isWatching) return undefined
   }
   if (watcher.argv === undefined) {
     if (watcher.baseline !== undefined) rerunOnChange($, run, watcher.baseline)
-    if (slot.isEdited) slot.changed?.()
+    if (live.isEdited) live.changed?.()
     return undefined
   }
   const startedAt = await $.clock.now()
-  if (!slot.isWatching) return undefined
+  if (!live.isWatching) return undefined
   const child = $.process.spawn({ argv: watcher.argv, cwd, ...envOf(watcher) })
-  slot.kill = () => child.return({ code: null, signal: null })
-  setStatus($, state, slot, `${watcher.name}: starting`)
+  live.kill = () => child.return({ code: null, signal: null })
+  setStatus($, state, live, `${watcher.name}: starting`)
   let output = ''
   let flush: Timer | undefined
   let isStarted = true
@@ -396,17 +396,17 @@ async function watch($: EngineInterface, run: Run): Promise<Ending | undefined> 
       })
     }
     flush?.cancel()
-    if (!slot.isWatching) return undefined
+    if (!live.isWatching) return undefined
   } catch (error) {
     flush?.cancel()
-    if (!slot.isWatching) return undefined
+    if (!live.isWatching) return undefined
     $.ui.log(`overwatch: ${String(error)}`, { to: 'debug' })
     isStarted = false
     output += String(error)
   } finally {
-    slot.kill = undefined
+    live.kill = undefined
   }
-  if (!slot.isWatching) return undefined
+  if (!live.isWatching) return undefined
   const endedAt = await $.clock.now()
   assert(endedAt >= startedAt, `${watcher.name} ended at ${endedAt}, before it started at ${startedAt}; read both from $.clock`)
   if (isStarted) await deliverExit($, run, output)
@@ -415,11 +415,11 @@ async function watch($: EngineInterface, run: Run): Promise<Ending | undefined> 
 
 /** Delivers the last report before showing that the watcher exited. */
 async function deliverExit($: EngineInterface, run: Run, output: string) {
-  assert(run.slot.kill === undefined, `${run.slot.key} exited but is still killable; clear slot.kill when it ends`)
+  assert(run.live.kill === undefined, `${run.live.key} exited but is still killable; clear live.kill when it ends`)
   const report = readReport(run.watcher, output)
   if (report !== undefined) await deliver($, run, report)
-  assert(report === undefined || run.slot.report === report, `${run.watcher.name}'s last report was not delivered to ${run.slot.key}`)
-  if (run.slot.isWatching) $.ui.toast(`overwatch: ${commandLine(run.watcher)} exited`)
+  assert(report === undefined || run.live.report === report, `${run.watcher.name}'s last report was not delivered to ${run.live.key}`)
+  if (run.live.isWatching) $.ui.toast(`overwatch: ${commandLine(run.watcher)} exited`)
 }
 
 /** Where `path` lands once its links are followed; the path itself when it cannot be resolved. */
@@ -637,16 +637,16 @@ async function ensureAll($: EngineInterface, state: State) {
       const now = await $.clock.now()
       for (const { watcher, dir } of watchers) {
         const key = `${languageOf(watcher)}:${dir}`
-        let found = state.slots.find(each => each.key === key)
+        let found = state.liveWatchers.find(each => each.key === key)
         if (found === undefined) {
-          found = slot(key, dir)
-          state.slots.push(found)
+          found = liveWatcher(key, dir)
+          state.liveWatchers.push(found)
         }
         if (found.isWatching || now < found.retryAt) continue
         found.isWatching = true
         void start($, state, found, watcher)
       }
-      assert(watchers.every(({ watcher, dir }) => state.slots.some(each => each.key === `${languageOf(watcher)}:${dir}`)), `a watcher of ${cwd} has no slot`)
+      assert(watchers.every(({ watcher, dir }) => state.liveWatchers.some(each => each.key === `${languageOf(watcher)}:${dir}`)), `a watcher of ${cwd} has no live`)
     } while (state.isFindDue)
   } finally {
     state.isFinding = false
@@ -654,16 +654,16 @@ async function ensureAll($: EngineInterface, state: State) {
   assert(state.finding === undefined, `a search of ${state.cwd} left its finding ${state.finding} behind after it ended`)
 }
 
-async function start($: EngineInterface, state: State, slot: Slot, watcher: Watcher) {
+async function start($: EngineInterface, state: State, live: LiveWatcher, watcher: Watcher) {
   const { epoch } = state
-  assert(state.slots.includes(slot), `slot ${slot.key} is not one of the session's; push it to state.slots first`)
-  slot.watcher = watcher
-  slot.isWatching = true
-  slot.retryAt = 0
-  const ending = await watch($, { state, slot, watcher, cwd: slot.dir })
+  assert(state.liveWatchers.includes(live), `live ${live.key} is not one of the session's; push it to state.liveWatchers first`)
+  live.watcher = watcher
+  live.isWatching = true
+  live.retryAt = 0
+  const ending = await watch($, { state, live, watcher, cwd: live.dir })
   assert(ending === undefined || ending.endedAt >= ending.startedAt, `${watcher.name} ended at ${ending?.endedAt}, before it started at ${ending?.startedAt}`)
   if (ending === undefined || state.epoch !== epoch) return
-  await restart($, { state, slot, watcher, ending })
+  await restart($, { state, live, watcher, ending })
 }
 
 /**
@@ -675,37 +675,37 @@ async function start($: EngineInterface, state: State, slot: Slot, watcher: Watc
  * comes back on its own. One that cannot run in this environment is told of
  * once, in the environment summary, and never wakes the agent.
  */
-async function restart($: EngineInterface, { state, slot, watcher, ending }: Restart) {
+async function restart($: EngineInterface, { state, live, watcher, ending }: Restart) {
   const { epoch } = state
   const { isStarted, startedAt, endedAt, output } = ending
-  assert(slot.watcher === watcher, `${slot.key} restarts ${watcher.name} but runs ${slot.watcher?.name}`)
+  assert(live.watcher === watcher, `${live.key} restarts ${watcher.name} but runs ${live.watcher?.name}`)
   const isQuick = !isStarted || endedAt - startedAt < RETRY_MS
-  slot.quickExits = isQuick ? slot.quickExits + 1 : 0
-  slot.isWatching = false
+  live.quickExits = isQuick ? live.quickExits + 1 : 0
+  live.isWatching = false
   const what = isStarted ? `${commandLine(watcher)} exited` : `could not start ${commandLine(watcher)}`
   const environment = environmentIn(output)
-  if (environment !== undefined) queueEnvironment($, { state, slot, watcher }, environment)
-  if (slot.quickExits >= GIVE_UP_AFTER) {
-    slot.retryAt = endedAt + RETRY_MS
-    const status = `${what} ${slot.quickExits} times in a row; retrying at the first turn after ${RETRY_MS / 1000}s`
-    setStatus($, state, slot, `${watcher.name}: ${status}`)
-    if (slot.quickExits === GIVE_UP_AFTER && environment === undefined) {
-      const text = gaveUpMessage(watcher, slot.quickExits, RETRY_MS, await writeLog($, slot, output))
-      queue($, { state, slot }, `exited:${output}`, { text, isWaking: true, kind: 'exit' })
+  if (environment !== undefined) queueEnvironment($, { state, live, watcher }, environment)
+  if (live.quickExits >= GIVE_UP_AFTER) {
+    live.retryAt = endedAt + RETRY_MS
+    const status = `${what} ${live.quickExits} times in a row; retrying at the first turn after ${RETRY_MS / 1000}s`
+    setStatus($, state, live, `${watcher.name}: ${status}`)
+    if (live.quickExits === GIVE_UP_AFTER && environment === undefined) {
+      const text = gaveUpMessage(watcher, live.quickExits, RETRY_MS, await writeLog($, live, output))
+      queue($, { state, live }, `exited:${output}`, { text, isWaking: true, kind: 'exit' })
     }
     return
   }
-  const delay = isQuick ? RETRY_MS * 2 ** (slot.quickExits - 1) : 0
-  assert(delay < RETRY_MS * 2 ** GIVE_UP_AFTER, `${watcher.name} waits ${delay}ms to restart after ${slot.quickExits} quick exits; it should have given up`)
-  slot.retryAt = endedAt + delay
-  setStatus($, state, slot, `${watcher.name}: ${what}, restarting ${delay === 0 ? 'now' : `in ${delay / 1000}s`}`)
+  const delay = isQuick ? RETRY_MS * 2 ** (live.quickExits - 1) : 0
+  assert(delay < RETRY_MS * 2 ** GIVE_UP_AFTER, `${watcher.name} waits ${delay}ms to restart after ${live.quickExits} quick exits; it should have given up`)
+  live.retryAt = endedAt + delay
+  setStatus($, state, live, `${watcher.name}: ${what}, restarting ${delay === 0 ? 'now' : `in ${delay / 1000}s`}`)
   if (delay === 0) state.onWatcherEnded?.()
   else
     $.clock.after(delay, () => {
       if (state.epoch === epoch) state.onWatcherEnded?.()
     })
   if (environment !== undefined || !state.isTurnRunning) return
-  queue($, { state, slot }, `exited:${output}`, { text: exitMessage(watcher, delay), isWaking: false, kind: 'exit' })
+  queue($, { state, live }, `exited:${output}`, { text: exitMessage(watcher, delay), isWaking: false, kind: 'exit' })
 }
 
 /** Stops every watcher and forgets what the session found and told, so the next session starts afresh. */
@@ -723,7 +723,7 @@ async function stop($: EngineInterface, state: State) {
   state.flushing?.cancel()
   state.outbox.clear()
   state.environment.clear()
-  const slots = state.slots.map(each => {
+  const liveWatchers = state.liveWatchers.map(each => {
     each.isWatching = false
     each.retryAt = 0
     each.quickExits = 0
@@ -737,16 +737,16 @@ async function stop($: EngineInterface, state: State) {
     each.status = undefined
     return each.kill?.()
   })
-  await Promise.all([...slots, state.finding])
-  assert(state.slots.every(each => !each.isWatching), `slots ${state.slots.filter(each => each.isWatching).map(each => each.key)} still watch after stop`)
+  await Promise.all([...liveWatchers, state.finding])
+  assert(state.liveWatchers.every(each => !each.isWatching), `liveWatchers ${state.liveWatchers.filter(each => each.isWatching).map(each => each.key)} still watch after stop`)
   assert(state.outbox.size === 0, `${state.outbox.size} messages wait after stop; the next session must start afresh`)
   $.ui.status(undefined)
 }
 
-/** A new slot for the watcher of one language in dir, watching nothing yet. */
-const slot = (key: string, dir: string): Slot => {
-  assert(key.endsWith(`:${dir}`), `slot key ${key} does not end with its directory ${dir}; key slots by language and dir`)
-  const made: Slot = {
+/** A new live for the watcher of one language in dir, watching nothing yet. */
+const liveWatcher = (key: string, dir: string): LiveWatcher => {
+  assert(key.endsWith(`:${dir}`), `live watcher key ${key} does not end with its directory ${dir}; key live watchers by language and dir`)
+  const made: LiveWatcher = {
     watcher: undefined,
     report: undefined,
     key,
@@ -764,7 +764,7 @@ const slot = (key: string, dir: string): Slot => {
     told: undefined,
     status: undefined,
   }
-  assert(made.key === key && made.dir === dir, `slot for ${key} was made with key ${made.key} and dir ${made.dir}`)
+  assert(made.key === key && made.dir === dir, `live watcher for ${key} was made with key ${made.key} and dir ${made.dir}`)
   return made
 }
 
@@ -780,13 +780,13 @@ async function projectPolicy($: EngineInterface, state: State): Promise<GatePoli
 
 /** Why an action is refused: the failing checks among checks that guard it, or undefined when none does. */
 function guardedFailure(state: State, policy: GatePolicy, checks: readonly string[] = []): string | undefined {
-  const blocked = state.slots.filter(({ report, baseline, watcher }) => {
+  const blocked = state.liveWatchers.filter(({ report, baseline, watcher }) => {
     if (report === undefined || baseline === undefined || !report.isFailed || report.environment !== undefined) return false
     if (checks.length > 0 && !checks.includes(watcher?.name ?? '') && !checks.includes(watcher === undefined ? '' : languageOf(watcher))) return false
     return policy.inherited === 'block' || hasRegression(report, baseline)
   })
   if (blocked.length === 0) return undefined
-  assert(blocked.every(each => each.report?.isFailed), `slots ${blocked.map(each => each.key)} guard while passing`)
+  assert(blocked.every(each => each.report?.isFailed), `liveWatchers ${blocked.map(each => each.key)} guard while passing`)
   const summaries = blocked.map(each => `${each.watcher?.name}: ${each.report === undefined ? '' : bareSummary(each.report)}`).join('; ').replace(/\.$/, '')
   assert(summaries.split('; ').length >= blocked.length, `reason ${summaries} names fewer than ${blocked.length} guarding checks`)
   assert(!summaries.endsWith('.'), `reason ${summaries} ends in a full stop the guard text adds again; strip it`)
@@ -795,7 +795,7 @@ function guardedFailure(state: State, policy: GatePolicy, checks: readonly strin
 
 /** Completion hooks return text; queue a correction instead of returning a tool-only denial. */
 async function completionGuard($: EngineInterface, state: State): Promise<string | undefined> {
-  if (!state.slots.some(each => each.report?.isFailed)) {
+  if (!state.liveWatchers.some(each => each.report?.isFailed)) {
     state.completionCorrection = undefined
     return undefined
   }
@@ -856,13 +856,13 @@ async function rebaselineOnMove($: EngineInterface, state: State) {
   const isMoved = state.head !== undefined
   state.head = head
   if (!isMoved) return
-  for (const each of state.slots) {
+  for (const each of state.liveWatchers) {
     each.baseline = undefined
     each.isEdited = false
     each.isEditedSinceResult = false
     each.changed?.()
   }
-  assert(state.slots.every(each => each.baseline === undefined && !each.isEdited), `a slot kept its baseline after HEAD moved to ${head}; clear each`)
+  assert(state.liveWatchers.every(each => each.baseline === undefined && !each.isEdited), `a live watcher kept its baseline after HEAD moved to ${head}; clear each`)
 }
 
 /**
@@ -875,13 +875,13 @@ async function afterTool($: EngineInterface, state: State, tool: string) {
   assert(!state.isCorrectionTurn || state.completionCorrection !== undefined, `the correction turn lost its correction after ${tool}; keep it while the turn answers it`)
   if (!EDITING_TOOLS.has(tool)) return
   state.isEditedSinceCorrection = true
-  for (const each of state.slots) {
+  for (const each of state.liveWatchers) {
     each.isEdited = true
     each.isEditedSinceResult = true
     each.changed?.()
   }
   await rebaselineOnMove($, state)
-  assert(state.slots.every(each => each.isEdited || each.baseline === undefined), `a slot was not marked edited after ${tool}; mark each so its next result is read against the edit`)
+  assert(state.liveWatchers.every(each => each.isEdited || each.baseline === undefined), `a live watcher was not marked edited after ${tool}; mark each so its next result is read against the edit`)
 }
 
 /** Notes whether a starting turn is overwatch's own correction, submitted with that correction's text. */
@@ -891,7 +891,7 @@ function startTurn(state: State, text: string) {
   assert(!state.isCorrectionTurn || text.startsWith('overwatch: '), `the turn ${JSON.stringify(text)} was taken for overwatch's correction; only its own text starts one`)
 }
 
-/** A session's state before it starts: no directory, slots or messages. */
+/** A session's state before it starts: no directory, liveWatchers or messages. */
 const initialState = (): State => {
   const state: State = {
     cwd: undefined,
@@ -910,9 +910,9 @@ const initialState = (): State => {
     finding: undefined,
     isFindDue: false,
     onWatcherEnded: undefined,
-    slots: [],
+    liveWatchers: [],
   }
-  assert(state.slots.length === 0 && state.outbox.size === 0, `a new session starts with ${state.slots.length} slots and ${state.outbox.size} messages`)
+  assert(state.liveWatchers.length === 0 && state.outbox.size === 0, `a new session starts with ${state.liveWatchers.length} liveWatchers and ${state.outbox.size} messages`)
   assert(!state.isTurnRunning && !state.isFinding, 'a new session starts with a turn or search running')
   return state
 }
@@ -933,7 +933,7 @@ export const register: Register = on => {
   })
 
   on('tool.call', async ($, e, next) => {
-    if (state.slots.some(each => each.report?.isFailed)) {
+    if (state.liveWatchers.some(each => each.report?.isFailed)) {
       const policy = await projectPolicy($, state)
       const checks = protectedChecks(e.tool, e, policy)
       const reason = checks === undefined ? undefined : guardedFailure(state, policy, checks)

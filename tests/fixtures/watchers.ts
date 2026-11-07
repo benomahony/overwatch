@@ -31,7 +31,7 @@ export const readResult = (watcher: (typeof WATCHERS)[number], output: string, c
   return [status, report.failures]
 }
 
-/** Slots look for their watchers side by side, so the order they start in is not fixed. */
+/** Live watchers look for their entries side by side, so the order they start in is not fixed. */
 export const sorted = (argvs: string[][]) => {
   const result = [...argvs].sort((a, b) => a.join(' ').localeCompare(b.join(' ')))
   assert(result.length === argvs.length, `sorting ${argvs.length} commands gave ${result.length}; sort a copy of all of them`)

@@ -5,3 +5,26 @@ exclude = ["docs/assets/vendor/katex.min.js"]
 
 [rules]
 select = ["strict"]
+
+# The project's words. A watcher is a watchers.json entry and, in every host, its live instance; a report is what one
+# of its runs says; an outside change is another process's.
+[vocabulary]
+forbidden = ["util", "manager", "helper"]
+
+[vocabulary.synonyms]
+watcher = ["slot"]
+report = ["outcome"]
+outside = ["external"]
+
+# What every host shares: the table, reading reports, the gate, and the formal model.
+[contexts.domain]
+include = ["watchers.json", "hooks/watchers.ts", "hooks/table.ts", "hooks/gating.ts", "hooks/gating.py", "hooks/records.py", "hooks/assert.ts", "spec/**"]
+
+# The shared engine that Codex, OpenCode and Pi drive. hooks/codex.py is also Codex's adapter, until that part moves
+# into integrations.
+[contexts.engine]
+include = ["hooks/codex.py", "hooks/triage.py", "hooks/unix.py", "integrations/check.js", "integrations/delivery.js"]
+
+# Every host's adapter, in one context, so they all use the same words.
+[contexts.integrations]
+include = ["hooks/register.ts", "integrations/opencode.js", "integrations/pi.js", "lua/**", "plugin/**"]

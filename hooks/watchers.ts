@@ -164,7 +164,7 @@ export function languageOf(watcher: Watcher): string {
   return language
 }
 
-/** Every language in WATCHERS, in order, each run in a slot of its own. */
+/** Every language in WATCHERS, in order, each run as a live watcher of its own. */
 export const LANGUAGES: readonly string[] = [...new Set(WATCHERS.map(languageOf))]
 
 /** The watcher with the project's override of its name, commands and patterns; its language stays. */
