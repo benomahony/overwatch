@@ -554,6 +554,21 @@ def run_checks(cwd: Path, watchers: list[Watcher]) -> list[Report]:
     return ran
 
 
+def run_persistent_checks(cwd: Path, watchers: list[Watcher], data: Path) -> list[Report]:
+    """Read reports for long-running watchers from the daemon, and rerun commands without a watch command."""
+    import daemon
+    assert cwd.is_absolute() and cwd.is_dir(), f"project {cwd} must be an absolute directory"
+    assert data.is_absolute() and data.is_dir(), f"data directory {data} must be absolute and exist"
+    assert all(isinstance(watcher.get("name"), str) for watcher in watchers), f"watchers {watchers!r} must each have a string name"
+    persistent = [watcher for watcher in watchers if watcher.get("argv")]
+    transient = [watcher for watcher in watchers if not watcher.get("argv")]
+    reports = daemon.latest(cwd, data) if persistent else []
+    reports = [report for report in reports if any(report.name == watcher["name"] for watcher in persistent)]
+    reports.extend(run_checks(cwd, transient))
+    assert all(isinstance(report, Report) for report in reports), f"daemon/check reports {reports!r} must all be Report values"
+    return reports
+
+
 def workspace_files(cwd: Path) -> list[Path]:
     """Every file git would track in cwd, a repository repository_of found, or ConfigurationError saying why git
     could not list them."""
@@ -1063,7 +1078,10 @@ def checked_state(session: Session, cwd: Path) -> tuple[State, State]:
     gate = read_gate(read_override(cwd))
     before = fingerprint(cwd)
     should_run = old.fingerprint != before
-    reports = run_checks(cwd, find_watchers(cwd)) if should_run else old.reports
+    watchers = find_watchers(cwd) if should_run else []
+    reports = (run_persistent_checks(cwd, watchers, session.state.parent)
+               if should_run and os.environ.get("OVERWATCH_DAEMON") == "1" else
+               run_checks(cwd, watchers) if should_run else old.reports)
     after = fingerprint(cwd) if should_run else before
     told = old.environment
     environment = new_environment(reports, told)

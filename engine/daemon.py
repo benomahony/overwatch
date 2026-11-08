@@ -124,7 +124,7 @@ class Daemon:
 
     def __init__(self, project: Path) -> None:
         assert project.is_dir(), f"the daemon was given {project}, which is not a project directory"
-        self.watchings = [Watching(watcher, project) for watcher in engine.find_watchers(project)]
+        self.watchings = [Watching(watcher, project) for watcher in engine.find_watchers(project) if watcher.get("argv")]
         self.asked = time.monotonic()
         keys = {engine.key_of(each.watcher["name"], each.watcher.get("dir")) for each in self.watchings}
         assert len(keys) == len(self.watchings), f"{project} gave the same watcher twice; find_watchers gives each once"
