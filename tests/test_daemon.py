@@ -14,8 +14,10 @@ import time
 import unittest
 from pathlib import Path
 
-from paths import ROOT
+import paths
 import daemon
+
+assert str(paths.ROOT / "engine") in sys.path, f"{paths.ROOT / 'engine'} is not on sys.path {sys.path}; paths puts engine/ there so daemon imports by name"
 
 # The fixture watcher: names its process, fails, then passes once the test lets it, and keeps running.
 WATCH = textwrap.dedent(

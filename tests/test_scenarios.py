@@ -2,13 +2,16 @@
 import contextlib
 import io
 from pathlib import Path
+import sys
 import tempfile
 import unittest
 
 from acceptance.dsl import Scenario
 from acceptance.runner import scenario_suite
-from paths import ROOT
+import paths
 import scenarios
+
+assert str(paths.ROOT / "scripts") in sys.path, f"{paths.ROOT / 'scripts'} is not on sys.path {sys.path}; paths puts scripts/ there so scenarios imports by name"
 
 
 def sample_scenario() -> Scenario:

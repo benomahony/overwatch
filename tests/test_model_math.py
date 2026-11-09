@@ -1,6 +1,5 @@
 """Ensure the complete source inventory is published without a parallel equation catalog."""
 import re
-import json
 from pathlib import Path
 import tempfile
 import unittest
