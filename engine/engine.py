@@ -604,6 +604,35 @@ def commit_of(cwd: Path) -> str | None:
     return head
 
 
+# The reflog message of a move that records the workspace without changing it: a commit, or an amended one.
+RECORDING = re.compile(r'commit(?: \(amend\))?: ')
+
+
+def is_committed(cwd: Path, old: str, new: str) -> bool:
+    """Whether HEAD went from old to new by commits alone, as git's reflog shows: a commit records the workspace
+    without changing it, so it brings in no failure the agent did not make. False when the reflog cannot show every
+    step, as when it is off, or when a pull, checkout or reset came between."""
+    assert old != new, f'is_committed was asked about {old}..{new}; pass two different commits'
+    try:
+        result = subprocess.run(['git', 'rev-parse', '--git-path', 'logs/HEAD'], cwd=cwd,
+                                capture_output=True, text=True, timeout=GIT_TIMEOUT, check=True)
+        lines = (cwd / result.stdout.strip()).read_text(errors='replace').splitlines()
+    except (OSError, subprocess.SubprocessError):
+        return False
+    at, is_reached = new, False
+    for line in reversed(lines):
+        moved, _, message = line.partition('\t')
+        commits = moved.split(' ')
+        if len(commits) < 2 or commits[1] != at or RECORDING.match(message) is None:
+            break
+        at = commits[0]
+        is_reached = at == old
+        if is_reached:
+            break
+    assert not is_reached or at == old, f'is_committed reached {at}, not {old}; follow the reflog back to the old HEAD'
+    return is_reached
+
+
 def fingerprint(cwd: Path) -> str:
     """A digest of the path, size and modification time of each of workspace_files(cwd). A file that goes missing
     while it is read is digested as missing, which is itself a change the next fingerprint sees."""
@@ -1073,7 +1102,7 @@ def checked_state(session: Session, cwd: Path) -> tuple[State, State]:
     run demand another check instead of marking their newer workspace as already verified."""
     old = load_state(session)
     head = commit_of(cwd)
-    if old.head is not None and head is not None and old.head != head:
+    if old.head is not None and head is not None and old.head != head and not is_committed(cwd, old.head, head):
         old = replace(old, baseline={}, fingerprint=None, told=None, failed=False, signatures=())
     gate = read_gate(read_override(cwd))
     before = fingerprint(cwd)

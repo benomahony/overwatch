@@ -473,6 +473,31 @@ async function commitOf($: EngineInterface, root: string): Promise<string | unde
   return COMMIT.test(commit) ? commit : undefined
 }
 
+/** The reflog message of a move that records the workspace without changing it: a commit, or an amended one. */
+const RECORDING = /^commit(?: \(amend\))?: /
+
+/**
+ * Whether HEAD went from `from` to `to` by commits alone, as the reflog in .git/logs/HEAD shows: a commit records the
+ * workspace without changing it, so it brings in no failure the agent did not make. False when the reflog cannot
+ * show every step, as when it is off, or when a pull, checkout or reset came between.
+ */
+async function isCommitted($: EngineInterface, root: string, from: string, to: string): Promise<boolean> {
+  assert(root.startsWith('/'), `isCommitted was given ${root}; pass the repository's absolute path`)
+  assert(COMMIT.test(from) && COMMIT.test(to) && from !== to, `isCommitted was asked about ${from}..${to}; pass two different commit ids`)
+  const log = await $.fs.read(`${root}/.git/logs/HEAD`).then(found => found, () => '')
+  const steps = log.trimEnd().split('\n').reverse().map(line => /^(\S+) (\S+) [^\t]*\t(.*)$/.exec(line))
+  let at = to
+  let isReached = false
+  for (const step of steps) {
+    if (step === null || step[2] !== at || !RECORDING.test(step[3]!)) break
+    at = step[1]!
+    isReached = at === from
+    if (isReached) break
+  }
+  assert(!isReached || at === from, `isCommitted reached ${at}, not ${from}; follow the reflog back to the old HEAD`)
+  return isReached
+}
+
 /** The project's .overwatch.json in cwd, or no override when it has none or it is not JSON. */
 async function readOverride($: EngineInterface, cwd: string): Promise<Override> {
   assert(cwd !== '' && !cwd.endsWith(`/${OVERRIDE_PATH}`), `readOverride was given ${cwd}; pass the project's directory`)
@@ -844,7 +869,8 @@ async function completeTurn($: EngineInterface, state: State, isAnswered: boolea
 /**
  * Notes the commit the session's baselines belong to, and takes fresh ones once it moves under the session, as a
  * pull or checkout brings in failures the agent did not make. Each check reruns, stopping a run still reading the
- * old commit, and its next result is its baseline unless the agent edits first.
+ * old commit, and its next result is its baseline unless the agent edits first. A commit keeps the baselines, even
+ * one made in the same step as an edit, since it changes no file.
  */
 async function rebaselineOnMove($: EngineInterface, state: State) {
   const { cwd, epoch } = state
@@ -853,9 +879,10 @@ async function rebaselineOnMove($: EngineInterface, state: State) {
   const root = await repositoryOf($, cwd)
   const head = root === undefined ? undefined : await commitOf($, root)
   if (state.epoch !== epoch || head === undefined || head === state.head) return
-  const isMoved = state.head !== undefined
+  assert(root !== undefined, `HEAD ${head} was read with no repository for ${cwd}; read it only from one`)
+  const from = state.head
   state.head = head
-  if (!isMoved) return
+  if (from === undefined || await isCommitted($, root, from, head) || state.epoch !== epoch) return
   for (const each of state.liveWatchers) {
     each.baseline = undefined
     each.isEdited = false

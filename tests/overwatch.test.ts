@@ -1041,6 +1041,32 @@ test('a pull that moves HEAD takes a fresh baseline, so only the agent\'s own fa
   expect(prompts[0]).toContain('2 more were already failing when the session started.')
 })
 
+test('an edit committed in the same step keeps the baseline, so its failure wakes the agent', async ($, on) => {
+  const clock = mock.clock(on)
+  const prompts: string[] = []
+  const git = new Map([['/repo/.git/HEAD', 'ref: refs/heads/main\n'], ['/repo/.git/packed-refs', `${'a'.repeat(40)} refs/heads/main\n`]])
+  let output = '--- FAIL: TestOld (0.00s)\nFAIL\n'
+  mock.env(on, { PATH: '/usr/bin' })
+  on('fs.read', ($, e) => (git.has(e.path) ? { value: git.get(e.path)! } : { deny: 'no such file' }))
+  on('fs.exists', ($, e) => ({ value: ['/repo/.git', '/repo/go.mod'].includes(e.path) }))
+  on('process.spawn', async function* () {
+    yield { stream: 'stdout' as const, text: output }
+    return { value: { code: 1, signal: null } }
+  })
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  on('tool.call', () => ({ result: 'ok' }))
+  on('prompt.submit', ($, e) => { prompts.push(e.text); return { text: e.text } })
+  await $.session.start(start)
+  await clock.advance(1000)
+  output = '--- FAIL: TestOld (0.00s)\n--- FAIL: TestBroken (0.00s)\nFAIL\n'
+  git.set('/repo/.git/refs/heads/main', `${'b'.repeat(40)}\n`)
+  git.set('/repo/.git/logs/HEAD', `${'a'.repeat(40)} ${'b'.repeat(40)} dev <dev@example.com> 1 +0000\tcommit: break\n`)
+  await $.tool.call({ tool: 'Bash', command: 'echo fail > result && git commit -qam break' })
+  await clock.advance(1000)
+  expect(prompts.length).toBe(1)
+  expect(prompts[0]).toContain('TestBroken')
+})
+
 test('a summary-only legacy backlog guards count increases and permits reductions', () => {
   const baseline = { summary: '10000 errors and 20 warnings', isFailed: true, text: '', failures: [] }
   expect(hasRegression({ ...baseline, summary: '9999 errors and 20 warnings' }, baseline)).toBe(false)

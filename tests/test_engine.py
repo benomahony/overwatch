@@ -376,6 +376,38 @@ class CodexHookTests(unittest.TestCase):
         self.assertEqual(stopped, {})
         self.assertEqual(read(count), "3")
 
+    def git(self, *args: str) -> None:
+        """Runs git in the project as a fixed test identity, so commits need no user configuration."""
+        subprocess.run(["git", "-c", "user.email=dev@example.com", "-c", "user.name=dev", *args],
+                       cwd=self.cwd, check=True, capture_output=True)
+
+    def test_an_edit_committed_in_the_same_step_is_a_new_failure(self) -> None:
+        result, _ = self.configure()
+        write(result, "RESULT: PASS")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "init")
+        self.call("SessionStart")
+        write(result, "RESULT: FAIL", "RESULT: PASS")
+        self.git("commit", "-qam", "break")
+        failed, _ = self.call("PostToolUse", tool_name="Bash")
+        self.assertIn("Full output:", failed["hookSpecificOutput"]["additionalContext"])
+        self.assertEqual(self.call("Stop")[0]["decision"], "block")
+
+    def test_a_checkout_that_moves_head_takes_a_fresh_baseline(self) -> None:
+        result, _ = self.configure()
+        write(result, "RESULT: PASS")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "init")
+        self.git("checkout", "-qb", "other")
+        write(result, "RESULT: FAIL", "RESULT: PASS")
+        self.git("commit", "-qam", "other")
+        self.git("checkout", "-q", "-")
+        self.call("SessionStart")
+        self.git("checkout", "-q", "other")
+        moved, _ = self.call("PostToolUse", tool_name="Bash")
+        self.assertIn("inherited backlog", moved["hookSpecificOutput"]["additionalContext"])
+        self.assertEqual(self.call("Stop")[0], {})
+
     def test_watch_command_stops_after_its_first_report(self) -> None:
         result, count = self.configure(watch=True)
         write(result, "RESULT: PASS")
