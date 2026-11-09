@@ -124,17 +124,3 @@ def run_checks(cwd: Path, watchers: list[Watcher]) -> list[Report]:
     assert [report.name for report in ran] == [watcher["name"] for watcher, report in zip(watchers, reports) if report], f"reports {[report.name for report in ran]} are out of watcher order"
     return ran
 
-
-def run_persistent_checks(cwd: Path, watchers: list[Watcher], data: Path) -> list[Report]:
-    """Read reports for long-running watchers from the daemon, and rerun commands without a watch command."""
-    import daemon
-    assert cwd.is_absolute() and cwd.is_dir(), f"project {cwd} must be an absolute directory"
-    assert data.is_absolute() and data.is_dir(), f"data directory {data} must be absolute and exist"
-    assert all(isinstance(watcher.get("name"), str) for watcher in watchers), f"watchers {watchers!r} must each have a string name"
-    persistent = [watcher for watcher in watchers if watcher.get("argv")]
-    transient = [watcher for watcher in watchers if not watcher.get("argv")]
-    reports = daemon.latest(cwd, data) if persistent else []
-    reports = [report for report in reports if any(report.name == watcher["name"] for watcher in persistent)]
-    reports.extend(run_checks(cwd, transient))
-    assert all(isinstance(report, Report) for report in reports), f"daemon/check reports {reports!r} must all be Report values"
-    return reports

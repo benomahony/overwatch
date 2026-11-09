@@ -8,7 +8,6 @@ Copyright (c) 2026 benomahony. SPDX-License-Identifier: MIT
 from __future__ import annotations
 
 import importlib
-import os
 import sys
 from pathlib import Path
 
@@ -18,5 +17,4 @@ if __name__ == "__main__":
     assert (ENGINE / "engine.py").is_file(), f"no engine at {ENGINE}; install the plugin with its engine directory"
     # The engine imports its sibling modules by name, so its directory goes on the path before it loads.
     sys.path.insert(0, str(ENGINE))
-    os.environ["OVERWATCH_DAEMON"] = "1"
     importlib.import_module("engine").main()

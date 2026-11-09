@@ -9,7 +9,6 @@ import sys
 import tempfile
 import unittest
 
-from daemons import data_directory
 from paths import ROOT
 
 from .claude_steps import ClaudeSteps
@@ -22,7 +21,7 @@ class AcceptanceWorld(ClaudeSteps, unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.fixture_root = Path(temporary.name)
         self.project = Path(temporary.name) / "project"
-        self.data = data_directory(self)
+        self.data = Path(temporary.name) / "state"
         self.bin = Path(temporary.name) / "bin"
         self.project.mkdir()
         self.bin.mkdir()
