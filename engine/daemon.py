@@ -24,8 +24,11 @@ import time
 from dataclasses import asdict
 from pathlib import Path
 
+from discovery import ConfigurationError, Watcher, find_watchers, key_of, subproject
 import engine
+from reading import last_build, read_report
 from records import Report, report_from
+from running import terminate
 from unix import try_exclusive
 
 # How long a daemon waits for its next client before it stops, and how long a client waits for one it started.
@@ -49,9 +52,9 @@ def socket_path(project: Path, root: Path) -> Path:
 class Watching:
     """One watcher's commands in the project and the latest report they gave, read on a thread of its own."""
 
-    def __init__(self, watcher: engine.Watcher, project: Path) -> None:
+    def __init__(self, watcher: Watcher, project: Path) -> None:
         self.watcher = watcher
-        self.cwd = engine.subproject(project, watcher.get("dir", ""))
+        self.cwd = subproject(project, watcher.get("dir", ""))
         self.report: Report | None = None
         self.process: subprocess.Popen[bytes] | None = None
         self.lock = threading.Lock()
@@ -83,12 +86,12 @@ class Watching:
         while chunk := os.read(process.stdout.fileno(), READ_CHUNK):
             output += chunk.decode(errors="replace")
             lines = output[:output.rfind("\n") + 1]
-            report = engine.read_report(self.watcher, lines)
+            report = read_report(self.watcher, lines)
             if report is not None:
                 self.publish(report)
-                output = engine.last_build(self.watcher, lines)[1] + output[len(lines):]
+                output = last_build(self.watcher, lines)[1] + output[len(lines):]
         code = process.wait()
-        ended = engine.read_report(self.watcher, output, code)
+        ended = read_report(self.watcher, output, code)
         if ended is not None:
             self.publish(ended)
         assert process.returncode is not None, f"{argv[0]} has no exit code after wait"
@@ -115,7 +118,7 @@ class Watching:
         assert process is None or process.pid > 0, f"{self.watcher['name']} holds a process with no id"
         if process is not None and process.poll() is None:
             os.killpg(process.pid, signal.SIGTERM)
-            engine.terminate(process)
+            terminate(process)
         assert process is None or process.returncode is not None, f"{self.watcher['name']} still runs after stop"
 
 
@@ -124,9 +127,9 @@ class Daemon:
 
     def __init__(self, project: Path) -> None:
         assert project.is_dir(), f"the daemon was given {project}, which is not a project directory"
-        self.watchings = [Watching(watcher, project) for watcher in engine.find_watchers(project) if watcher.get("argv")]
+        self.watchings = [Watching(watcher, project) for watcher in find_watchers(project) if watcher.get("argv")]
         self.asked = time.monotonic()
-        keys = {engine.key_of(each.watcher["name"], each.watcher.get("dir")) for each in self.watchings}
+        keys = {key_of(each.watcher["name"], each.watcher.get("dir")) for each in self.watchings}
         assert len(keys) == len(self.watchings), f"{project} gave the same watcher twice; find_watchers gives each once"
 
     def answer(self, request: dict[str, object]) -> dict[str, object]:
@@ -225,7 +228,7 @@ def ask(project: Path, root: Path, request: dict[str, object]) -> dict[str, obje
                 start(project, root)
                 started = True
             time.sleep(TICK_SECONDS)
-    raise engine.ConfigurationError(f"no overwatch daemon answered at {path} within {START_SECONDS:.0f}s; run {Path(__file__).name} serve {project} to see why")
+    raise ConfigurationError(f"no overwatch daemon answered at {path} within {START_SECONDS:.0f}s; run {Path(__file__).name} serve {project} to see why")
 
 
 def latest(project: Path, root: Path) -> list[Report]:
@@ -233,7 +236,7 @@ def latest(project: Path, root: Path) -> list[Report]:
     assert project.is_absolute(), f"project {project} is relative; resolve it"
     reply = ask(project, root, {"op": "latest"})
     if "error" in reply:
-        raise engine.ConfigurationError(f"the overwatch daemon for {project} refused: {reply['error']}")
+        raise ConfigurationError(f"the overwatch daemon for {project} refused: {reply['error']}")
     reports = [report_from(value) for value in reply.get("reports", [])]
     assert all(isinstance(report, Report) for report in reports), f"the daemon for {project} sent reports {reply.get('reports')!r}"
     return reports

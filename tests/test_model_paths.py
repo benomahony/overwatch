@@ -7,10 +7,12 @@ import unittest
 from unittest.mock import patch
 
 from paths import ROOT
+from discovery import TABLE
 import engine
+from reading import last_build, read_report
 
 TRACES = json.loads((ROOT / 'tests/fixtures/model-traces.json').read_text())
-ZIG = engine.TABLE['watchers'][0]
+ZIG = TABLE['watchers'][0]
 
 
 def build_output(failures: list[str]) -> str:
@@ -126,7 +128,7 @@ def reader_steps(trace: dict):
             partial = '' if action == 'Build' else action
         if action in ('Read', 'Poll'):
             lines = pending[:pending.rfind('\n') + 1]
-            report = engine.read_report(ZIG, lines)
+            report = read_report(ZIG, lines)
             yield index, report, action == 'Poll'
             if report is not None:
-                pending = engine.last_build(ZIG, lines)[1] + pending[len(lines):]
+                pending = last_build(ZIG, lines)[1] + pending[len(lines):]

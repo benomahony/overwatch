@@ -12,7 +12,9 @@ import unittest
 
 from codex_hook import CodexHook, barrier_script, fixture_report, mkdir, read, tool_script, write
 from paths import ROOT
+import discovery
 import engine
+import reading
 import table
 import triage
 
@@ -339,17 +341,17 @@ class CodexHookTests(CodexHook):
 
     def test_colour_codes_are_read_through(self) -> None:
         output = "\x1b[0m\x1b[31mFAILED\x1b[0m | 1 passed | 1 failed\n\x1b[0m\x1b[38;5;12mWatcher\x1b[0m Test failed. Restarting..."
-        report = engine.read_report(next(w for w in engine.WATCHERS if w["name"] == "deno"), output)
+        report = reading.read_report(next(w for w in discovery.WATCHERS if w["name"] == "deno"), output)
         assert report is not None, f"deno's summary was not found in {output!r}; check its summary pattern"
         self.assertTrue(report.failed)
         self.assertEqual(report.summary, "FAILED | 1 passed | 1 failed")
 
     def test_a_run_with_no_summary_that_exits_nonzero_fails(self) -> None:
-        python = engine.WATCHERS[1]
-        report = engine.read_report(python, "error: Failed to parse uv.lock", 2)
+        python = discovery.WATCHERS[1]
+        report = reading.read_report(python, "error: Failed to parse uv.lock", 2)
         assert report is not None, "a nonzero exit with no summary gave no report; read it by its exit code"
         self.assertEqual((report.failed, report.summary), (True, "exited with code 2"))
-        self.assertIsNone(engine.read_report(python, "nothing", 0))
+        self.assertIsNone(reading.read_report(python, "nothing", 0))
 
     def test_every_codex_hook_has_a_branded_status_message(self) -> None:
         config = json.loads(read(HOOKS_CONFIG))
