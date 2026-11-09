@@ -17,6 +17,7 @@ import textwrap
 import time
 import unittest
 
+from daemons import data_directory
 from paths import ROOT
 import engine
 import table
@@ -119,7 +120,7 @@ class CodexHookTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.cwd = Path(self.temporary.name) / "project"
-        self.data = Path(self.temporary.name) / "data"
+        self.data = data_directory(self)
         self.cwd.mkdir()
         subprocess.run(["git", "init", "-q", str(self.cwd)], check=True)
         self.bin = Path(self.temporary.name) / "bin"

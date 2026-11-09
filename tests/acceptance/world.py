@@ -11,6 +11,8 @@ import sys
 import tempfile
 import unittest
 
+from daemons import data_directory
+
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -22,7 +24,7 @@ class AcceptanceWorld(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.fixture_root = Path(temporary.name)
         self.project = Path(temporary.name) / "project"
-        self.data = Path(temporary.name) / "state"
+        self.data = data_directory(self)
         self.bin = Path(temporary.name) / "bin"
         self.project.mkdir()
         self.bin.mkdir()
