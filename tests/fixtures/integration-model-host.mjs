@@ -1,7 +1,7 @@
 /** Native plugin callbacks with the real Python checker and isolated repository files. */
 import assert from 'node:assert/strict'
+import { stopDaemons } from './daemons.mjs'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readdirSync, readFileSync, symlinkSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { serialChecker } from '../../engine/check.js'
@@ -133,14 +133,18 @@ export async function v2Host(project, check, outputs, session = { id: 'model' })
 
 /** All filesystem and environment changes belong to the node test's cleanup lifecycle. */
 export async function integrationHost(t, kind) {
-  const root = mkdtempSync(join(tmpdir(), 'overwatch-model-'))
-  t.after(() => rmSync(root, { recursive: true, force: true }))
+  // The engine's checks go through the watcher daemon, whose Unix socket in the data directory needs a short path.
+  const root = mkdtempSync(join('/tmp', 'overwatch-model-'))
   const project = join(root, 'project'), data = join(root, 'data')
+  t.after(async () => { await stopDaemons(data); rmSync(root, { recursive: true, force: true }) })
   mkdirSync(project)
   execFileSync('git', ['init', '-q', project])
   writeFileSync(join(project, '.git/HEAD'), 'a'.repeat(40) + '\n')
   writeFileSync(join(project, 'build.zig'), 'initial')
-  writeFileSync(join(project, '.overwatch.json'), JSON.stringify({ baseline: ['sh', '-c', 'cat result; if [ -f overlap ]; then echo changed > build.zig; rm overlap; fi'], gate: { protected_actions: [{ tool: 'Publish' }] } }))
+  // The fake check prints the planned result and exits, as its full suite and as its watch command, which the daemon
+  // starts again for each settled request; a short settle keeps the replay quick.
+  const fakeCheck = ['sh', '-c', 'cat result; if [ -f overlap ]; then echo changed > build.zig; rm overlap; fi']
+  writeFileSync(join(project, '.overwatch.json'), JSON.stringify({ baseline: fakeCheck, argv: fakeCheck, settle: 0.2, gate: { protected_actions: [{ tool: 'Publish' }] } }))
   const previous = { PATH: process.env.PATH, PLUGIN_DATA: process.env.PLUGIN_DATA }
   const python = execFileSync('python3', ['-c', 'import sys; print(sys.executable)'], { encoding: 'utf8' }).trim()
   const bin = join(root, 'bin')

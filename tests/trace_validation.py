@@ -29,6 +29,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import paths
 import engine
+from daemons import stop_daemons
 from test_model_paths import build_output
 
 assert str(paths.ROOT / "engine") in sys.path, f"{paths.ROOT / 'engine'} is not on sys.path {sys.path}; paths puts engine/ there"
@@ -80,7 +81,10 @@ class EngineTrace:
                      for version, names in enumerate(failures)}
         (root / "check.py").write_text(CHECK)
         # The project's zig watcher runs the fixture check in place of its own command and reads it with its own patterns.
-        override = {"baseline": [sys.executable, str(root / "check.py"), str(self.plan_path), str(self.overlaps)], "timeout": TIMEOUT_SECONDS,
+        check = [sys.executable, str(root / "check.py"), str(self.plan_path), str(self.overlaps)]
+        # The check prints its result and exits, as the full suite and as the watch command, which the daemon starts
+        # again for each settled request.
+        override = {"baseline": check, "argv": check, "timeout": TIMEOUT_SECONDS, "settle": 0.2,
                     "gate": {"protected_actions": [{"tool": "Publish", "checks": []}]},
                     "watchers": {"zanity": {"enabled": False}, "git": {"enabled": False}}}
         (self.project / ".overwatch.json").write_text(json.dumps(override))
@@ -259,7 +263,10 @@ def main() -> None:
             root = Path(directory).resolve() / str(index)
             root.mkdir()
             trace = EngineTrace(root, random.Random(args.seed + index))
-            traces.append((trace.plan, trace.run()))
+            try:
+                traces.append((trace.plan, trace.run()))
+            finally:
+                stop_daemons(trace.data)
     reached = validate(args.jar.resolve(), traces)
     rejected = [(scenario, reached.get(scenario, 0)) for scenario in range(1, len(traces) + 1)
                 if reached.get(scenario, 0) <= len(traces[scenario - 1][1])]

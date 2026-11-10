@@ -2,12 +2,12 @@
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, rmSync, symlinkSync, realpathSync } from 'node:fs'
 import { createHash } from 'node:crypto'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { setTimeout as delay } from 'node:timers/promises'
 import { serialChecker } from '../../engine/check.js'
 import { piHost, v1Host, v2Host, buildOutput } from './integration-model-host.mjs'
+import { stopDaemons } from './daemons.mjs'
 
 const NAMES = { primary: 'zig', secondary: 'zanity' }
 
@@ -26,20 +26,6 @@ async function bounded(promise, label) {
   } finally { clearTimeout(timer) }
 }
 
-/**
- * Stops each watcher daemon whose lock in data names it, and waits for it to exit, as tests/daemons.py does. A Codex
- * replay must have started one, for zanity's watch command, or its checks never went through the daemon.
- */
-async function stopDaemons(data, codex) {
-  const locks = existsSync(data) ? readdirSync(data).filter(name => /^daemon-.*\.lock$/.test(name)) : []
-  assert(!codex || locks.length > 0, `the Codex replay left no daemon lock in ${data}; its checks did not go through the daemon`)
-  const pids = locks.map(name => Number(readFileSync(join(data, name), 'utf8').trim())).filter(pid => pid > 0)
-  const running = pid => { try { process.kill(pid, 0); return true } catch { return false } }
-  for (const pid of pids.filter(running)) process.kill(pid, 'SIGTERM')
-  for (let attempt = 0; attempt < 100 && pids.some(running); attempt++) await delay(50)
-  assert(!pids.some(running), `daemons ${pids} still serve ${data} after SIGTERM`)
-}
-
 async function started(path) {
   for (let attempt = 0; attempt < 300; attempt++) {
     if (existsSync(path)) return
@@ -49,17 +35,16 @@ async function started(path) {
 }
 
 function contractFiles(t, trace) {
-  // Codex checks go through the watcher daemon, whose Unix socket in the data directory needs a short path.
-  const codex = trace.host === 'codex'
-  const root = mkdtempSync(join(codex ? '/tmp' : tmpdir(), 'overwatch-contract-'))
+  // The engine's checks go through the watcher daemon, whose Unix socket in the data directory needs a short path.
+  const root = mkdtempSync(join('/tmp', 'overwatch-contract-'))
   let dispose = async () => {}
   const project = join(root, 'project'), bin = join(root, 'bin'), data = join(root, 'data')
-  t.after(async () => { await dispose(); await stopDaemons(data, codex); rmSync(root, { recursive: true, force: true }) })
+  t.after(async () => { await dispose(); await stopDaemons(data); rmSync(root, { recursive: true, force: true }) })
   mkdirSync(project); mkdirSync(bin)
   execFileSync('git', ['init', '-q', project])
   writeFileSync(join(project, 'build.zig'), 'initial')
   const checkNames = trace.selected.map(name => NAMES[name])
-  writeFileSync(join(project, '.overwatch.json'), JSON.stringify({ baseline: ['zig', 'full'], gate: {
+  writeFileSync(join(project, '.overwatch.json'), JSON.stringify({ baseline: ['zig', 'full'], settle: 0.2, gate: {
     inherited: trace.inherited, protected_actions: [{ tool: 'Publish', checks: checkNames }],
   } }))
   const python = execFileSync('python3', ['-c', 'import sys; print(sys.executable)'], { encoding: 'utf8' }).trim()
@@ -67,10 +52,8 @@ function contractFiles(t, trace) {
   const held = shellPath(join(root, 'hold')), released = shellPath(join(root, 'release')), began = shellPath(join(root, 'started'))
   writeFileSync(join(bin, 'zig'), `#!/bin/sh\nif [ -e ${held} ]; then touch ${began}; i=0; while [ ! -e ${released} ] && [ "$i" -lt 500 ]; do sleep 0.01; i=$((i+1)); done; fi\ncat ${shellPath(join(root, 'primary'))}\n`, { mode: 0o755 })
   writeFileSync(join(bin, 'zanity'), `#!/bin/sh\ncat ${shellPath(join(root, 'secondary'))}\n`, { mode: 0o755 })
-  const old = { PATH: process.env.PATH, PLUGIN_DATA: process.env.PLUGIN_DATA, OVERWATCH_DAEMON: process.env.OVERWATCH_DAEMON }
+  const old = { PATH: process.env.PATH, PLUGIN_DATA: process.env.PLUGIN_DATA }
   process.env.PATH = `${bin}:/usr/bin:/bin`; process.env.PLUGIN_DATA = data
-  // integrations/codex.py sends its checks through the daemon; the replay runs the engine as Codex does.
-  if (codex) process.env.OVERWATCH_DAEMON = '1'; else delete process.env.OVERWATCH_DAEMON
   t.after(() => { for (const [key, value] of Object.entries(old)) { if (value === undefined) delete process.env[key]; else process.env[key] = value } })
   let version = 0
   assert(project !== data, `contract state ${data} must be outside project ${project}`)

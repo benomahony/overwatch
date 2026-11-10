@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from daemons import stop_daemons
 from paths import ROOT
 from discovery import TABLE
 import engine
@@ -34,7 +35,10 @@ class CommandReplay:
         subprocess.run(['git', 'init', '-q', str(self.project)], check=True)
         (self.project / '.git/HEAD').write_text('a' * 40 + '\n')
         (self.project / 'build.zig').write_text('version 0')
-        (self.project / '.overwatch.json').write_text(json.dumps({'baseline': ['sh', '-c', 'cat result; if [ -f overlap ]; then echo changed > build.zig; rm overlap; fi'], 'gate': {'protected_actions': [{'tool': 'Publish'}]}}))
+        # The fake check prints the planned result and exits, as its full suite and as its watch command, which the
+        # daemon starts again for each settled request; a short settle keeps the replay quick.
+        check = ['sh', '-c', 'cat result; if [ -f overlap ]; then echo changed > build.zig; rm overlap; fi']
+        (self.project / '.overwatch.json').write_text(json.dumps({'baseline': check, 'argv': check, 'settle': 0.2, 'gate': {'protected_actions': [{'tool': 'Publish'}]}}))
         self.data = engine.data_root(str(directory / 'data'))
         self.trace = trace
         self.version = 0
@@ -77,7 +81,8 @@ class CommandReplay:
 class ModelPathsTests(unittest.TestCase):
     def setUp(self) -> None:
         """Own all replay projects through unittest's cleanup lifecycle."""
-        self.temporary = tempfile.TemporaryDirectory()
+        # Under /tmp, since the daemon's Unix socket lives in each replay's data directory.
+        self.temporary = tempfile.TemporaryDirectory(dir='/tmp', prefix='owm')
         self.addCleanup(self.temporary.cleanup)
         self.directory = Path(self.temporary.name)
         assert self.directory.is_dir(), f'Missing replay root {self.directory}'
@@ -85,26 +90,37 @@ class ModelPathsTests(unittest.TestCase):
 
     def test_command_hook_sequences(self) -> None:
         """Real commands and persisted hook state follow the model's baseline and guard decisions."""
+        replayed = 0
         for trace in TRACES:
             if trace['kind'] != 'check':
                 continue
+            replayed += 1
             with self.subTest(trace=trace['name']):
-                directory = self.directory / str(TRACES.index(trace))
-                replay = CommandReplay(directory, trace)
-                for index, action in enumerate(trace['events'], 1):
-                    output = replay.step(action)
-                    if output is None:
-                        continue
-                    expected = trace['expected'][index]
-                    if 'during initial check' in trace['name'] and expected['guarded']:
-                        self.assertNotIn('inherited backlog', json.dumps(output), trace['name'])
-                    if action == 'Complete':
-                        self.assertEqual(output.get('decision') == 'block', expected['guarded'], (trace['name'], index))
-                    published = replay.event('PreToolUse', 'Publish')
-                    self.assertEqual(published.get('hookSpecificOutput', {}).get('permissionDecision') == 'deny', expected['guarded'], (trace['name'], index))
-                    with engine.locked(engine.state_path(engine.Event('', 'model', '', '', {}), replay.project, replay.data), replay.data) as session:
-                        state = engine.load_state(session)
-                    self.assertEqual(list(state.reports[0].failures), expected['failures'], (trace['name'], index))
+                replay = CommandReplay(self.directory / str(TRACES.index(trace)), trace)
+                # Each replay's daemon stops as the replay ends, so they do not pile up until the test does.
+                try:
+                    self.check_replay(replay)
+                finally:
+                    stop_daemons(replay.data)
+        self.assertGreater(replayed, 0, "no check traces were replayed; regenerate tests/fixtures/model-traces.json")
+
+    def check_replay(self, replay: 'CommandReplay') -> None:
+        """Replays each event of replay's trace, and after each hook checks its guard and saved failures."""
+        trace = replay.trace
+        for index, action in enumerate(trace['events'], 1):
+            output = replay.step(action)
+            if output is None:
+                continue
+            expected = trace['expected'][index]
+            if 'during initial check' in trace['name'] and expected['guarded']:
+                self.assertNotIn('inherited backlog', json.dumps(output), trace['name'])
+            if action == 'Complete':
+                self.assertEqual(output.get('decision') == 'block', expected['guarded'], (trace['name'], index))
+            published = replay.event('PreToolUse', 'Publish')
+            self.assertEqual(published.get('hookSpecificOutput', {}).get('permissionDecision') == 'deny', expected['guarded'], (trace['name'], index))
+            with engine.locked(engine.state_path(engine.Event('', 'model', '', '', {}), replay.project, replay.data), replay.data) as session:
+                state = engine.load_state(session)
+            self.assertEqual(list(state.reports[0].failures), expected['failures'], (trace['name'], index))
 
     def test_command_reader_uses_latest_complete_build(self) -> None:
         """Raw chunks select only the newest completed build and retain the next build's prefix."""

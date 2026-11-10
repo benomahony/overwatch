@@ -43,8 +43,14 @@ def stop_daemons(data: Path) -> None:
 
 
 def is_running(pid: int) -> bool:
-    """Whether a process with this id still runs."""
+    """Whether a process with this id still runs. A test that runs the engine in-process is the parent of each daemon
+    the engine starts, so a daemon that exited stays a zombie, which still takes signals, until the test reaps it."""
     assert pid > 0, f"is_running was asked about process {pid}; pass a real process id"
+    try:
+        if os.waitpid(pid, os.WNOHANG)[0] == pid:
+            return False
+    except ChildProcessError:
+        pass  # Not this test's child: its own parent reaps it, and the signal below tells whether it still runs.
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
