@@ -281,10 +281,13 @@ class Daemon:
         inactive_since = [asked] * len(watchings)
         # Every watcher has settled or timed out by its timeout, so the longest bounds the wait.
         longest = max((seconds_of(each.watcher, "timeout", COMMAND_TIMEOUT) for each in watchings), default=0.0)
+        settles = [seconds_of(each.watcher, "settle", SETTLE_SECONDS) for each in watchings]
+        # Looking a few times within the shortest settle time keeps a short one from waiting a whole tick more.
+        sample = min([TICK_SECONDS, *(settle / 4 for settle in settles)])
         settled: set[int] = set()
         timed_out: set[int] = set()
-        for _ in range(int((longest + max((seconds_of(each.watcher, "settle", SETTLE_SECONDS) for each in watchings), default=0.0)) / TICK_SECONDS) + 2):
-            time.sleep(TICK_SECONDS)
+        for _ in range(int((longest + max(settles, default=0.0)) / sample) + 2):
+            time.sleep(sample)
             # A client waiting here is still asking, so the daemon does not stop for want of one.
             self.asked = now = time.monotonic()
             settled, timed_out = set(), set()
@@ -292,7 +295,7 @@ class Daemon:
                 activity = each.activity()
                 if activity != seen[index]:
                     seen[index], inactive_since[index] = activity, now
-                if now - inactive_since[index] >= seconds_of(each.watcher, "settle", SETTLE_SECONDS) and each.latest() is not None or each.cannot_start() is not None:
+                if now - inactive_since[index] >= settles[index] and each.latest() is not None or each.cannot_start() is not None:
                     settled.add(index)
                 elif now - asked >= seconds_of(each.watcher, "timeout", COMMAND_TIMEOUT):
                     timed_out.add(index)

@@ -144,7 +144,7 @@ export async function integrationHost(t, kind) {
   // The fake check prints the planned result and exits, as its full suite and as its watch command, which the daemon
   // starts again for each settled request; a short settle keeps the replay quick.
   const fakeCheck = ['sh', '-c', 'cat result; if [ -f overlap ]; then echo changed > build.zig; rm overlap; fi']
-  writeFileSync(join(project, '.overwatch.json'), JSON.stringify({ baseline: fakeCheck, argv: fakeCheck, settle: 0.2, gate: { protected_actions: [{ tool: 'Publish' }] } }))
+  writeFileSync(join(project, '.overwatch.json'), JSON.stringify({ baseline: fakeCheck, argv: fakeCheck, settle: 0.05, watchers: { git: { enabled: false } }, gate: { protected_actions: [{ tool: 'Publish' }] } }))
   const previous = { PATH: process.env.PATH, PLUGIN_DATA: process.env.PLUGIN_DATA }
   const python = execFileSync('python3', ['-c', 'import sys; print(sys.executable)'], { encoding: 'utf8' }).trim()
   const bin = join(root, 'bin')

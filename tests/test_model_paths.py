@@ -38,7 +38,7 @@ class CommandReplay:
         # The fake check prints the planned result and exits, as its full suite and as its watch command, which the
         # daemon starts again for each settled request; a short settle keeps the replay quick.
         check = ['sh', '-c', 'cat result; if [ -f overlap ]; then echo changed > build.zig; rm overlap; fi']
-        (self.project / '.overwatch.json').write_text(json.dumps({'baseline': check, 'argv': check, 'settle': 0.2, 'gate': {'protected_actions': [{'tool': 'Publish'}]}}))
+        (self.project / '.overwatch.json').write_text(json.dumps({'baseline': check, 'argv': check, 'settle': 0.05, 'watchers': {'git': {'enabled': False}}, 'gate': {'protected_actions': [{'tool': 'Publish'}]}}))
         self.data = engine.data_root(str(directory / 'data'))
         self.trace = trace
         self.version = 0

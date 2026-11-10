@@ -44,7 +44,7 @@ function contractFiles(t, trace) {
   execFileSync('git', ['init', '-q', project])
   writeFileSync(join(project, 'build.zig'), 'initial')
   const checkNames = trace.selected.map(name => NAMES[name])
-  writeFileSync(join(project, '.overwatch.json'), JSON.stringify({ baseline: ['zig', 'full'], settle: 0.2, gate: {
+  writeFileSync(join(project, '.overwatch.json'), JSON.stringify({ baseline: ['zig', 'full'], settle: 0.05, watchers: { git: { enabled: false }, zanity: { settle: 0.05 } }, gate: {
     inherited: trace.inherited, protected_actions: [{ tool: 'Publish', checks: checkNames }],
   } }))
   const python = execFileSync('python3', ['-c', 'import sys; print(sys.executable)'], { encoding: 'utf8' }).trim()

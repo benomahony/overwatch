@@ -84,7 +84,7 @@ class EngineTrace:
         check = [sys.executable, str(root / "check.py"), str(self.plan_path), str(self.overlaps)]
         # The check prints its result and exits, as the full suite and as the watch command, which the daemon starts
         # again for each settled request.
-        override = {"baseline": check, "argv": check, "timeout": TIMEOUT_SECONDS, "settle": 0.2,
+        override = {"baseline": check, "argv": check, "timeout": TIMEOUT_SECONDS, "settle": 0.05,
                     "gate": {"protected_actions": [{"tool": "Publish", "checks": []}]},
                     "watchers": {"zanity": {"enabled": False}, "git": {"enabled": False}}}
         (self.project / ".overwatch.json").write_text(json.dumps(override))
