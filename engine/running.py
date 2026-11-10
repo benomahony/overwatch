@@ -15,7 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 from records import TIMED_OUT, Report
 from unix import output_selector, read_available
 from reading import ANSI, command_for, command_line, read_report
-from discovery import ConfigurationError, Watcher, language_of, subproject
+from discovery import ConfigurationError, Watcher, language_of, seconds_of, subproject
 
 
 COMMAND_TIMEOUT = 540
@@ -61,7 +61,7 @@ def _run_command(
     if not argv:
         raise ConfigurationError(f"{watcher['name']} has an empty command; give it argv or baseline in .overwatch.json")
     command = command_line(argv)
-    timeout = timeout_of(watcher)
+    timeout = seconds_of(watcher, "timeout", COMMAND_TIMEOUT)
     try:
         process = subprocess.Popen(
             argv,
@@ -133,14 +133,6 @@ def _run_check(cwd: Path, watcher: Watcher) -> Report | None:
     assert report.name == watcher["name"], f"{watcher['name']} reported as {report.name}; name the report after its watcher"
     assert report.command == command_line(argv), f"{watcher['name']} reported {report.command} but ran {command_line(argv)}"
     return report
-
-
-def timeout_of(watcher: Watcher) -> float:
-    """How long the watcher's command may run before it times out: its timeout setting, else COMMAND_TIMEOUT."""
-    assert "name" in watcher, f"timeout_of was given {watcher!r}; pass a watcher find_watchers returned"
-    timeout = watcher.get("timeout", COMMAND_TIMEOUT)
-    assert isinstance(timeout, (int, float)) and timeout > 0, f"{watcher['name']} has timeout {timeout!r}; configure checks it is a positive number"
-    return float(timeout)
 
 
 def timed_out_report(watcher: Watcher, command: str, timed_out: TimedOut) -> Report:

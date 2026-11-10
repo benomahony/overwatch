@@ -317,6 +317,7 @@ class CodexHookTests(CodexHook):
                                 ({"rust": {"env": {"A": 1}}}, "watchers.rust.env"),
                                 ({"rust": {"timeout": True}}, "field 'timeout'"),
                                 ({"rust": {"timeout": 0}}, "field 'timeout'"),
+                                ({"rust": {"settle": "1s"}}, "field 'settle'"),
                                 ([], "'watchers'")):
             text = json.dumps({"watchers": settings})
             write(self.cwd / ".overwatch.json", text, previous)
