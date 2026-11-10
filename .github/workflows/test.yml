@@ -46,6 +46,9 @@ jobs:
           python3 scripts/model_traces.py --jar "$RUNNER_TEMP/tla2tools.jar" --check
           python3 scripts/integration_traces.py --jar "$RUNNER_TEMP/tla2tools.jar" --check
 
+      - name: Validate traces of the real engine against the model
+        run: python3 tests/trace_validation.py --jar "$RUNNER_TEMP/tla2tools.jar"
+
   agents:
     runs-on: ubuntu-latest
     steps:
