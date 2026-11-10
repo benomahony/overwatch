@@ -258,10 +258,11 @@ export function hasRegression(report: Report, baseline: Report): boolean {
 /** Colour codes, which some tools (deno) print even into a pipe. */
 const ANSI = /\x1b\[[0-9;?]*[A-Za-z]/g
 
-/** Each failing test or error the output names, once each, in the order it names them. */
+/** Each failing test or error the output names, once each, in the order it names them. A name is every group of
+ * its match that matched, trimmed and joined by a space, so a pattern can name a failure from fields apart on its line. */
 function failuresIn(watcher: Watcher, output: string): string[] {
   if (watcher.failure === undefined) return []
-  const names = [...output.matchAll(watcher.failure)].map(match => match.slice(1).find(group => group !== undefined)?.trim() ?? '')
+  const names = [...output.matchAll(watcher.failure)].map(match => match.slice(1).map(group => group?.trim() ?? '').filter(group => group !== '').join(' '))
   const unique = [...new Set(names.filter(name => name !== ''))]
   assert(unique.length <= names.length, `${watcher.name} named ${unique.length} failures from ${names.length} matches; take each from a match`)
   assert(unique.every(name => name === name.trim()), `${watcher.name}'s failures ${unique} keep padding; trim them`)

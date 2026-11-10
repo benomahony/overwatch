@@ -2,6 +2,14 @@ import { expect, test } from 'claude-code/testing'
 import { CHECKERS, WATCHERS, readReport } from '../hooks/watchers'
 import { CARGO_FAILING, GO_FAILING, readResult, watcherNamed } from './fixtures/watchers'
 
+// What `zanity check . --plain` prints for two findings: one record per finding, then the summary.
+const ZANITY_FAILING = [
+  'path="calc.py"\tline=1\tcolumn=5\tseverity="warning"\trule="dead-symbol"\tmessage="\'f\' is a function that nothing refers to."\tfix="Delete it."\tmatching_total=null\tnext_offset=null\tedit_start=null\tedit_end=null\tedit_text=null\tid="ba4ccb9f687bffd53f6f5176d8eb3ee6263cd74a332002b2b20408e3325566d4"\tclassification="unclassified"',
+  'path="calc.py"\tline=4\tcolumn=5\tseverity="warning"\trule="swallowed-error"\tmessage="This error handler does nothing."\tfix="Handle it."\tmatching_total=null\tnext_offset=null\tedit_start=null\tedit_end=null\tedit_text=null\tid="cdde7f46bc45c60ec4c5cab46a974f59403f54448133a3abefc633b26ce88853"\tclassification="unclassified"',
+  'zanity: 0 errors and 2 warnings in 1 of 1 file',
+  '',
+].join('\n')
+
 const VITEST_FAILING = `
  ❯ calc.test.js (2 tests | 1 failed) 4ms
    × adds 4ms
@@ -103,6 +111,12 @@ test('Go runners report what failed', () => {
   expect(readResult(go, GO_FAILING, 1)).toEqual(['go ✗ 1 failed: TestAdd', ['TestAdd']])
   expect(readResult(go, GO_BROKEN, 1)[1]).toEqual(['./calc_test.go:5:1: expected declaration, found syntax'])
   expect(readResult(go, 'ok  \texample.com/calc\t0.2s\n', 0)).toEqual(['go ✓ passed', []])
+})
+
+test('zanity names each finding by path, rule and an id that survives a line shift', () => {
+  const zanity = CHECKERS.find(checker => checker.name === 'zanity')!
+  expect(readResult(zanity, ZANITY_FAILING)[1]).toEqual(['calc.py dead-symbol ba4ccb9f687b', 'calc.py swallowed-error cdde7f46bc45'])
+  expect(readResult(zanity, 'zanity: checked 1 file, no issues found\n')[1]).toEqual([])
 })
 
 test('Rust reports compile and test failures', () => {

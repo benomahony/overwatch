@@ -114,6 +114,12 @@ test('each language reads its runner’s report and names what failed', function
     { 'Smoke/Smoke.swift:18: Precondition failed: lost records', 'Smoke/Smoke.swift:38: Fatal error: Fixture must use 16 kHz' })
 end)
 
+test('a failure is named by every group its pattern matched, joined by a space', function()
+  local watcher = { name = 'lint', argv = { 'lint' }, summary = '^lint: .*$', failed = '[1-9] findings?', failure = '^(\\S+):\\d+ \\[(\\S+)\\]' }
+  local report = overwatch.read_report(watcher, 'calc.py:4 [unused] x is never read\nlint: 1 finding\n')
+  eq(report.failures, { 'calc.py unused' })
+end)
+
 test('every language in a polyglot project gets its own watcher', function()
   local dir = project()
   for _, marker in ipairs({ 'go.mod', 'Cargo.toml', 'deno.json' }) do vim.fn.writefile({}, dir .. '/' .. marker) end

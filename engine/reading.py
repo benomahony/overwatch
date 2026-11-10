@@ -37,13 +37,14 @@ def command_line(argv: list[str]) -> str:
 
 
 def failures_in(watcher: Watcher, output: str) -> list[str]:
-    """Each failing test or error the output names, once each, in order."""
+    """Each failing test or error the output names, once each, in order. A name is every group of its match that
+    matched, trimmed and joined by a space, so a pattern can name a failure from fields apart on its line."""
     if "failure" not in watcher:
         return []
     names: list[str] = []
     seen: set[str] = set()
     for match in re.finditer(watcher["failure"], output, re.MULTILINE):
-        name = next((group for group in match.groups() if group is not None), "").strip()
+        name = " ".join(group.strip() for group in match.groups() if group and group.strip())
         if name and name not in seen:
             seen.add(name)
             names.append(name)

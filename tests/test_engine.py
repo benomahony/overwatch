@@ -23,6 +23,15 @@ HOOKS_CONFIG = ROOT / "integrations" / "codex-hooks.json"
 CODEX_MANIFEST = ROOT / ".codex-plugin" / "plugin.json"
 CLAUDE_MANIFEST = ROOT / ".claude-plugin" / "plugin.json"
 PACKAGE_MANIFEST = ROOT / "package.json"
+# What `zanity check . --plain` prints for two findings: one record per finding, then the summary.
+ZANITY_FAILING = "".join(
+    f'path="calc.py"\tline={line}\tcolumn=5\tseverity="warning"\trule="{rule}"\tmessage="{message}"\tfix="Handle it."\t'
+    f'matching_total=null\tnext_offset=null\tedit_start=null\tedit_end=null\tedit_text=null\tid="{id}"\tclassification="unclassified"\n'
+    for line, rule, message, id in (
+        (1, "dead-symbol", "'f' is a function that nothing refers to.", "ba4ccb9f687bffd53f6f5176d8eb3ee6263cd74a332002b2b20408e3325566d4"),
+        (4, "swallowed-error", "This error handler does nothing.", "cdde7f46bc45c60ec4c5cab46a974f59403f54448133a3abefc633b26ce88853"),
+    )
+) + "zanity: 0 errors and 2 warnings in 1 of 1 file\n"
 
 
 class CodexHookTests(CodexHook):
@@ -345,6 +354,12 @@ class CodexHookTests(CodexHook):
         assert report is not None, f"deno's summary was not found in {output!r}; check its summary pattern"
         self.assertTrue(report.failed)
         self.assertEqual(report.summary, "FAILED | 1 passed | 1 failed")
+
+    def test_zanity_names_each_finding_by_path_rule_and_id(self) -> None:
+        zanity = next(checker for checker in discovery.CHECKERS if checker["name"] == "zanity")
+        report = reading.read_report(zanity, ZANITY_FAILING)
+        assert report is not None, f"zanity's summary was not found in {ZANITY_FAILING!r}; check its summary pattern"
+        self.assertEqual(report.failures, ("calc.py dead-symbol ba4ccb9f687b", "calc.py swallowed-error cdde7f46bc45"))
 
     def test_a_run_with_no_summary_that_exits_nonzero_fails(self) -> None:
         python = discovery.WATCHERS[1]

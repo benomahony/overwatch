@@ -190,20 +190,19 @@ local function first_line(pattern, output)
   return nil
 end
 
---- Each failing test or error the output names, once each, in order.
+--- Each failing test or error the output names, once each, in order. A name is every group of its match that
+--- matched, trimmed and joined by a space, so a pattern can name a failure from fields apart on its line.
 local function failures_in(watcher, output)
   if watcher.failure == nil then return {} end
   local pattern, names, seen = M.vim_regex(watcher.failure), {}, {}
   for line in vim.gsplit(output, '\n', { plain = true }) do
     local groups = vim.fn.matchlist(line, pattern)
     if #groups > 0 then
-      local name = ''
+      local parts = {}
       for i = 2, 10 do
-        if groups[i] ~= '' then
-          name = vim.trim(groups[i])
-          break
-        end
+        if vim.trim(groups[i]) ~= '' then parts[#parts + 1] = vim.trim(groups[i]) end
       end
+      local name = table.concat(parts, ' ')
       if name ~= '' and not seen[name] then
         seen[name] = true
         names[#names + 1] = name

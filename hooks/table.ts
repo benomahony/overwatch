@@ -224,7 +224,8 @@ export const TABLE = {
         "--no-color"
       ],
       "summary": "^zanity: (?:\\d+ errors?(?:,| and) \\d+ warnings? in .*|checked .*, no issues found\\.?)$",
-      "failed": "\\b[1-9]\\d* (?:errors?|warnings?)\\b"
+      "failed": "\\b[1-9]\\d* (?:errors?|warnings?)\\b",
+      "failure": "^path=\"(.+?)\"\\tline=\\d+\\tcolumn=\\d+\\tseverity=\"\\w+\"\\trule=\"([^\"]+)\"\\t.*\\tid=\"([0-9a-f]{12})[0-9a-f]*\""
     },
     {
       "name": "git",
