@@ -139,6 +139,19 @@ class DaemonTests(unittest.TestCase):
         (self.project / ".overwatch.json").write_text(json.dumps(override))
         assert override["argv"][1] == str(self.other), f"the override runs {override['argv']}, not {self.other}"
 
+    def override(self, **fields: object) -> None:
+        """Changes the project's .overwatch.json fields, as a person editing it mid-session would."""
+        override = {**json.loads((self.project / ".overwatch.json").read_text()), **fields}
+        (self.project / ".overwatch.json").write_text(json.dumps(override))
+        assert all(override[name] == value for name, value in fields.items()), f"the override {override} lost {fields}"
+
+    def test_settled_starts_a_watcher_found_since_the_daemon_started(self) -> None:
+        self.override(enabled=False)
+        self.serving(idle=10)
+        self.assertEqual(self.settled(), [])
+        self.override(enabled=True)
+        self.assertEqual(self.settled(), ["RESULT: FAIL"])
+
     def settled(self) -> list[str]:
         return [report.summary for report in daemon.latest(self.project, self.data, "settled")]
 

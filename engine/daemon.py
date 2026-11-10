@@ -185,8 +185,11 @@ class Daemon:
 
     def __init__(self, project: Path) -> None:
         assert project.is_dir(), f"the daemon was given {project}, which is not a project directory"
+        self.project = project
         self.watchings = [Watching(watcher, project) for watcher in find_watchers(project) if watcher.get("argv")]
         self.asked = time.monotonic()
+        # Clients ask on threads of their own, so one search for watchers runs at a time and adds each once.
+        self.finding = threading.Lock()
         keys = {key_of(each.watcher["name"], each.watcher.get("dir")) for each in self.watchings}
         assert len(keys) == len(self.watchings), f"{project} gave the same watcher twice; find_watchers gives each once"
 
@@ -208,14 +211,47 @@ class Daemon:
         assert len(reports) <= len(self.watchings), f"{len(reports)} reports from {len(self.watchings)} watchers; give one each at most"
         return {"reports": reports, "watchers": len(self.watchings)}
 
+    def discover(self) -> None:
+        """Searches the project for its watchers afresh and starts each with a watch command the daemon lacks, so one
+        scaffolded since the daemon started is checked too, as the Claude Code plugin searches at each turn. A watcher
+        no longer found keeps running, as it does there."""
+        assert self.project.is_dir(), f"the daemon's project {self.project} is no longer a directory"
+        with self.finding:
+            known = {key_of(each.watcher["name"], each.watcher.get("dir")) for each in self.watchings}
+            found = [Watching(watcher, self.project) for watcher in find_watchers(self.project)
+                     if watcher.get("argv") and key_of(watcher["name"], watcher.get("dir")) not in known]
+            for each in found:
+                each.start()
+            # A new list, so a reply reading the old one meanwhile sees each watcher once.
+            self.watchings = [*self.watchings, *found]
+        keys = {key_of(each.watcher["name"], each.watcher.get("dir")) for each in self.watchings}
+        assert len(keys) == len(self.watchings), f"{self.project} has watchers {sorted(keys)} more than once; add each key once"
+
     def settled(self) -> dict[str, object]:
         """Waits until SETTLE_SECONDS have passed since it was asked with every watcher quiet throughout, and every
-        watcher has a report, then answers as latest does; an error once COMMAND_TIMEOUT passes first."""
+        watcher has a report, then answers as latest does; an error once COMMAND_TIMEOUT passes first, or when the
+        project's watchers can no longer be read."""
         asked = time.monotonic()
+        try:
+            self.discover()
+        except ConfigurationError as error:
+            return {"error": str(error)}
         assert all(each.thread is not None for each in self.watchings), f"settled was asked before serve started watchers {[each.watcher['name'] for each in self.watchings if each.thread is None]}"
         for each in self.watchings:
             if not each.is_running():
                 each.start()
+        if not self.wait_until_settled(asked):
+            waiting = [each.watcher["name"] for each in self.watchings if each.latest() is None]
+            return {"error": f"the watchers did not settle within {COMMAND_TIMEOUT}s; still without a report: {waiting}"}
+        assert time.monotonic() - asked >= SETTLE_SECONDS, f"settled {time.monotonic() - asked:.2f}s after asked; wait SETTLE_SECONDS at least"
+        reply = self.reports_reply()
+        assert len(reply["reports"]) == len(self.watchings), f"settled with {len(reply['reports'])} reports from {len(self.watchings)} watchers"
+        return reply
+
+    def wait_until_settled(self, asked: float) -> bool:
+        """Whether, before COMMAND_TIMEOUT passes from asked, every watcher has been quiet for SETTLE_SECONDS since
+        asked, with no output and no change in its processes, and has a report."""
+        assert asked <= time.monotonic(), f"settling was asked at {asked}, after now; pass when the client asked"
         seen = [each.activity() for each in self.watchings]
         quiet_since = asked
         while time.monotonic() - asked < COMMAND_TIMEOUT:
@@ -226,12 +262,10 @@ class Daemon:
             if now != seen:
                 seen, quiet_since = now, time.monotonic()
             if time.monotonic() - quiet_since >= SETTLE_SECONDS and all(each.latest() is not None for each in self.watchings):
-                assert time.monotonic() - asked >= SETTLE_SECONDS, f"settled {time.monotonic() - asked:.2f}s after asked; wait SETTLE_SECONDS at least"
-                reply = self.reports_reply()
-                assert len(reply["reports"]) == len(self.watchings), f"settled with {len(reply['reports'])} reports from {len(self.watchings)} watchers"
-                return reply
-        waiting = [each.watcher["name"] for each in self.watchings if each.latest() is None]
-        return {"error": f"the watchers did not settle within {COMMAND_TIMEOUT}s; still without a report: {waiting}"}
+                break
+        settled = time.monotonic() - quiet_since >= SETTLE_SECONDS and all(each.latest() is not None for each in self.watchings)
+        assert settled or time.monotonic() - asked >= COMMAND_TIMEOUT, f"stopped waiting {time.monotonic() - asked:.2f}s after asked, unsettled and before COMMAND_TIMEOUT"
+        return settled
 
 
 class Server(socketserver.ThreadingUnixStreamServer):
