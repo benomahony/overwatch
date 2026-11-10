@@ -54,9 +54,11 @@ for (const trace of CONTRACT_TRACES.filter(trace => trace.host === 'claude')) {
           expect(count).toBe(expected.contexts)
         }
         if (event === 'Report' && !stopped) {
+          // Each trace's failures is its own literal tuple; read them all as the checks they name.
+          const failures: readonly string[] = expected.failures
           for (const key of ['primary', 'secondary'] as const) {
             const part = host.snapshot().status.split(' · ').find(text => text.includes(names[key]))
-            expect(part?.includes('✗')).toBe(expected.failures.includes(key))
+            expect(part?.includes('✗')).toBe(failures.includes(key))
           }
         }
         expect(host.snapshot().prompts.filter(text => text.startsWith('overwatch: this action')).length).toBe(expected.corrections)
