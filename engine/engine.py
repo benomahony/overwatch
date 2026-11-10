@@ -32,7 +32,7 @@ from gating import PolicyError, protected_checks, read_gate, tool_command
 from triage import InventoryError, parse_check, parse_inventory
 from records import REBUILT, Event, First, Report, Session, State, StateError, digest_of, state_from, state_json
 from unix import exclusive, is_private
-from running import run_checks
+from running import run_checks, run_persistent_checks
 from messages import SUMMARY_DECORATION, context_output, environment_message, failing_suffix, failure_message, failure_status, gate_reason, is_regression, known_failures, recovery_message, report_key
 from workspace import commit_of, fingerprint, is_committed, repository_of
 from discovery import ConfigurationError, find_watchers, key_of, read_override
@@ -356,7 +356,10 @@ def checked_state(session: Session, cwd: Path) -> tuple[State, State]:
     gate = read_gate(read_override(cwd))
     before = fingerprint(cwd)
     should_run = old.fingerprint != before
-    reports = run_checks(cwd, find_watchers(cwd)) if should_run else old.reports
+    watchers = find_watchers(cwd) if should_run else []
+    reports = (run_persistent_checks(cwd, watchers, session.state.parent)
+               if should_run and os.environ.get("OVERWATCH_DAEMON") == "1" else
+               run_checks(cwd, watchers) if should_run else old.reports)
     after = fingerprint(cwd) if should_run else before
     told = old.environment
     environment = new_environment(reports, told)

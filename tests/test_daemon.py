@@ -61,6 +61,8 @@ class DaemonTests(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.data)
         self.pid = Path(self.temporary.name) / "watcher.pid"
         self.fixed = Path(self.temporary.name) / "fixed"
+        self.other = Path(self.temporary.name) / "other.py"
+        self.result = Path(self.temporary.name) / "result.txt"
         script = Path(self.temporary.name) / "watch.py"
         script.write_text(WATCH)
         # The checkers on this machine's PATH are turned off, so the fixture is the project's only watcher.
@@ -80,6 +82,10 @@ class DaemonTests(unittest.TestCase):
 
     def summaries(self) -> list[str]:
         return [report.summary for report in daemon.latest(self.project, self.data)]
+
+    def will_report(self, result: str) -> None:
+        """Sets what a watcher given by watch_with prints as its result, its next time."""
+        self.result.write_text(result)
 
     def let_it_pass(self) -> None:
         """Tells the fixture watcher to print a passing build."""
@@ -124,6 +130,47 @@ class DaemonTests(unittest.TestCase):
         os.kill(holder, signal.SIGTERM)
         eventually(lambda: self.alive(watcher), lambda alive: not alive)
         self.assertFalse(daemon.socket_path(self.project, self.data).exists())
+
+    def watch_with(self, source: str) -> None:
+        """Makes the project's only watcher run source, a Python script, in place of the fixture watcher."""
+        self.other.write_text(textwrap.dedent(source))
+        override = json.loads((self.project / ".overwatch.json").read_text())
+        override["argv"] = [sys.executable, str(self.other), str(self.result)]
+        (self.project / ".overwatch.json").write_text(json.dumps(override))
+        assert override["argv"][1] == str(self.other), f"the override runs {override['argv']}, not {self.other}"
+
+    def settled(self) -> list[str]:
+        return [report.summary for report in daemon.latest(self.project, self.data, "settled")]
+
+    def test_settled_waits_for_the_first_build_instead_of_answering_with_none(self) -> None:
+        self.watch_with("""
+            import time
+            time.sleep(1.5)
+            print("RESULT: FAIL", flush=True)
+            time.sleep(60)
+            """)
+        self.serving(idle=10)
+        self.assertEqual(self.summaries(), [])
+        self.assertEqual(self.settled(), ["RESULT: FAIL"])
+
+    def test_settled_after_a_change_gives_the_build_that_followed_it(self) -> None:
+        self.serving(idle=10)
+        self.assertEqual(self.settled(), ["RESULT: FAIL"])
+        self.let_it_pass()
+        self.assertEqual(self.settled(), ["RESULT: PASS"])
+
+    def test_settled_runs_an_exited_watch_command_again_and_keeps_its_build(self) -> None:
+        self.will_report("FAIL")
+        self.watch_with("""
+            import sys
+            from pathlib import Path
+            print("RESULT: " + Path(sys.argv[1]).read_text(), flush=True)
+            sys.exit(1)
+            """)
+        self.serving(idle=10)
+        self.assertEqual(self.settled(), ["RESULT: FAIL"])
+        self.will_report("PASS")
+        self.assertEqual(self.settled(), ["RESULT: PASS"])
 
     @staticmethod
     def alive(pid: int) -> bool:

@@ -4,7 +4,16 @@ directory. Every host's adapter is a client: the first to ask starts the daemon,
 exits once no client has asked for a while, stopping its watchers.
 
 A watcher with a watch command runs it for the daemon's life, after its full suite when it has one, and its latest
-report is the last complete build the command printed. A watcher with only a full suite runs that once.
+report is the last complete build the command printed. A watcher with only a full suite is left to the client, which
+reruns it after each change.
+
+A watch command rebuilds on its own after each change it cares about, and says nothing of which files a build read,
+so a report is never stamped with a version. Instead a client asks for settled reports: the daemon starts again each
+watch command that has exited, since it no longer watches, and answers once
+SETTLE_SECONDS have passed since the request with no output from any watcher and no change in its processes or their
+CPU time, and every watcher has a report. Each watcher's latest report then covers the files as they were when the
+client asked, given that a watch command starts reacting to a change within SETTLE_SECONDS, and that while it reacts it
+prints, starts or ends a process, or uses CPU, unless it has finished inside SETTLE_SECONDS.
 
 Copyright (c) 2026 benomahony. SPDX-License-Identifier: MIT
 """
@@ -28,7 +37,7 @@ from discovery import ConfigurationError, Watcher, find_watchers, key_of, subpro
 import engine
 from reading import last_build, read_report
 from records import Report, report_from
-from running import terminate
+from running import COMMAND_TIMEOUT, terminate
 from unix import try_exclusive
 
 # How long a daemon waits for its next client before it stops, and how long a client waits for one it started.
@@ -36,6 +45,10 @@ IDLE_SECONDS = 300.0
 START_SECONDS = 10.0
 # How often the daemon looks at how long it has been idle, and how often a waiting client tries the socket again.
 TICK_SECONDS = 0.2
+# How long every watcher must stay quiet before its latest report is taken as covering the files a client asked about:
+# longer than a watch command's own wait between a change and its rebuild, which is half a second or less for each one
+# in watchers.json.
+SETTLE_SECONDS = 1.0
 READ_CHUNK = 65_536
 
 
@@ -57,6 +70,9 @@ class Watching:
         self.cwd = subproject(project, watcher.get("dir", ""))
         self.report: Report | None = None
         self.process: subprocess.Popen[bytes] | None = None
+        # How many chunks of output the watcher's commands have printed, so a client can tell it is still reporting.
+        self.chunks = 0
+        self.thread: threading.Thread | None = None
         self.lock = threading.Lock()
         assert self.cwd.is_dir(), f"{watcher['name']} runs in {self.cwd}, which is not a directory"
         assert watcher.get("argv") or watcher.get("baseline"), f"{watcher['name']} has no command; find_watchers gives each one"
@@ -72,9 +88,32 @@ class Watching:
             self.follow(list(argv))
         assert self.process is not None and self.process.poll() is not None, f"{self.watcher['name']} still runs after run returned"
 
+    def start(self) -> None:
+        """Runs the watcher's commands on a thread of its own: its full suite and watch command the first time, and
+        after that its watch command alone, since a watch command that exited has stopped watching. Its old report
+        is dropped, as it no longer covers the files."""
+        argv = self.watcher.get("argv")
+        assert argv, f"{self.watcher['name']} has no watch command; the daemon runs only watchers with one"
+        assert self.thread is None or not self.thread.is_alive(), f"{self.watcher['name']} is started while it runs"
+        first = self.thread is None
+        with self.lock:
+            self.report = None
+        self.thread = threading.Thread(target=self.run if first else lambda: self.follow(list(argv)), daemon=True)
+        self.thread.start()
+
+    def is_running(self) -> bool:
+        """Whether the watcher's commands still run, so it still watches the files."""
+        assert self.thread is not None, f"{self.watcher['name']} was never started; start it before asking"
+        alive = self.thread.is_alive()
+        with self.lock:
+            process = self.process
+        # follow waits for its command before its thread ends, so a watcher that stopped running has no live command.
+        assert alive or process is None or process.poll() is not None, f"{self.watcher['name']}'s thread ended with its command still running"
+        return alive
+
     def follow(self, argv: list[str]) -> None:
         """Runs argv, taking each complete build it prints as the latest report, and the exit code's verdict when it
-        ends with no summary."""
+        ends having printed none. A build it printed is not replaced by the exit of a run that already reported."""
         assert argv and all(isinstance(part, str) for part in argv), f"{self.watcher['name']} was asked to run {argv!r}; pass its command"
         env = {**os.environ, **self.watcher["env"]} if "env" in self.watcher else None
         process = subprocess.Popen(argv, cwd=self.cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
@@ -83,15 +122,21 @@ class Watching:
         with self.lock:
             self.process = process
         output = ""
+        reported = False
         while chunk := os.read(process.stdout.fileno(), READ_CHUNK):
+            with self.lock:
+                self.chunks += 1
             output += chunk.decode(errors="replace")
             lines = output[:output.rfind("\n") + 1]
             report = read_report(self.watcher, lines)
             if report is not None:
                 self.publish(report)
+                reported = True
                 output = last_build(self.watcher, lines)[1] + output[len(lines):]
         code = process.wait()
-        ended = read_report(self.watcher, output, code)
+        # A watch command that exits is run again, so each run closes its pipe rather than leaving it to the collector.
+        process.stdout.close()
+        ended = read_report(self.watcher, output, None if reported else code)
         if ended is not None:
             self.publish(ended)
         assert process.returncode is not None, f"{argv[0]} has no exit code after wait"
@@ -111,6 +156,19 @@ class Watching:
         assert report is None or report.name == self.watcher["name"], f"{self.watcher['name']} holds {report.name}'s report"
         return report
 
+    def activity(self) -> tuple[int, str]:
+        """What changes while this watcher works: the output it has printed, and each process its running command
+        started with the CPU time each has used; the same twice over means it did nothing in between."""
+        with self.lock:
+            chunks, process = self.chunks, self.process
+        running = process is not None and process.poll() is None
+        # The command leads its own session, so its process group holds every process it started.
+        table = subprocess.run(["ps", "-o", "pid=,time=", "-g", str(process.pid)], capture_output=True, text=True).stdout if running else ""
+        assert chunks >= 0, f"{self.watcher['name']} counted {chunks} chunks of output; count up from 0"
+        processes = " ".join(sorted(table.split("\n")))
+        assert running or processes == "", f"{self.watcher['name']} lists processes {processes!r} with no command running"
+        return chunks, processes
+
     def stop(self) -> None:
         """Ends the command running now, and every process it started, which share its session."""
         with self.lock:
@@ -127,20 +185,53 @@ class Daemon:
 
     def __init__(self, project: Path) -> None:
         assert project.is_dir(), f"the daemon was given {project}, which is not a project directory"
-        self.watchings = [Watching(watcher, project) for watcher in find_watchers(project)]
+        self.watchings = [Watching(watcher, project) for watcher in find_watchers(project) if watcher.get("argv")]
         self.asked = time.monotonic()
         keys = {key_of(each.watcher["name"], each.watcher.get("dir")) for each in self.watchings}
         assert len(keys) == len(self.watchings), f"{project} gave the same watcher twice; find_watchers gives each once"
 
     def answer(self, request: dict[str, object]) -> dict[str, object]:
-        """The reply to one client request: {"op": "latest"} gives every watcher's latest report."""
+        """The reply to one client request: {"op": "latest"} gives every watcher's latest report, and
+        {"op": "settled"} gives them once they cover the files as they were when it was asked."""
         assert isinstance(request, dict), f"request {request!r} is not a JSON object"
         self.asked = time.monotonic()
-        if request.get("op") != "latest":
-            return {"error": f"unknown request {request.get('op')!r}; ask for latest"}
+        op = request.get("op")
+        reply = (self.settled() if op == "settled" else self.reports_reply() if op == "latest" else
+                 {"error": f"unknown request {op!r}; ask for latest or settled"})
+        assert ("reports" in reply) != ("error" in reply), f"the reply {reply!r} to {op!r} gives both or neither of reports and an error"
+        return reply
+
+    def reports_reply(self) -> dict[str, object]:
+        """Every watcher's latest report, leaving out those with none yet, as a reply to a client."""
+        assert all(each.lock is not None for each in self.watchings), f"watchers {[each.watcher['name'] for each in self.watchings if each.lock is None]} have no lock; build each with Watching()"
         reports = [asdict(report) for report in (each.latest() for each in self.watchings) if report is not None]
         assert len(reports) <= len(self.watchings), f"{len(reports)} reports from {len(self.watchings)} watchers; give one each at most"
         return {"reports": reports, "watchers": len(self.watchings)}
+
+    def settled(self) -> dict[str, object]:
+        """Waits until SETTLE_SECONDS have passed since it was asked with every watcher quiet throughout, and every
+        watcher has a report, then answers as latest does; an error once COMMAND_TIMEOUT passes first."""
+        asked = time.monotonic()
+        assert all(each.thread is not None for each in self.watchings), f"settled was asked before serve started watchers {[each.watcher['name'] for each in self.watchings if each.thread is None]}"
+        for each in self.watchings:
+            if not each.is_running():
+                each.start()
+        seen = [each.activity() for each in self.watchings]
+        quiet_since = asked
+        while time.monotonic() - asked < COMMAND_TIMEOUT:
+            time.sleep(TICK_SECONDS)
+            # A client waiting here is still asking, so the daemon does not stop for want of one.
+            self.asked = time.monotonic()
+            now = [each.activity() for each in self.watchings]
+            if now != seen:
+                seen, quiet_since = now, time.monotonic()
+            if time.monotonic() - quiet_since >= SETTLE_SECONDS and all(each.latest() is not None for each in self.watchings):
+                assert time.monotonic() - asked >= SETTLE_SECONDS, f"settled {time.monotonic() - asked:.2f}s after asked; wait SETTLE_SECONDS at least"
+                reply = self.reports_reply()
+                assert len(reply["reports"]) == len(self.watchings), f"settled with {len(reply['reports'])} reports from {len(self.watchings)} watchers"
+                return reply
+        waiting = [each.watcher["name"] for each in self.watchings if each.latest() is None]
+        return {"error": f"the watchers did not settle within {COMMAND_TIMEOUT}s; still without a report: {waiting}"}
 
 
 class Server(socketserver.ThreadingUnixStreamServer):
@@ -184,7 +275,7 @@ def serve(project: Path, root: Path, idle: float) -> None:
     path.unlink(missing_ok=True)
     daemon = Daemon(project)
     for each in daemon.watchings:
-        threading.Thread(target=each.run, daemon=True).start()
+        each.start()
     server = Server(path, daemon)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
@@ -231,10 +322,13 @@ def ask(project: Path, root: Path, request: dict[str, object]) -> dict[str, obje
     raise ConfigurationError(f"no overwatch daemon answered at {path} within {START_SECONDS:.0f}s; run {Path(__file__).name} serve {project} to see why")
 
 
-def latest(project: Path, root: Path) -> list[Report]:
-    """Every watcher's latest report in project, from its daemon; a watcher with no complete build yet has none."""
+def latest(project: Path, root: Path, op: str = "latest") -> list[Report]:
+    """Every watcher's latest report in project, from its daemon; a watcher with no complete build yet has none.
+    With op "settled", the daemon answers once its watchers have settled, so each report covers the files as they
+    were when it was asked."""
     assert project.is_absolute(), f"project {project} is relative; resolve it"
-    reply = ask(project, root, {"op": "latest"})
+    assert op in ("latest", "settled"), f"latest was asked for {op!r}; ask for latest or settled"
+    reply = ask(project, root, {"op": op})
     if "error" in reply:
         raise ConfigurationError(f"the overwatch daemon for {project} refused: {reply['error']}")
     reports = [report_from(value) for value in reply.get("reports", [])]

@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 
+from daemons import stop_daemons
 from paths import ROOT
 
 from .claude_steps import ClaudeSteps
@@ -17,11 +18,14 @@ from .claude_steps import ClaudeSteps
 class AcceptanceWorld(ClaudeSteps, unittest.TestCase):
     def setUp(self) -> None:
         """An isolated git project with one Python file, a gate protecting git push and Publish, and a passing fake zanity."""
-        temporary = tempfile.TemporaryDirectory()
+        # Under /tmp, since the Codex hook's daemon listens on a Unix socket in the data directory, whose path is
+        # limited to about a hundred bytes.
+        temporary = tempfile.TemporaryDirectory(dir="/tmp", prefix="ow")
         self.addCleanup(temporary.cleanup)
         self.fixture_root = Path(temporary.name)
         self.project = Path(temporary.name) / "project"
         self.data = Path(temporary.name) / "state"
+        self.addCleanup(stop_daemons, self.data)
         self.bin = Path(temporary.name) / "bin"
         self.project.mkdir()
         self.bin.mkdir()
