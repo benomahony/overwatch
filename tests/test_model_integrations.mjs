@@ -13,6 +13,8 @@ for (const kind of ['pi', 'opencode1', 'opencode2']) {
       let version = 0, first = true
       for (let index = 0; index < trace.events.length; index++) {
         const event = trace.events[index], expected = trace.expected[index + 1]
+        // The agent starts an edit with its editing tool, whose before-tool hook runs before the tool changes anything.
+        if (event === 'Edit') await host.repair()
         if (event === 'Edit' || event === 'Move') {
           version++
           if (first && trace.name.includes('during initial check')) host.overlap()

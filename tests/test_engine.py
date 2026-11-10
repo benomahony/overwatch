@@ -8,13 +8,16 @@ from dataclasses import replace
 import json
 import re
 from pathlib import Path
+import os
 import unittest
+from unittest.mock import patch
 
 from codex_hook import CodexHook, barrier_script, fixture_report, mkdir, read, tool_script, write
 from paths import ROOT
 import discovery
 import engine
 import reading
+import running
 import table
 import triage
 
@@ -312,6 +315,8 @@ class CodexHookTests(CodexHook):
         for settings, field in (({"rust": {"enabled": "no"}}, "watchers.rust.enabled"),
                                 ({"rust": {"interval": 5}}, "unknown fields ['interval']"),
                                 ({"rust": {"env": {"A": 1}}}, "watchers.rust.env"),
+                                ({"rust": {"timeout": True}}, "field 'timeout'"),
+                                ({"rust": {"timeout": 0}}, "field 'timeout'"),
                                 ([], "'watchers'")):
             text = json.dumps({"watchers": settings})
             write(self.cwd / ".overwatch.json", text, previous)
@@ -360,6 +365,18 @@ class CodexHookTests(CodexHook):
         report = reading.read_report(zanity, ZANITY_FAILING)
         assert report is not None, f"zanity's summary was not found in {ZANITY_FAILING!r}; check its summary pattern"
         self.assertEqual(report.failures, ("calc.py dead-symbol ba4ccb9f687b", "calc.py swallowed-error cdde7f46bc45"))
+
+    def test_a_check_past_its_timeout_reports_a_timeout_and_no_error(self) -> None:
+        self.tool("cargo", "", 0)
+        write(self.bin / "cargo", "#!/bin/sh\ntouch fake-cargo-ran\nsleep 30\n", tool_script("", 0))
+        write(self.cwd / "Cargo.toml", "[package]\n")
+        write(self.cwd / ".overwatch.json", json.dumps({"watchers": {"rust": {"timeout": 0.5}}}))
+        # Only the test's fakes are on PATH, so the check is the fake cargo that sleeps, not one on this machine.
+        with patch.dict("os.environ", {"PATH": f"{self.bin}{os.pathsep}{os.defpath}"}):
+            rust = next(watcher for watcher in engine.find_watchers(self.cwd) if watcher["name"] == "rust")
+            [report] = running.run_checks(self.cwd, [rust])
+        self.assertTrue((self.cwd / "fake-cargo-ran").exists(), "the check ran a cargo other than the test's fake")
+        self.assertEqual((report.failed, report.failures, report.summary), (True, ("timeout",), "timed out after 0.5s"))
 
     def test_a_run_with_no_summary_that_exits_nonzero_fails(self) -> None:
         python = discovery.WATCHERS[1]

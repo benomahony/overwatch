@@ -30,7 +30,7 @@ from typing import Any
 
 from gating import PolicyError, protected_checks, read_gate, tool_command
 from triage import InventoryError, parse_check, parse_inventory
-from records import REBUILT, Event, First, Report, Session, State, StateError, digest_of, state_from, state_json
+from records import REBUILT, TIMED_OUT, Event, First, Report, Session, State, StateError, digest_of, state_from, state_json
 from unix import exclusive, is_private
 from running import run_checks, run_persistent_checks
 from messages import SUMMARY_DECORATION, context_output, environment_message, failing_suffix, failure_message, failure_status, gate_reason, is_regression, known_failures, recovery_message, report_key
@@ -121,6 +121,14 @@ def state_path(event: Event, cwd: Path, data: Path) -> Path:
     return path
 
 
+def editing_path(state: Path) -> Path:
+    """The marker beside a session's state saying it has started an editing tool since its state was last saved."""
+    assert state.suffix == ".json", f"editing_path was given {state}; pass a session's state path from state_path"
+    marker = state.with_suffix(".editing")
+    assert marker.parent == state.parent and marker != state, f"editing marker {marker} must sit beside {state}"
+    return marker
+
+
 def load_state(session: Session) -> State:
     """The state saved in session, or an empty one when none was saved yet. A file whose digest does not match its
     state, or that is unreadable JSON or of another shape, is not one save_state wrote: it is replaced, and the
@@ -178,12 +186,13 @@ def write_log(session: Session, report: Report, prefix: str = "") -> Path:
     return log
 
 
-def report_state(reports: list[Report] | tuple[Report, ...], old: State, *, edited: bool = False) -> State:
-    """Keep each check's first result as its baseline, unless edits overlapped that first run: then failures are new."""
+def report_state(reports: list[Report] | tuple[Report, ...], old: State) -> State:
+    """Keep each check's first result as its baseline, unless the session has edited since the commit: then it has
+    none and every failure is new. A timeout is never a baseline, as in the model's Deliver."""
     baseline = dict(old.baseline)
     for report in reports:
-        if not report.environment:
-            baseline.setdefault(report_key(report), First(False, (), 'passed') if edited else First(report.failed, report.failures, report.summary))
+        if not report.environment and TIMED_OUT not in report.failures:
+            baseline.setdefault(report_key(report), First(False, (), 'passed') if old.touched else First(report.failed, report.failures, report.summary))
     regressions = [report for report in reports if is_regression(report, baseline)]
     signatures = regression_signatures(regressions, baseline)
     assert set(old.baseline) <= set(baseline), f"baseline lost {set(old.baseline) - set(baseline)}; keep each check's first result"
@@ -332,13 +341,18 @@ def process_event(event: Event, root: Path) -> dict[str, Any]:
     # Inspection and repair calls need no check state. Do not queue them behind
     # a baseline build holding the session lock.
     if event.hook_event_name == "PreToolUse":
+        # An editing tool says so before it runs, without waiting for the lock, so a check running meanwhile knows
+        # when it reads its result that the session may have changed what it read.
+        if event.tool_name in EDITING_TOOLS:
+            editing_path(in_data(state_path(event, cwd, root), root)).touch(mode=0o600)
         checks = protected_checks(event.tool_name, tool_command(event.tool_input), read_gate(read_override(cwd)))
         if checks is None:
             return {}
     with locked(state_path(event, cwd, root), root) as session:
         if event.hook_event_name == "PreToolUse":
             return protected_output(event, cwd, session)
-        old, current = checked_state(session, cwd)
+        edit = event.hook_event_name == "PostToolUse" and event.tool_name in EDITING_TOOLS
+        old, current = checked_state(session, cwd, edit)
         output = report_output(event, old, current, session)
         save_state(session, current)
     assert current.fingerprint is not None, f"state for {cwd} has no fingerprint; checked_state must record one"
@@ -346,12 +360,16 @@ def process_event(event: Event, root: Path) -> dict[str, Any]:
     return output
 
 
-def checked_state(session: Session, cwd: Path) -> tuple[State, State]:
+def checked_state(session: Session, cwd: Path, edit: bool = False) -> tuple[State, State]:
     """Recheck changed workspaces and rebaseline moved commits. Keep the starting fingerprint so edits during a
-    run demand another check instead of marking their newer workspace as already verified."""
+    run demand another check instead of marking their newer workspace as already verified. edit says this hook
+    follows the session's own edit, which keeps its later first results from the baseline, as does an editing
+    tool's PreToolUse marker found when the result is read; a commit move starts the baseline afresh and wins over
+    an edit in the same hook, since a pull is not the agent's change."""
     old = load_state(session)
     head = commit_of(cwd)
-    if old.head is not None and head is not None and old.head != head and not is_committed(cwd, old.head, head):
+    moved = old.head is not None and head is not None and old.head != head and not is_committed(cwd, old.head, head)
+    if moved:
         old = replace(old, baseline={}, fingerprint=None, told=None, failed=False, signatures=())
     gate = read_gate(read_override(cwd))
     before = fingerprint(cwd)
@@ -360,11 +378,14 @@ def checked_state(session: Session, cwd: Path) -> tuple[State, State]:
     reports = (run_persistent_checks(cwd, watchers, session.state.parent)
                if should_run and os.environ.get("OVERWATCH_DAEMON") == "1" else
                run_checks(cwd, watchers) if should_run else old.reports)
-    after = fingerprint(cwd) if should_run else before
+    # Read once the checks have run, as the session may have started editing while they did.
+    marker = editing_path(session.state)
+    touched = not moved and (old.touched or edit or marker.exists())
+    marker.unlink(missing_ok=True)
     told = old.environment
     environment = new_environment(reports, told)
     current = replace(
-        report_state(reports, old, edited=before != after),
+        report_state(reports, replace(old, touched=touched)),
         inherited=gate.inherited,
         fingerprint=before,
         head=head,

@@ -12,10 +12,10 @@ import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-from records import Report
+from records import TIMED_OUT, Report
 from unix import output_selector, read_available
 from reading import ANSI, command_for, command_line, read_report
-from discovery import ConfigurationError, Watcher, subproject
+from discovery import ConfigurationError, Watcher, language_of, subproject
 
 
 COMMAND_TIMEOUT = 540
@@ -23,6 +23,16 @@ COMMAND_TIMEOUT = 540
 
 # How long a stopped command has to exit before it is killed, in seconds.
 TERMINATE_GRACE = 3
+
+
+class TimedOut(Exception):
+    """A command that outlived its deadline, with what it printed by then."""
+
+    def __init__(self, command: str, timeout: float, output: str) -> None:
+        assert command and timeout > 0, f"{command!r} timed out after {timeout}s; name the command and its positive timeout"
+        super().__init__(f"{command} did not report within {timeout:g}s")
+        self.timeout, self.output = timeout, output
+        assert str(self) == f"{command} did not report within {timeout:g}s", f"TimedOut reads {self}, not the command and timeout"
 
 
 def terminate(process: subprocess.Popen[bytes]) -> bytes:
@@ -41,7 +51,8 @@ def terminate(process: subprocess.Popen[bytes]) -> bytes:
 def _run_command(
     cwd: Path, watcher: Watcher, argv: list[str], stop_after_report: bool,
 ) -> tuple[str, int | None]:
-    """Runs argv in cwd, returning what it printed and its exit code; None when stopped after its report. Private:
+    """Runs argv in cwd for at most the watcher's timeout, returning what it printed and its exit code; None when
+    stopped after its report, and TimedOut once the timeout passes first. Private:
     only _run_check calls it, with a watcher's command from watchers.json or the project's own .overwatch.json, which
     read_override accepts only from the user who runs the hook. It runs as an argument list, never through a shell,
     with no input."""
@@ -50,6 +61,7 @@ def _run_command(
     if not argv:
         raise ConfigurationError(f"{watcher['name']} has an empty command; give it argv or baseline in .overwatch.json")
     command = command_line(argv)
+    timeout = timeout_of(watcher)
     try:
         process = subprocess.Popen(
             argv,
@@ -66,32 +78,40 @@ def _run_command(
 
     if not stop_after_report:
         try:
-            output, _ = process.communicate(timeout=COMMAND_TIMEOUT)
+            output, _ = process.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
-            terminate(process)
-            raise ConfigurationError(f"{command} did not finish within {COMMAND_TIMEOUT}s")
+            raise TimedOut(command, timeout, terminate(process).decode(errors="replace"))
         return output.decode(errors="replace"), process.returncode
 
     summary = re.compile(watcher["summary"], re.MULTILINE)
+    chunks, reported, exited = _read_until_report(process, summary, time.monotonic() + timeout)
+    # However the reading ended, the command is stopped here, once, keeping what it printed meanwhile.
+    chunks.append(terminate(process))
+    output = b"".join(chunks).decode(errors="replace")
+    if not reported and not exited:
+        raise TimedOut(command, timeout, output)
+    return output, None if reported else process.returncode
+
+
+def _read_until_report(process: subprocess.Popen[bytes], summary: re.Pattern[str], deadline: float) -> tuple[list[bytes], bool, bool]:
+    """What process prints until a complete line matches summary, it exits, or deadline passes, and whether it
+    reported and whether it exited; it is left running for the caller to stop."""
+    assert process.stdout is not None, f"process {process.pid} has no output pipe to read; open it with stdout=PIPE"
     selector = output_selector(process.stdout)
     chunks: list[bytes] = []
-    deadline = time.monotonic() + COMMAND_TIMEOUT
+    reported = exited = False
     try:
-        while time.monotonic() < deadline:
+        while time.monotonic() < deadline and not reported and not exited:
             chunk = read_available(selector)
             if chunk:
                 chunks.append(chunk)
                 text = ANSI.sub("", b"".join(chunks).decode(errors="replace"))
-                if summary.search(text[:text.rfind('\n') + 1]):
-                    chunks.append(terminate(process))
-                    return b"".join(chunks).decode(errors="replace"), None
-            if process.poll() is not None:
-                chunks.append(process.stdout.read() or b"")
-                return b"".join(chunks).decode(errors="replace"), process.returncode
+                reported = summary.search(text[:text.rfind('\n') + 1]) is not None
+            exited = not reported and process.poll() is not None
     finally:
         selector.close()
-    terminate(process)
-    raise ConfigurationError(f"{command} gave no report within {COMMAND_TIMEOUT}s")
+    assert not (reported and exited), f"process {process.pid} both reported and exited before reporting"
+    return chunks, reported, exited
 
 
 def _run_check(cwd: Path, watcher: Watcher) -> Report | None:
@@ -101,7 +121,10 @@ def _run_check(cwd: Path, watcher: Watcher) -> Report | None:
     if selected is None:
         return None
     argv, stop_after_report = selected
-    output, code = _run_command(subproject(cwd, watcher.get("dir", "")), watcher, argv, stop_after_report)
+    try:
+        output, code = _run_command(subproject(cwd, watcher.get("dir", "")), watcher, argv, stop_after_report)
+    except TimedOut as timed_out:
+        return timed_out_report(watcher, command_line(argv), timed_out)
     report = read_report(watcher, output, code)
     if report is None:
         tail = output.strip()[-2_000:]
@@ -109,6 +132,25 @@ def _run_check(cwd: Path, watcher: Watcher) -> Report | None:
         raise ConfigurationError(f"{command_line(argv)} gave no matching summary; make the summary pattern for {watcher['name']} in .overwatch.json match its output{detail}")
     assert report.name == watcher["name"], f"{watcher['name']} reported as {report.name}; name the report after its watcher"
     assert report.command == command_line(argv), f"{watcher['name']} reported {report.command} but ran {command_line(argv)}"
+    return report
+
+
+def timeout_of(watcher: Watcher) -> float:
+    """How long the watcher's command may run before it times out: its timeout setting, else COMMAND_TIMEOUT."""
+    assert "name" in watcher, f"timeout_of was given {watcher!r}; pass a watcher find_watchers returned"
+    timeout = watcher.get("timeout", COMMAND_TIMEOUT)
+    assert isinstance(timeout, (int, float)) and timeout > 0, f"{watcher['name']} has timeout {timeout!r}; configure checks it is a positive number"
+    return float(timeout)
+
+
+def timed_out_report(watcher: Watcher, command: str, timed_out: TimedOut) -> Report:
+    """The report of a check that outlived its deadline: failed with the one failure TIMED_OUT, as the model's
+    TimesOut gives, whatever it printed meanwhile kept as its text."""
+    assert command and isinstance(timed_out, TimedOut), f"{watcher['name']} timed out running {command!r} with {timed_out!r}; pass both"
+    report = Report(name=watcher["name"], language=language_of(watcher), command=command, dir=watcher.get("dir"),
+                    summary=f"timed out after {timed_out.timeout:g}s", failed=True, failures=(TIMED_OUT,), environment=None,
+                    text=timed_out.output.strip())
+    assert report.failures == (TIMED_OUT,), f"{watcher['name']} timed out with failures {report.failures}; give it {TIMED_OUT} alone"
     return report
 
 

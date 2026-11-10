@@ -13,6 +13,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 # What a StateError adds: what happens next, and what to do when it keeps happening.
+# The failure a check that outlived its deadline reports, which is always new and never a baseline, as in the model.
+TIMED_OUT = "timeout"
 REBUILT = "; the session starts afresh and reruns its checks, and if this repeats, delete the state files under PLUGIN_DATA"
 
 
@@ -77,6 +79,8 @@ class State:
     # The commit whose results established the current baselines; None in an unborn repository or older state.
     head: str | None = None
     environment: tuple[str, ...] = ()
+    # Whether the session has edited since the commit its baselines belong to, so a first result now is no baseline.
+    touched: bool = False
 
 
 def string_tuple(value: object, where: str) -> tuple[str, ...]:
@@ -140,6 +144,8 @@ def state_from(value: object) -> State:
         raise StateError(f"the saved state's reports, baseline or gate is not a list, object and object{REBUILT}")
     if not isinstance(value.get("failed", False), bool) or not all(item is None or isinstance(item, str) for item in (told, fingerprint, head)):
         raise StateError(f"the saved state's failed, told, fingerprint or head has the wrong type{REBUILT}")
+    if not isinstance(value.get("touched", False), bool):
+        raise StateError(f"the saved state's touched is {value.get('touched')!r}, not a boolean{REBUILT}")
     if gate.get("inherited", "allow") not in ("allow", "block"):
         raise StateError(f"the saved state's gate.inherited is {gate.get('inherited')}, not allow or block{REBUILT}")
     state = State(
@@ -152,6 +158,7 @@ def state_from(value: object) -> State:
         fingerprint=fingerprint,
         head=head,
         environment=string_tuple(value.get("environment", []), "the saved state's environment"),
+        touched=value.get("touched", False),
     )
     assert len(state.reports) == len(reports) and set(state.baseline) == set(baseline), f"state kept {len(state.reports)} of {len(reports)} reports or lost baseline entries; read every saved entry"
     assert state.fingerprint == fingerprint, f"state changed its fingerprint {fingerprint} while read; copy it as saved"
@@ -179,6 +186,7 @@ def state_json(state: State) -> dict[str, object]:
         "fingerprint": state.fingerprint,
         "head": state.head,
         "environment": list(state.environment),
+        "touched": state.touched,
     }
     assert len(value["reports"]) == len(state.reports), f"state JSON holds {len(value['reports'])} of {len(state.reports)} reports; write every report"
     assert value["gate"] == {"inherited": state.inherited}, f"state JSON gate {value['gate']} does not hold {state.inherited}; write the gate as state_from reads it"

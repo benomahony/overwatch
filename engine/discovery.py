@@ -101,6 +101,12 @@ def apply_override(watcher: Watcher, override: dict[str, Any]) -> Watcher:
     for field in ("argv", "baseline"):
         if field in override:
             result[field] = string_list(override[field], field)
+    if "timeout" in override:
+        timeout = override["timeout"]
+        # bool is an int in Python, and true seconds is no timeout anyone means.
+        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0:
+            raise ConfigurationError(f"{OVERRIDE_PATH} field 'timeout' is {timeout!r}; give the seconds a check may run as a positive number")
+        result["timeout"] = timeout
     try:
         for field in ("summary", "result", "failure"):
             if field in result:
@@ -114,7 +120,7 @@ def apply_override(watcher: Watcher, override: dict[str, Any]) -> Watcher:
     return result
 
 
-SETTINGS = ("enabled", "argv", "baseline", "summary", "failed", "env")
+SETTINGS = ("enabled", "argv", "baseline", "summary", "failed", "env", "timeout")
 
 
 def settings_of(name: str, override: dict[str, Any]) -> dict[str, Any]:
@@ -148,7 +154,7 @@ def configure(watcher: Watcher, override: dict[str, Any]) -> Watcher | None:
     if settings.get("enabled") is False:
         return None
     env = settings.get("env", {})
-    result = apply_override(watcher, {field: settings[field] for field in ("argv", "baseline", "summary", "failed") if field in settings})
+    result = apply_override(watcher, {field: settings[field] for field in ("argv", "baseline", "summary", "failed", "timeout") if field in settings})
     if env or "env" in watcher:
         result["env"] = {**watcher.get("env", {}), **env}
     assert result["name"] == name, f"settings for {name} renamed it {result['name']}; keep the entry's name"

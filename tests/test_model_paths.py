@@ -50,6 +50,9 @@ class CommandReplay:
             return engine.process_event(event, self.data)
 
     def step(self, action: str) -> dict | None:
+        if action == 'Edit':
+            # Codex runs an editing tool's PreToolUse before the tool itself, as the agent starts its edit.
+            self.event('PreToolUse', 'Edit')
         if action in ('Edit', 'Move', 'Outside'):
             self.version += 1
             self.overlap = self.first and 'during initial check' in self.trace['name']
