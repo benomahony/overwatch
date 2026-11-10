@@ -134,11 +134,21 @@ Finite bounds are supplied by the TLC configuration, not by the runtime.
 \end{aligned}
 ```
 
+### [Overwatch - NoBaseline]($heading.id('overwatch---nobaseline'))
+
+```=mathtex
+\begin{aligned}
+&\mathit{NoBaseline} \triangleq [ \mathit{known} \mapsto \mathit{FALSE} , \mathit{at} \mapsto 0 , \mathit{failures} \mapsto \{ \} ]
+\end{aligned}
+```
+
 ## [Overwatch - State shape]($heading.id('overwatch---state-shape'))
 
 
 The checked version, unread results, inherited baseline, and delivery state are
-separate. TypeOK constrains their domains without advancing an execution.
+separate. touched records whether the session has edited since the commit the
+baseline belongs to; own is the versions those edits made, which only the
+properties read. TypeOK constrains their domains without advancing an execution.
 
 ### [Overwatch - VARIABLES]($heading.id('overwatch---variables'))
 
@@ -147,7 +157,8 @@ separate. TypeOK constrains their domains without advancing an execution.
 &\mathit{VARIABLES} \\
 &\quad \hspace{1.33em}\mathit{truth} , \mathit{head} , \mathit{based} , \mathit{busy} , \mathit{from} , \mathit{quiet} , \mathit{installed} , \\
 &\quad \hspace{1.33em}\mathit{produced} , \mathit{consumed} , \mathit{pending} , \mathit{report} , \mathit{baseline} , \mathit{wasFailing} , \\
-&\quad \hspace{1.33em}\mathit{outbox} , \mathit{told} , \mathit{flush} , \mathit{turn} , \mathit{toldThisTurn} , \mathit{promptQueued} , \mathit{knows} , \mathit{elapsed} , \mathit{edited}
+&\quad \hspace{1.33em}\mathit{outbox} , \mathit{told} , \mathit{flush} , \mathit{turn} , \mathit{toldThisTurn} , \mathit{promptQueued} , \mathit{knows} , \mathit{elapsed} , \mathit{edited} , \\
+&\quad \hspace{1.33em}\mathit{touched} , \mathit{own}
 \end{aligned}
 ```
 
@@ -157,7 +168,8 @@ separate. TypeOK constrains their domains without advancing an execution.
 \begin{aligned}
 &\mathit{vars} \triangleq \langle \mathit{truth} , \mathit{head} , \mathit{based} , \mathit{busy} , \mathit{from} , \mathit{quiet} , \mathit{installed} , \\
 &\quad \hspace{3.33em}\mathit{produced} , \mathit{consumed} , \mathit{pending} , \mathit{report} , \mathit{baseline} , \mathit{wasFailing} , \\
-&\quad \hspace{3.33em}\mathit{outbox} , \mathit{told} , \mathit{flush} , \mathit{turn} , \mathit{toldThisTurn} , \mathit{promptQueued} , \mathit{knows} , \mathit{elapsed} , \mathit{edited} \rangle
+&\quad \hspace{3.33em}\mathit{outbox} , \mathit{told} , \mathit{flush} , \mathit{turn} , \mathit{toldThisTurn} , \mathit{promptQueued} , \mathit{knows} , \mathit{elapsed} , \mathit{edited} , \\
+&\quad \hspace{3.33em}\mathit{touched} , \mathit{own} \rangle
 \end{aligned}
 ```
 
@@ -172,7 +184,7 @@ separate. TypeOK constrains their domains without advancing an execution.
 &\quad \hspace{1.33em}\land \mathit{pending} \in \mathit{Seq} ( [ \mathit{id} : 1 \mathbin{\text{..}} ( \mathit{MaxEdits} + 1 ) , \mathit{at} : \mathit{Versions} , \mathit{failures} : \mathit{Outcomes} ] ) \\
 &\quad \hspace{1.33em}\land \mathit{Len} ( \mathit{pending} ) \leq \mathit{MaxEdits} + 1 \\
 &\quad \hspace{1.33em}\land \mathit{report} \in [ \mathit{known} : \mathit{BOOLEAN} , \mathit{id} : 0 \mathbin{\text{..}} \mathit{produced} , \mathit{at} : \mathit{Versions} , \mathit{failures} : \mathit{Outcomes} ] \\
-&\quad \hspace{1.33em}\land \mathit{baseline} \in [ \mathit{known} : \mathit{BOOLEAN} , \mathit{failures} : \mathit{Outcomes} ] \\
+&\quad \hspace{1.33em}\land \mathit{baseline} \in [ \mathit{known} : \mathit{BOOLEAN} , \mathit{at} : \mathit{Versions} , \mathit{failures} : \mathit{Outcomes} ] \\
 &\quad \hspace{1.33em}\land \mathit{wasFailing} \in \mathit{BOOLEAN} \\
 &\quad \hspace{1.33em}\land \mathit{outbox} \in [ \mathit{held} : \mathit{BOOLEAN} , \mathit{waking} : \mathit{BOOLEAN} , \mathit{failures} : \mathit{Outcomes} ] \\
 &\quad \hspace{1.33em}\land \mathit{told} \in [ \mathit{kind} : \{ \texttt{"none"} , \texttt{"failed"} , \texttt{"recovered"} \} , \mathit{fresh} : \mathit{Outcomes} ] \\
@@ -180,7 +192,8 @@ separate. TypeOK constrains their domains without advancing an execution.
 &\quad \hspace{1.33em}\land \mathit{turn} \in \{ \texttt{"idle"} , \texttt{"running"} \} \\
 &\quad \hspace{1.33em}\land \mathit{toldThisTurn} \in \mathit{BOOLEAN} \land \mathit{promptQueued} \in \mathit{BOOLEAN} \\
 &\quad \hspace{1.33em}\land \mathit{knows} \in \mathit{Outcomes} \land \mathit{elapsed} \in 0 \mathbin{\text{..}} \mathit{Timeout} \\
-&\quad \hspace{1.33em}\land \mathit{edited} \in \mathit{BOOLEAN}
+&\quad \hspace{1.33em}\land \mathit{edited} \in \mathit{BOOLEAN} \\
+&\quad \hspace{1.33em}\land \mathit{touched} \in \mathit{BOOLEAN} \land \mathit{own} \subseteq \mathit{Versions}
 \end{aligned}
 ```
 
@@ -229,11 +242,12 @@ baseline is known and no notification has been sent.
 &\quad \hspace{1.33em}\land \mathit{busy} = \mathit{TRUE} \land \mathit{from} = 0 \land \mathit{quiet} = \mathit{FALSE} \land \mathit{installed} = \mathit{FALSE} \\
 &\quad \hspace{1.33em}\land \mathit{produced} = 0 \land \mathit{consumed} = 0 \land \mathit{pending} = \langle \rangle \\
 &\quad \hspace{1.33em}\land \mathit{report} = [ \mathit{known} \mapsto \mathit{FALSE} , \mathit{id} \mapsto 0 , \mathit{at} \mapsto 0 , \mathit{failures} \mapsto \{ \} ] \\
-&\quad \hspace{1.33em}\land \mathit{baseline} = [ \mathit{known} \mapsto \mathit{FALSE} , \mathit{failures} \mapsto \{ \} ] \\
+&\quad \hspace{1.33em}\land \mathit{baseline} = \mathit{NoBaseline} \\
 &\quad \hspace{1.33em}\land \mathit{wasFailing} = \mathit{FALSE} \\
 &\quad \hspace{1.33em}\land \mathit{outbox} = \mathit{NoMessage} \land \mathit{told} = \mathit{NotTold} \land \mathit{flush} = \mathit{FALSE} \\
 &\quad \hspace{1.33em}\land \mathit{turn} = \texttt{"idle"} \land \mathit{toldThisTurn} = \mathit{FALSE} \land \mathit{promptQueued} = \mathit{FALSE} \\
-&\quad \hspace{1.33em}\land \mathit{knows} = \{ \} \land \mathit{elapsed} = 0 \land \mathit{edited} = \mathit{FALSE}
+&\quad \hspace{1.33em}\land \mathit{knows} = \{ \} \land \mathit{elapsed} = 0 \land \mathit{edited} = \mathit{FALSE} \\
+&\quad \hspace{1.33em}\land \mathit{touched} = \mathit{FALSE} \land \mathit{own} = \{ \}
 \end{aligned}
 ```
 
@@ -242,6 +256,9 @@ baseline is known and no notification has been sent.
 
 Queue deduplicates notification signatures. Deliver consumes a completed
 snapshot, establishes the inherited baseline, and queues a regression or recovery.
+The first result is the baseline unless the session has edited since the
+commit, as another process's changes are inherited like the commit itself; after
+a session edit the baseline is empty, so no failure the edit may hold is absorbed.
 A recovery can cancel a failure message that has not yet been delivered.
 
 ### [Overwatch - Queue]($heading.id('overwatch---queue'))
@@ -258,10 +275,11 @@ A recovery can cancel a failure message that has not yet been delivered.
 
 ```=mathtex
 \begin{aligned}
-&\mathit{Deliver} ( \mathit{v} , \mathit{id} , \mathit{f} ) \triangleq \mathit{LET} \mathit{b} \triangleq \mathit{IF} \mathit{baseline} . \mathit{known} \mathit{THEN} \mathit{baseline} . \mathit{failures} \mathit{ELSE} \mathit{IF} \mathit{head} = \mathit{based} \mathit{THEN} \mathit{f} \mathit{ELSE} \{ \} \\
+&\mathit{Deliver} ( \mathit{v} , \mathit{id} , \mathit{f} ) \triangleq \mathit{LET} \mathit{b} \triangleq \mathit{IF} \mathit{baseline} . \mathit{known} \mathit{THEN} \mathit{baseline} . \mathit{failures} \mathit{ELSE} \mathit{IF} \neg \mathit{touched} \mathit{THEN} \mathit{f} \mathit{ELSE} \{ \} \\
 &\quad \hspace{2.67em}\mathit{isRegression} \triangleq \mathit{TimedOut} \in \mathit{f} \lor \neg ( \mathit{f} \subseteq \mathit{b} ) \\
 &\quad \hspace{1.33em}\mathit{IN} \land \mathit{report} ' = [ \mathit{known} \mapsto \mathit{TRUE} , \mathit{id} \mapsto \mathit{id} , \mathit{at} \mapsto \mathit{v} , \mathit{failures} \mapsto \mathit{f} ] \\
-&\quad \hspace{2.33em}\land \mathit{baseline} ' = \mathit{IF} \mathit{TimedOut} \in \mathit{f} \mathit{THEN} \mathit{baseline} \mathit{ELSE} [ \mathit{known} \mapsto \mathit{TRUE} , \mathit{failures} \mapsto \mathit{b} ] \\
+&\quad \hspace{2.33em}\land \mathit{baseline} ' = \mathit{IF} \mathit{TimedOut} \in \mathit{f} \lor \mathit{baseline} . \mathit{known} \mathit{THEN} \mathit{baseline} \\
+&\quad \hspace{7.33em}\mathit{ELSE} [ \mathit{known} \mapsto \mathit{TRUE} , \mathit{at} \mapsto \mathit{v} , \mathit{failures} \mapsto \mathit{b} ] \\
 &\quad \hspace{2.33em}\land \mathit{wasFailing} ' = \mathit{isRegression} \\
 &\quad \hspace{2.33em}\land \mathit{IF} \mathit{isRegression} \\
 &\quad \hspace{4.0em}\mathit{THEN} \mathit{Queue} ( [ \mathit{kind} \mapsto \texttt{"failed"} , \mathit{fresh} \mapsto \mathit{f} \setminus \mathit{b} ] , \\
@@ -278,10 +296,11 @@ A recovery can cancel a failure message that has not yet been delivered.
 
 
 An agent edit advances head without moving based, and marks the next read as
-following the agent's own change. Another process can change the workspace at
-any time without committing; OutsideEdit advances head the same way but marks
-nothing. An external head change moves both and invalidates the baseline and
-unread results. QuietElapses starts the next check; Tick advances its timeout clock.
+following the agent's own change and the session as having edited. Another
+process can change the workspace at any time without committing; OutsideEdit
+advances head the same way but marks nothing. An external head change moves both,
+invalidates the baseline and unread results, and starts the session's edits
+afresh. QuietElapses starts the next check; Tick advances its timeout clock.
 
 ### [Overwatch - Edit]($heading.id('overwatch---edit'))
 
@@ -289,6 +308,7 @@ unread results. QuietElapses starts the next check; Tick advances its timeout cl
 \begin{aligned}
 &\mathit{Edit} \triangleq \land \mathit{turn} = \texttt{"running"} \land \mathit{head} < \mathit{MaxEdits} \\
 &\quad \hspace{1.33em}\land \mathit{head} ' = \mathit{head} + 1 \land \mathit{quiet} ' = \mathit{TRUE} \land \mathit{edited} ' = \mathit{TRUE} \\
+&\quad \hspace{1.33em}\land \mathit{touched} ' = \mathit{TRUE} \land \mathit{own} ' = \mathit{own} \cup \{ \mathit{head} + 1 \} \\
 &\quad \hspace{1.33em}\land \mathit{UNCHANGED} \langle \mathit{truth} , \mathit{based} , \mathit{busy} , \mathit{from} , \mathit{installed} , \mathit{produced} , \mathit{consumed} , \mathit{pending} , \\
 &\quad \hspace{6.33em}\mathit{report} , \mathit{baseline} , \mathit{wasFailing} , \mathit{outbox} , \mathit{told} , \mathit{flush} , \mathit{turn} , \\
 &\quad \hspace{6.33em}\mathit{toldThisTurn} , \mathit{promptQueued} , \mathit{knows} , \mathit{elapsed} \rangle
@@ -303,7 +323,7 @@ unread results. QuietElapses starts the next check; Tick advances its timeout cl
 &\quad \hspace{1.33em}\land \mathit{head} ' = \mathit{head} + 1 \land \mathit{quiet} ' = \mathit{TRUE} \\
 &\quad \hspace{1.33em}\land \mathit{UNCHANGED} \langle \mathit{truth} , \mathit{based} , \mathit{busy} , \mathit{from} , \mathit{installed} , \mathit{produced} , \mathit{consumed} , \mathit{pending} , \\
 &\quad \hspace{6.33em}\mathit{report} , \mathit{baseline} , \mathit{wasFailing} , \mathit{outbox} , \mathit{told} , \mathit{flush} , \mathit{turn} , \\
-&\quad \hspace{6.33em}\mathit{toldThisTurn} , \mathit{promptQueued} , \mathit{knows} , \mathit{elapsed} , \mathit{edited} \rangle
+&\quad \hspace{6.33em}\mathit{toldThisTurn} , \mathit{promptQueued} , \mathit{knows} , \mathit{elapsed} , \mathit{edited} , \mathit{touched} , \mathit{own} \rangle
 \end{aligned}
 ```
 
@@ -313,7 +333,7 @@ unread results. QuietElapses starts the next check; Tick advances its timeout cl
 \begin{aligned}
 &\mathit{HeadMoves} \triangleq \land \mathit{head} < \mathit{MaxEdits} \\
 &\quad \hspace{1.33em}\land \mathit{head} ' = \mathit{head} + 1 \land \mathit{based} ' = \mathit{head} + 1 \\
-&\quad \hspace{1.33em}\land \mathit{baseline} ' = [ \mathit{known} \mapsto \mathit{FALSE} , \mathit{failures} \mapsto \{ \} ] \\
+&\quad \hspace{1.33em}\land \mathit{baseline} ' = \mathit{NoBaseline} \land \mathit{touched} ' = \mathit{FALSE} \land \mathit{own} ' = \{ \} \\
 &\quad \hspace{1.33em}\land \mathit{quiet} ' = \mathit{TRUE} \land \mathit{pending} ' = \langle \rangle \\
 &\quad \hspace{1.33em}\land \mathit{from} ' = \mathit{IF} \mathit{busy} \mathit{THEN} \mathit{head} + 1 \mathit{ELSE} \mathit{from} \\
 &\quad \hspace{1.33em}\land \mathit{elapsed} ' = \mathit{IF} \mathit{busy} \mathit{THEN} 0 \mathit{ELSE} \mathit{elapsed} \\
@@ -330,7 +350,7 @@ unread results. QuietElapses starts the next check; Tick advances its timeout cl
 &\quad \hspace{1.33em}\land \mathit{quiet} ' = \mathit{FALSE} \land \mathit{busy} ' = \mathit{TRUE} \land \mathit{from} ' = \mathit{head} \land \mathit{elapsed} ' = 0 \\
 &\quad \hspace{1.33em}\land \mathit{UNCHANGED} \langle \mathit{truth} , \mathit{head} , \mathit{based} , \mathit{installed} , \mathit{produced} , \mathit{consumed} , \mathit{pending} , \\
 &\quad \hspace{6.33em}\mathit{report} , \mathit{baseline} , \mathit{wasFailing} , \mathit{outbox} , \mathit{told} , \mathit{flush} , \mathit{turn} , \\
-&\quad \hspace{6.33em}\mathit{toldThisTurn} , \mathit{promptQueued} , \mathit{knows} , \mathit{edited} \rangle
+&\quad \hspace{6.33em}\mathit{toldThisTurn} , \mathit{promptQueued} , \mathit{knows} , \mathit{edited} , \mathit{touched} , \mathit{own} \rangle
 \end{aligned}
 ```
 
@@ -341,7 +361,8 @@ unread results. QuietElapses starts the next check; Tick advances its timeout cl
 &\mathit{Tick} \triangleq \land \mathit{busy} \land \mathit{elapsed} < \mathit{Timeout} \land \mathit{elapsed} ' = \mathit{elapsed} + 1 \\
 &\quad \hspace{1.33em}\land \mathit{UNCHANGED} \langle \mathit{truth} , \mathit{head} , \mathit{based} , \mathit{busy} , \mathit{from} , \mathit{quiet} , \mathit{installed} , \mathit{produced} , \\
 &\quad \hspace{6.33em}\mathit{consumed} , \mathit{pending} , \mathit{report} , \mathit{baseline} , \mathit{wasFailing} , \mathit{outbox} , \\
-&\quad \hspace{6.33em}\mathit{told} , \mathit{flush} , \mathit{turn} , \mathit{toldThisTurn} , \mathit{promptQueued} , \mathit{knows} , \mathit{edited} \rangle
+&\quad \hspace{6.33em}\mathit{told} , \mathit{flush} , \mathit{turn} , \mathit{toldThisTurn} , \mathit{promptQueued} , \mathit{knows} , \mathit{edited} , \\
+&\quad \hspace{6.33em}\mathit{touched} , \mathit{own} \rangle
 \end{aligned}
 ```
 
@@ -362,7 +383,8 @@ A later incomplete build does not replace an earlier complete result.
 &\quad \hspace{1.33em}\land \mathit{pending} ' = \mathit{Append} ( \mathit{pending} , [ \mathit{id} \mapsto \mathit{produced} + 1 , \mathit{at} \mapsto \mathit{v} , \mathit{failures} \mapsto \mathit{f} ] ) \\
 &\quad \hspace{1.33em}\land \mathit{busy} ' = \mathit{FALSE} \land \mathit{installed} ' = \mathit{TRUE} \\
 &\quad \hspace{1.33em}\land \mathit{UNCHANGED} \langle \mathit{truth} , \mathit{head} , \mathit{based} , \mathit{from} , \mathit{quiet} , \mathit{consumed} , \mathit{report} , \mathit{baseline} , \\
-&\quad \hspace{6.33em}\mathit{wasFailing} , \mathit{outbox} , \mathit{told} , \mathit{flush} , \mathit{turn} , \mathit{toldThisTurn} , \mathit{promptQueued} , \mathit{knows} , \mathit{elapsed} , \mathit{edited} \rangle
+&\quad \hspace{6.33em}\mathit{wasFailing} , \mathit{outbox} , \mathit{told} , \mathit{flush} , \mathit{turn} , \mathit{toldThisTurn} , \mathit{promptQueued} , \mathit{knows} , \mathit{elapsed} , \mathit{edited} , \\
+&\quad \hspace{6.33em}\mathit{touched} , \mathit{own} \rangle
 \end{aligned}
 ```
 
@@ -391,7 +413,7 @@ A later incomplete build does not replace an earlier complete result.
 &\quad \hspace{2.33em}\mathit{IN} \mathit{Deliver} ( \mathit{latest} . \mathit{at} , \mathit{latest} . \mathit{id} , \mathit{latest} . \mathit{failures} ) \\
 &\quad \hspace{1.33em}\land \mathit{consumed} ' = \mathit{produced} \land \mathit{pending} ' = \langle \rangle \land \mathit{edited} ' = \mathit{FALSE} \\
 &\quad \hspace{1.33em}\land \mathit{UNCHANGED} \langle \mathit{truth} , \mathit{head} , \mathit{based} , \mathit{busy} , \mathit{from} , \mathit{quiet} , \mathit{installed} , \mathit{produced} , \\
-&\quad \hspace{6.33em}\mathit{turn} , \mathit{toldThisTurn} , \mathit{promptQueued} , \mathit{knows} , \mathit{elapsed} \rangle
+&\quad \hspace{6.33em}\mathit{turn} , \mathit{toldThisTurn} , \mathit{promptQueued} , \mathit{knows} , \mathit{elapsed} , \mathit{touched} , \mathit{own} \rangle
 \end{aligned}
 ```
 
@@ -422,7 +444,8 @@ TurnCompletes keeps a guarded turn running and permits a clean turn to settle.
 &\quad \hspace{6.33em}\mathit{ELSE} \mathit{promptQueued} ' = \mathit{TRUE} \land \mathit{UNCHANGED} \mathit{toldThisTurn} \\
 &\quad \hspace{3.0em}\mathit{ELSE} \mathit{UNCHANGED} \langle \mathit{outbox} , \mathit{knows} , \mathit{toldThisTurn} , \mathit{promptQueued} \rangle \\
 &\quad \hspace{1.33em}\land \mathit{UNCHANGED} \langle \mathit{truth} , \mathit{head} , \mathit{based} , \mathit{busy} , \mathit{from} , \mathit{quiet} , \mathit{installed} , \mathit{produced} , \mathit{consumed} , \\
-&\quad \hspace{6.33em}\mathit{pending} , \mathit{report} , \mathit{baseline} , \mathit{wasFailing} , \mathit{told} , \mathit{turn} , \mathit{elapsed} , \mathit{edited} \rangle
+&\quad \hspace{6.33em}\mathit{pending} , \mathit{report} , \mathit{baseline} , \mathit{wasFailing} , \mathit{told} , \mathit{turn} , \mathit{elapsed} , \mathit{edited} , \\
+&\quad \hspace{6.33em}\mathit{touched} , \mathit{own} \rangle
 \end{aligned}
 ```
 
@@ -433,7 +456,8 @@ TurnCompletes keeps a guarded turn running and permits a clean turn to settle.
 &\mathit{TurnStarts} \triangleq \land \mathit{turn} = \texttt{"idle"} \land \mathit{turn} ' = \texttt{"running"} \\
 &\quad \hspace{1.33em}\land \mathit{toldThisTurn} ' = \mathit{promptQueued} \land \mathit{promptQueued} ' = \mathit{FALSE} \land \mathit{flush} ' = \mathit{TRUE} \\
 &\quad \hspace{1.33em}\land \mathit{UNCHANGED} \langle \mathit{truth} , \mathit{head} , \mathit{based} , \mathit{busy} , \mathit{from} , \mathit{quiet} , \mathit{installed} , \mathit{produced} , \mathit{consumed} , \\
-&\quad \hspace{6.33em}\mathit{pending} , \mathit{report} , \mathit{baseline} , \mathit{wasFailing} , \mathit{outbox} , \mathit{told} , \mathit{knows} , \mathit{elapsed} , \mathit{edited} \rangle
+&\quad \hspace{6.33em}\mathit{pending} , \mathit{report} , \mathit{baseline} , \mathit{wasFailing} , \mathit{outbox} , \mathit{told} , \mathit{knows} , \mathit{elapsed} , \mathit{edited} , \\
+&\quad \hspace{6.33em}\mathit{touched} , \mathit{own} \rangle
 \end{aligned}
 ```
 
@@ -454,7 +478,8 @@ TurnCompletes keeps a guarded turn running and permits a clean turn to settle.
 &\quad \hspace{3.0em}\mathit{THEN} \land \mathit{toldThisTurn} ' = \mathit{TRUE} \land \mathit{knows} ' = \mathit{report} . \mathit{failures} \land \mathit{UNCHANGED} \langle \mathit{turn} , \mathit{flush} \rangle \\
 &\quad \hspace{3.0em}\mathit{ELSE} \land \mathit{turn} ' = \texttt{"idle"} \land \mathit{flush} ' = \mathit{TRUE} \land \mathit{UNCHANGED} \langle \mathit{toldThisTurn} , \mathit{knows} \rangle \\
 &\quad \hspace{1.33em}\land \mathit{UNCHANGED} \langle \mathit{truth} , \mathit{head} , \mathit{based} , \mathit{busy} , \mathit{from} , \mathit{quiet} , \mathit{installed} , \mathit{produced} , \mathit{consumed} , \\
-&\quad \hspace{6.33em}\mathit{pending} , \mathit{report} , \mathit{baseline} , \mathit{wasFailing} , \mathit{outbox} , \mathit{told} , \mathit{promptQueued} , \mathit{elapsed} , \mathit{edited} \rangle
+&\quad \hspace{6.33em}\mathit{pending} , \mathit{report} , \mathit{baseline} , \mathit{wasFailing} , \mathit{outbox} , \mathit{told} , \mathit{promptQueued} , \mathit{elapsed} , \mathit{edited} , \\
+&\quad \hspace{6.33em}\mathit{touched} , \mathit{own} \rangle
 \end{aligned}
 ```
 
@@ -487,10 +512,12 @@ weak fairness for the listed progress actions; this does not impose deadlines.
 ## [Overwatch - Safety and progress properties]($heading.id('overwatch---safety-and-progress-properties'))
 
 
-Results retain their ordering and checked version. The baseline cannot
-absorb later edits. A failure wakes the agent only when its read follows the
-agent's own edit, or when the check timed out, so another process's changes
-never wake it. Under Spec fairness, checks end, and each regression reaches
+Results retain their ordering and checked version. The baseline cannot absorb
+the session's edits: a non-empty baseline is exactly the failures of a version
+at or after the commit that no session edit made or preceded. A failure wakes
+the agent only when its read follows the agent's own edit, or when the check
+timed out, so another process's changes never wake it. Under Spec fairness,
+checks end, and each regression, a failure outside the baseline taken, reaches
 the agent or waits, without waking it, for its next turn.
 These properties are model-checked within the committed configuration bounds.
 
@@ -523,7 +550,9 @@ These properties are model-checked within the committed configuration bounds.
 
 ```=mathtex
 \begin{aligned}
-&\mathit{BaselineNeverAbsorbsEdits} \triangleq \mathit{baseline} . \mathit{known} \Rightarrow \mathit{baseline} . \mathit{failures} \subseteq \mathit{truth} [ \mathit{based} ]
+&\mathit{BaselineNeverAbsorbsEdits} \triangleq \mathit{baseline} . \mathit{known} \Rightarrow \mathit{baseline} . \mathit{failures} = \{ \} \lor \\
+&\quad \hspace{2.67em}\land \mathit{baseline} . \mathit{failures} = \mathit{truth} [ \mathit{baseline} . \mathit{at} ] \land \mathit{baseline} . \mathit{at} \geq \mathit{based} \\
+&\quad \hspace{2.67em}\land \forall \mathit{w} \in \mathit{own} : \mathit{w} > \mathit{baseline} . \mathit{at}
 \end{aligned}
 ```
 
@@ -547,7 +576,7 @@ These properties are model-checked within the committed configuration bounds.
 
 ```=mathtex
 \begin{aligned}
-&\mathit{Regressions} \triangleq \mathit{truth} [ \mathit{head} ] \setminus \mathit{truth} [ \mathit{based} ]
+&\mathit{Regressions} \triangleq \mathit{truth} [ \mathit{head} ] \setminus \mathit{IF} \mathit{baseline} . \mathit{known} \mathit{THEN} \mathit{baseline} . \mathit{failures} \mathit{ELSE} \mathit{truth} [ \mathit{based} ]
 \end{aligned}
 ```
 

@@ -982,7 +982,10 @@ Section: State and result domains
  \.{\mapsto} {\FALSE} ,\, waking \.{\mapsto} {\FALSE} ,\, failures
  \.{\mapsto} \{ \} ]}%
  \@x{\makebox[0pt][r]{\scriptsize 21\hspace{1em}} NotTold \.{\defeq} [ kind
- \.{\mapsto}\@w{none} ,\, fresh \.{\mapsto} \{ \} ]}%
+ \.{\mapsto}\@w{none} ,\, fresh\@s{6.99} \.{\mapsto} \{ \} ]}%
+ \@x{\makebox[0pt][r]{\scriptsize 22\hspace{1em}} NoBaseline \.{\defeq} [
+ known \.{\mapsto} {\FALSE} ,\, at \.{\mapsto} 0 ,\, failures \.{\mapsto} \{
+ \} ]}%
 \@pvspace{8.0pt}%
 \begin{lcom}{0}%
 \begin{cpar}{0}{T}{F}{7.5}{0}{}%
@@ -992,66 +995,74 @@ Section: State shape
 \begin{cpar}{1}{F}{F}{0}{0}{}%
  The checked version, unread results, inherited baseline, and delivery state
  are
- separate. \ensuremath{TypeOK} constrains their domains without advancing an
- execution.
+ separate. touched records whether the session has edited since the commit the
+ baseline belongs to; own is the versions those edits made, which only the
+ properties read. \ensuremath{TypeOK} constrains their domains without
+ advancing an execution.
 \end{cpar}%
 \end{lcom}%
-\@x{\makebox[0pt][r]{\scriptsize 28\hspace{1em}} {\VARIABLES}}%
- \@x{\makebox[0pt][r]{\scriptsize 29\hspace{1em}}\@s{16.4} truth ,\, head ,\,
+\@x{\makebox[0pt][r]{\scriptsize 31\hspace{1em}} {\VARIABLES}}%
+ \@x{\makebox[0pt][r]{\scriptsize 32\hspace{1em}}\@s{16.4} truth ,\, head ,\,
  based ,\, busy ,\, from ,\, quiet ,\, installed ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 30\hspace{1em}}\@s{16.4} produced ,\,
+ \@x{\makebox[0pt][r]{\scriptsize 33\hspace{1em}}\@s{16.4} produced ,\,
  consumed ,\, pending ,\, report ,\, baseline ,\, wasFailing ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 31\hspace{1em}}\@s{16.4} outbox ,\, told ,\,
+ \@x{\makebox[0pt][r]{\scriptsize 34\hspace{1em}}\@s{16.4} outbox ,\, told ,\,
  flush ,\, turn ,\, toldThisTurn ,\, promptQueued ,\, knows ,\, elapsed ,\,
- edited}%
+ edited ,\,}%
+\@x{\makebox[0pt][r]{\scriptsize 35\hspace{1em}}\@s{16.4} touched ,\, own}%
 \@pvspace{8.0pt}%
- \@x{\makebox[0pt][r]{\scriptsize 33\hspace{1em}} vars \.{\defeq} {\langle}
+ \@x{\makebox[0pt][r]{\scriptsize 37\hspace{1em}} vars \.{\defeq} {\langle}
  truth ,\, head ,\, based ,\, busy ,\, from ,\, quiet ,\, installed ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 34\hspace{1em}}\@s{41.61} produced ,\,
+ \@x{\makebox[0pt][r]{\scriptsize 38\hspace{1em}}\@s{41.61} produced ,\,
  consumed ,\, pending ,\, report ,\, baseline ,\, wasFailing ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 35\hspace{1em}}\@s{41.61} outbox ,\, told
+ \@x{\makebox[0pt][r]{\scriptsize 39\hspace{1em}}\@s{41.61} outbox ,\, told
  ,\, flush ,\, turn ,\, toldThisTurn ,\, promptQueued ,\, knows ,\, elapsed
- ,\, edited {\rangle}}%
+ ,\, edited ,\,}%
+ \@x{\makebox[0pt][r]{\scriptsize 40\hspace{1em}}\@s{41.61} touched ,\, own
+ {\rangle}}%
 \@pvspace{8.0pt}%
-\@x{\makebox[0pt][r]{\scriptsize 37\hspace{1em}} TypeOK \.{\defeq}}%
- \@x{\makebox[0pt][r]{\scriptsize 38\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
+\@x{\makebox[0pt][r]{\scriptsize 42\hspace{1em}} TypeOK \.{\defeq}}%
+ \@x{\makebox[0pt][r]{\scriptsize 43\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
  truth \.{\in} [ Versions \.{\rightarrow} Results ]}%
- \@x{\makebox[0pt][r]{\scriptsize 39\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
+ \@x{\makebox[0pt][r]{\scriptsize 44\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
  head \.{\in} Versions \.{\land} based \.{\in} 0 \.{\dotdot} head}%
- \@x{\makebox[0pt][r]{\scriptsize 40\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
+ \@x{\makebox[0pt][r]{\scriptsize 45\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
  busy\@s{0.65} \.{\in} {\BOOLEAN} \.{\land} from \.{\in} Versions \.{\land}
  quiet \.{\in} {\BOOLEAN} \.{\land} installed \.{\in} {\BOOLEAN}}%
- \@x{\makebox[0pt][r]{\scriptsize 41\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
+ \@x{\makebox[0pt][r]{\scriptsize 46\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
  produced \.{\in} 0 \.{\dotdot} ( MaxEdits \.{+} 1 ) \.{\land} consumed
  \.{\in} 0 \.{\dotdot} produced}%
- \@x{\makebox[0pt][r]{\scriptsize 42\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
+ \@x{\makebox[0pt][r]{\scriptsize 47\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
  pending \.{\in} Seq ( [ id \.{:} 1 \.{\dotdot} ( MaxEdits \.{+} 1 ) ,\, at
  \.{:} Versions ,\, failures \.{:} Outcomes ] )}%
- \@x{\makebox[0pt][r]{\scriptsize 43\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
+ \@x{\makebox[0pt][r]{\scriptsize 48\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
  Len ( pending ) \.{\leq} MaxEdits \.{+} 1}%
- \@x{\makebox[0pt][r]{\scriptsize 44\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
+ \@x{\makebox[0pt][r]{\scriptsize 49\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
  report \.{\in} [ known \.{:} {\BOOLEAN} ,\, id \.{:} 0 \.{\dotdot} produced
  ,\, at \.{:} Versions ,\, failures \.{:} Outcomes ]}%
- \@x{\makebox[0pt][r]{\scriptsize 45\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
- baseline \.{\in} [ known \.{:} {\BOOLEAN} ,\, failures \.{:} Outcomes ]}%
- \@x{\makebox[0pt][r]{\scriptsize 46\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
+ \@x{\makebox[0pt][r]{\scriptsize 50\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
+ baseline \.{\in} [ known \.{:} {\BOOLEAN} ,\, at \.{:} Versions ,\, failures
+ \.{:} Outcomes ]}%
+ \@x{\makebox[0pt][r]{\scriptsize 51\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
  wasFailing \.{\in} {\BOOLEAN}}%
- \@x{\makebox[0pt][r]{\scriptsize 47\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
+ \@x{\makebox[0pt][r]{\scriptsize 52\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
  outbox \.{\in} [ held \.{:} {\BOOLEAN} ,\, waking \.{:} {\BOOLEAN} ,\,
  failures \.{:} Outcomes ]}%
- \@x{\makebox[0pt][r]{\scriptsize 48\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
+ \@x{\makebox[0pt][r]{\scriptsize 53\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
  told \.{\in} [ kind \.{:} \{\@w{none} ,\,\@w{failed} ,\,\@w{recovered} \}
  ,\, fresh \.{:} Outcomes ]}%
- \@x{\makebox[0pt][r]{\scriptsize 49\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
+ \@x{\makebox[0pt][r]{\scriptsize 54\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
  flush \.{\in} {\BOOLEAN}}%
- \@x{\makebox[0pt][r]{\scriptsize 50\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
+ \@x{\makebox[0pt][r]{\scriptsize 55\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
  turn \.{\in} \{\@w{idle} ,\,\@w{running} \}}%
- \@x{\makebox[0pt][r]{\scriptsize 51\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
+ \@x{\makebox[0pt][r]{\scriptsize 56\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
  toldThisTurn \.{\in} {\BOOLEAN} \.{\land} promptQueued \.{\in} {\BOOLEAN}}%
- \@x{\makebox[0pt][r]{\scriptsize 52\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
+ \@x{\makebox[0pt][r]{\scriptsize 57\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
  knows \.{\in} Outcomes \.{\land} elapsed \.{\in} 0 \.{\dotdot} Timeout}%
- \@x{\makebox[0pt][r]{\scriptsize 53\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
+ \@x{\makebox[0pt][r]{\scriptsize 58\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
  edited \.{\in} {\BOOLEAN}}%
+ \@x{\makebox[0pt][r]{\scriptsize 59\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
+ touched \.{\in} {\BOOLEAN} \.{\land} own \.{\subseteq} Versions}%
 \@pvspace{8.0pt}%
 \begin{lcom}{0}%
 \begin{cpar}{0}{T}{F}{7.5}{0}{}%
@@ -1063,12 +1074,12 @@ A failure report becomes a gate only when it is a regression against the
  session baseline, or when the check times out.
 \end{cpar}%
 \end{lcom}%
- \@x{\makebox[0pt][r]{\scriptsize 60\hspace{1em}} Failing \.{\defeq} report .
+ \@x{\makebox[0pt][r]{\scriptsize 66\hspace{1em}} Failing \.{\defeq} report .
  known \.{\land} report . failures \.{\neq} \{ \}}%
- \@x{\makebox[0pt][r]{\scriptsize 61\hspace{1em}} Regressed ( f ) \.{\defeq}
+ \@x{\makebox[0pt][r]{\scriptsize 67\hspace{1em}} Regressed ( f ) \.{\defeq}
  TimedOut \.{\in} f \.{\lor} ( baseline . known \.{\land} NewFailure ( f ,\,
  baseline . failures ) )}%
- \@x{\makebox[0pt][r]{\scriptsize 62\hspace{1em}} Guard \.{\defeq} Failing
+ \@x{\makebox[0pt][r]{\scriptsize 68\hspace{1em}} Guard \.{\defeq} Failing
  \.{\land} Regressed ( report . failures )}%
 \@pvspace{8.0pt}%
 \begin{lcom}{0}%
@@ -1081,31 +1092,33 @@ The first check starts at the inherited workspace version. No result or
  baseline is known and no notification has been sent.
 \end{cpar}%
 \end{lcom}%
-\@x{\makebox[0pt][r]{\scriptsize 69\hspace{1em}} Init \.{\defeq}}%
- \@x{\makebox[0pt][r]{\scriptsize 70\hspace{1em}}\@s{16.4} \.{\land} truth
+\@x{\makebox[0pt][r]{\scriptsize 75\hspace{1em}} Init \.{\defeq}}%
+ \@x{\makebox[0pt][r]{\scriptsize 76\hspace{1em}}\@s{16.4} \.{\land} truth
  \.{\in} [ Versions \.{\rightarrow} Results ]}%
- \@x{\makebox[0pt][r]{\scriptsize 71\hspace{1em}}\@s{16.4} \.{\land} head
+ \@x{\makebox[0pt][r]{\scriptsize 77\hspace{1em}}\@s{16.4} \.{\land} head
  \.{=} 0 \.{\land} based \.{=} 0}%
- \@x{\makebox[0pt][r]{\scriptsize 72\hspace{1em}}\@s{16.4} \.{\land}
+ \@x{\makebox[0pt][r]{\scriptsize 78\hspace{1em}}\@s{16.4} \.{\land}
  busy\@s{0.65} \.{=} {\TRUE} \.{\land} from \.{=} 0 \.{\land} quiet \.{=}
  {\FALSE} \.{\land} installed \.{=} {\FALSE}}%
- \@x{\makebox[0pt][r]{\scriptsize 73\hspace{1em}}\@s{16.4} \.{\land} produced
+ \@x{\makebox[0pt][r]{\scriptsize 79\hspace{1em}}\@s{16.4} \.{\land} produced
  \.{=} 0 \.{\land} consumed \.{=} 0 \.{\land} pending \.{=} {\langle}
  {\rangle}}%
- \@x{\makebox[0pt][r]{\scriptsize 74\hspace{1em}}\@s{16.4} \.{\land} report
+ \@x{\makebox[0pt][r]{\scriptsize 80\hspace{1em}}\@s{16.4} \.{\land} report
  \.{=} [ known \.{\mapsto} {\FALSE} ,\, id \.{\mapsto} 0 ,\, at \.{\mapsto} 0
  ,\, failures \.{\mapsto} \{ \} ]}%
- \@x{\makebox[0pt][r]{\scriptsize 75\hspace{1em}}\@s{16.4} \.{\land} baseline
- \.{=} [ known \.{\mapsto} {\FALSE} ,\, failures \.{\mapsto} \{ \} ]}%
- \@x{\makebox[0pt][r]{\scriptsize 76\hspace{1em}}\@s{16.4} \.{\land}
+ \@x{\makebox[0pt][r]{\scriptsize 81\hspace{1em}}\@s{16.4} \.{\land} baseline
+ \.{=} NoBaseline}%
+ \@x{\makebox[0pt][r]{\scriptsize 82\hspace{1em}}\@s{16.4} \.{\land}
  wasFailing \.{=} {\FALSE}}%
- \@x{\makebox[0pt][r]{\scriptsize 77\hspace{1em}}\@s{16.4} \.{\land} outbox
+ \@x{\makebox[0pt][r]{\scriptsize 83\hspace{1em}}\@s{16.4} \.{\land} outbox
  \.{=} NoMessage \.{\land} told \.{=} NotTold \.{\land} flush \.{=} {\FALSE}}%
- \@x{\makebox[0pt][r]{\scriptsize 78\hspace{1em}}\@s{16.4} \.{\land} turn
+ \@x{\makebox[0pt][r]{\scriptsize 84\hspace{1em}}\@s{16.4} \.{\land} turn
  \.{=}\@w{idle} \.{\land} toldThisTurn \.{=} {\FALSE} \.{\land} promptQueued
  \.{=} {\FALSE}}%
- \@x{\makebox[0pt][r]{\scriptsize 79\hspace{1em}}\@s{16.4} \.{\land} knows
+ \@x{\makebox[0pt][r]{\scriptsize 85\hspace{1em}}\@s{16.4} \.{\land} knows
  \.{=} \{ \} \.{\land} elapsed \.{=} 0 \.{\land} edited \.{=} {\FALSE}}%
+ \@x{\makebox[0pt][r]{\scriptsize 86\hspace{1em}}\@s{16.4} \.{\land} touched
+ \.{=} {\FALSE} \.{\land} own \.{=} \{ \}}%
 \@pvspace{8.0pt}%
 \begin{lcom}{0}%
 \begin{cpar}{0}{T}{F}{7.5}{0}{}%
@@ -1116,52 +1129,59 @@ Section: Result delivery and baseline isolation
 Queue deduplicates notification signatures. Deliver consumes a completed
  snapshot, establishes the inherited baseline, and queues a regression or
  recovery.
+ The first result is the baseline unless the session has edited since the
+ commit, as another process\mbox{'}s changes are inherited like the commit
+ itself; after
+ a session edit the baseline is empty, so no failure the edit may hold is
+ absorbed.
  A recovery can cancel a failure message that has not yet been delivered.
 \end{cpar}%
 \end{lcom}%
- \@x{\makebox[0pt][r]{\scriptsize 87\hspace{1em}} Queue ( signature ,\,
+ \@x{\makebox[0pt][r]{\scriptsize 97\hspace{1em}} Queue ( signature ,\,
  message ) \.{\defeq}}%
- \@x{\makebox[0pt][r]{\scriptsize 88\hspace{1em}}\@s{16.4} {\IF} told \.{=}
+ \@x{\makebox[0pt][r]{\scriptsize 98\hspace{1em}}\@s{16.4} {\IF} told \.{=}
  signature \.{\land} {\lnot} outbox . held}%
- \@x{\makebox[0pt][r]{\scriptsize 89\hspace{1em}}\@s{16.4} \.{\THEN}
+ \@x{\makebox[0pt][r]{\scriptsize 99\hspace{1em}}\@s{16.4} \.{\THEN}
  {\UNCHANGED} {\langle} outbox ,\, told ,\, flush {\rangle}}%
- \@x{\makebox[0pt][r]{\scriptsize 90\hspace{1em}}\@s{16.4} \.{\ELSE} \.{\land}
- told \.{'} \.{=} signature \.{\land} outbox \.{'} \.{=} message \.{\land}
- flush \.{'} \.{=} {\TRUE}}%
+ \@x{\makebox[0pt][r]{\scriptsize 100\hspace{1em}}\@s{16.4} \.{\ELSE}
+ \.{\land} told \.{'} \.{=} signature \.{\land} outbox \.{'} \.{=} message
+ \.{\land} flush \.{'} \.{=} {\TRUE}}%
 \@pvspace{8.0pt}%
- \@x{\makebox[0pt][r]{\scriptsize 92\hspace{1em}} Deliver ( v ,\, id ,\, f )
+ \@x{\makebox[0pt][r]{\scriptsize 102\hspace{1em}} Deliver ( v ,\, id ,\, f )
  \.{\defeq}}%
- \@x{\makebox[0pt][r]{\scriptsize 93\hspace{1em}}\@s{16.4} \.{\LET} b
+ \@x{\makebox[0pt][r]{\scriptsize 103\hspace{1em}}\@s{16.4} \.{\LET} b
  \.{\defeq} {\IF} baseline . known \.{\THEN} baseline . failures \.{\ELSE}
- {\IF} head \.{=} based \.{\THEN} f \.{\ELSE} \{ \}}%
- \@x{\makebox[0pt][r]{\scriptsize 94\hspace{1em}}\@s{36.79} isRegression
+ {\IF} {\lnot} touched \.{\THEN} f \.{\ELSE} \{ \}}%
+ \@x{\makebox[0pt][r]{\scriptsize 104\hspace{1em}}\@s{36.79} isRegression
  \.{\defeq} TimedOut \.{\in} f \.{\lor} {\lnot} ( f \.{\subseteq} b )}%
- \@x{\makebox[0pt][r]{\scriptsize 95\hspace{1em}}\@s{16.4} \.{\IN} \.{\land}
+ \@x{\makebox[0pt][r]{\scriptsize 105\hspace{1em}}\@s{16.4} \.{\IN} \.{\land}
  report \.{'} \.{=} [ known \.{\mapsto} {\TRUE} ,\, id \.{\mapsto} id ,\, at
  \.{\mapsto} v ,\, failures \.{\mapsto} f ]}%
- \@x{\makebox[0pt][r]{\scriptsize 96\hspace{1em}}\@s{36.79} \.{\land} baseline
- \.{'} \.{=} {\IF} TimedOut \.{\in} f \.{\THEN} baseline \.{\ELSE} [ known
- \.{\mapsto} {\TRUE} ,\, failures \.{\mapsto} b ]}%
- \@x{\makebox[0pt][r]{\scriptsize 97\hspace{1em}}\@s{36.79} \.{\land}
+ \@x{\makebox[0pt][r]{\scriptsize 106\hspace{1em}}\@s{36.79} \.{\land}
+ baseline \.{'} \.{=} {\IF} TimedOut \.{\in} f \.{\lor} baseline . known
+ \.{\THEN} baseline}%
+ \@x{\makebox[0pt][r]{\scriptsize 107\hspace{1em}}\@s{98.53} \.{\ELSE} [ known
+ \.{\mapsto} {\TRUE} ,\, at \.{\mapsto} v ,\, failures \.{\mapsto} b ]}%
+ \@x{\makebox[0pt][r]{\scriptsize 108\hspace{1em}}\@s{36.79} \.{\land}
  wasFailing \.{'} \.{=} isRegression}%
- \@x{\makebox[0pt][r]{\scriptsize 98\hspace{1em}}\@s{36.79} \.{\land} {\IF}
+ \@x{\makebox[0pt][r]{\scriptsize 109\hspace{1em}}\@s{36.79} \.{\land} {\IF}
  isRegression}%
- \@x{\makebox[0pt][r]{\scriptsize 99\hspace{1em}}\@s{56.11} \.{\THEN} Queue (
+ \@x{\makebox[0pt][r]{\scriptsize 110\hspace{1em}}\@s{56.11} \.{\THEN} Queue (
  [ kind \.{\mapsto}\@w{failed} ,\, fresh \.{\mapsto} f \.{\,\backslash\,} b ]
  ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 100\hspace{1em}}\@s{119.66} [ held\@s{1.02}
+ \@x{\makebox[0pt][r]{\scriptsize 111\hspace{1em}}\@s{119.66} [ held\@s{1.02}
  \.{\mapsto} {\TRUE} ,\, waking \.{\mapsto} edited \.{\lor} TimedOut \.{\in}
  f ,\, failures \.{\mapsto} f ] )}%
- \@x{\makebox[0pt][r]{\scriptsize 101\hspace{1em}}\@s{47.91} \.{\ELSE} {\IF}
+ \@x{\makebox[0pt][r]{\scriptsize 112\hspace{1em}}\@s{47.91} \.{\ELSE} {\IF}
  {\lnot} wasFailing}%
- \@x{\makebox[0pt][r]{\scriptsize 102\hspace{1em}}\@s{56.11} \.{\THEN}
+ \@x{\makebox[0pt][r]{\scriptsize 113\hspace{1em}}\@s{56.11} \.{\THEN}
  {\UNCHANGED} {\langle} outbox ,\, told ,\, flush {\rangle}}%
- \@x{\makebox[0pt][r]{\scriptsize 103\hspace{1em}}\@s{47.91} \.{\ELSE} {\IF}
+ \@x{\makebox[0pt][r]{\scriptsize 114\hspace{1em}}\@s{47.91} \.{\ELSE} {\IF}
  outbox . held}%
- \@x{\makebox[0pt][r]{\scriptsize 104\hspace{1em}}\@s{56.11} \.{\THEN}
+ \@x{\makebox[0pt][r]{\scriptsize 115\hspace{1em}}\@s{56.11} \.{\THEN}
  \.{\land} outbox \.{'} \.{=} NoMessage \.{\land} told \.{'} \.{=} NotTold
  \.{\land} {\UNCHANGED} flush}%
- \@x{\makebox[0pt][r]{\scriptsize 105\hspace{1em}}\@s{47.91} \.{\ELSE} Queue (
+ \@x{\makebox[0pt][r]{\scriptsize 116\hspace{1em}}\@s{47.91} \.{\ELSE} Queue (
  [ kind \.{\mapsto}\@w{recovered} ,\, fresh \.{\mapsto} \{ \} ] ,\, [ held
  \.{\mapsto} {\TRUE} ,\, waking \.{\mapsto} {\FALSE} ,\, failures \.{\mapsto}
  f ] )}%
@@ -1173,86 +1193,95 @@ Section: Workspace changes and scheduling
 \vshade{5.0}%
 \begin{cpar}{1}{F}{F}{0}{0}{}%
 An agent edit advances head without moving based, and marks the next read as
- following the agent\mbox{'}s own change. Another process can change the
- workspace at
- any time without committing; \ensuremath{OutsideEdit} advances head the same
- way but marks
- nothing. An external head change moves both and invalidates the baseline and
- unread results. \ensuremath{QuietElapses} starts the next check;
- \ensuremath{Tick} advances its timeout clock.
+ following the agent\mbox{'}s own change and the session as having edited.
+ Another
+ process can change the workspace at any time without committing;
+ \ensuremath{OutsideEdit
+ } advances head the same way but marks nothing. An external head change moves
+ both,
+ invalidates the baseline and unread results, and starts the session\mbox{'}s
+ edits
+ afresh. \ensuremath{QuietElapses} starts the next check; \ensuremath{Tick}
+ advances its timeout clock.
 \end{cpar}%
 \end{lcom}%
-\@x{\makebox[0pt][r]{\scriptsize 115\hspace{1em}} Edit \.{\defeq}}%
- \@x{\makebox[0pt][r]{\scriptsize 116\hspace{1em}}\@s{16.4} \.{\land} turn
+\@x{\makebox[0pt][r]{\scriptsize 127\hspace{1em}} Edit \.{\defeq}}%
+ \@x{\makebox[0pt][r]{\scriptsize 128\hspace{1em}}\@s{16.4} \.{\land} turn
  \.{=}\@w{running}\@s{0.17} \.{\land} head \.{<} MaxEdits}%
- \@x{\makebox[0pt][r]{\scriptsize 117\hspace{1em}}\@s{16.4} \.{\land} head
+ \@x{\makebox[0pt][r]{\scriptsize 129\hspace{1em}}\@s{16.4} \.{\land} head
  \.{'} \.{=} head \.{+} 1 \.{\land} quiet \.{'} \.{=} {\TRUE} \.{\land}
  edited \.{'} \.{=} {\TRUE}}%
- \@x{\makebox[0pt][r]{\scriptsize 118\hspace{1em}}\@s{16.4} \.{\land}
+ \@x{\makebox[0pt][r]{\scriptsize 130\hspace{1em}}\@s{16.4} \.{\land} touched
+ \.{'} \.{=} {\TRUE} \.{\land} own \.{'} \.{=} own \.{\cup} \{ head \.{+} 1
+ \}}%
+ \@x{\makebox[0pt][r]{\scriptsize 131\hspace{1em}}\@s{16.4} \.{\land}
  {\UNCHANGED} {\langle} truth ,\, based ,\, busy ,\, from ,\, installed ,\,
  produced ,\, consumed ,\, pending ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 119\hspace{1em}}\@s{89.98} report ,\,
+ \@x{\makebox[0pt][r]{\scriptsize 132\hspace{1em}}\@s{89.98} report ,\,
  baseline ,\, wasFailing ,\, outbox ,\, told ,\, flush ,\, turn ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 120\hspace{1em}}\@s{89.98} toldThisTurn ,\,
+ \@x{\makebox[0pt][r]{\scriptsize 133\hspace{1em}}\@s{89.98} toldThisTurn ,\,
  promptQueued ,\, knows ,\, elapsed {\rangle}}%
 \@pvspace{8.0pt}%
-\@x{\makebox[0pt][r]{\scriptsize 122\hspace{1em}} OutsideEdit \.{\defeq}}%
- \@x{\makebox[0pt][r]{\scriptsize 123\hspace{1em}}\@s{16.4} \.{\land} head
+\@x{\makebox[0pt][r]{\scriptsize 135\hspace{1em}} OutsideEdit \.{\defeq}}%
+ \@x{\makebox[0pt][r]{\scriptsize 136\hspace{1em}}\@s{16.4} \.{\land} head
  \.{<} MaxEdits}%
- \@x{\makebox[0pt][r]{\scriptsize 124\hspace{1em}}\@s{16.4} \.{\land} head
+ \@x{\makebox[0pt][r]{\scriptsize 137\hspace{1em}}\@s{16.4} \.{\land} head
  \.{'} \.{=} head \.{+} 1 \.{\land} quiet \.{'} \.{=} {\TRUE}}%
- \@x{\makebox[0pt][r]{\scriptsize 125\hspace{1em}}\@s{16.4} \.{\land}
+ \@x{\makebox[0pt][r]{\scriptsize 138\hspace{1em}}\@s{16.4} \.{\land}
  {\UNCHANGED} {\langle} truth ,\, based ,\, busy ,\, from ,\, installed ,\,
  produced ,\, consumed ,\, pending ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 126\hspace{1em}}\@s{89.98} report ,\,
+ \@x{\makebox[0pt][r]{\scriptsize 139\hspace{1em}}\@s{89.98} report ,\,
  baseline ,\, wasFailing ,\, outbox ,\, told ,\, flush ,\, turn ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 127\hspace{1em}}\@s{89.98} toldThisTurn ,\,
- promptQueued ,\, knows ,\, elapsed ,\, edited {\rangle}}%
+ \@x{\makebox[0pt][r]{\scriptsize 140\hspace{1em}}\@s{89.98} toldThisTurn ,\,
+ promptQueued ,\, knows ,\, elapsed ,\, edited ,\, touched ,\, own {\rangle}}%
 \@pvspace{8.0pt}%
-\@x{\makebox[0pt][r]{\scriptsize 129\hspace{1em}} HeadMoves \.{\defeq}}%
- \@x{\makebox[0pt][r]{\scriptsize 130\hspace{1em}}\@s{16.4} \.{\land} head
+\@x{\makebox[0pt][r]{\scriptsize 142\hspace{1em}} HeadMoves \.{\defeq}}%
+ \@x{\makebox[0pt][r]{\scriptsize 143\hspace{1em}}\@s{16.4} \.{\land} head
  \.{<} MaxEdits}%
- \@x{\makebox[0pt][r]{\scriptsize 131\hspace{1em}}\@s{16.4} \.{\land} head
+ \@x{\makebox[0pt][r]{\scriptsize 144\hspace{1em}}\@s{16.4} \.{\land} head
  \.{'} \.{=} head \.{+} 1 \.{\land} based \.{'} \.{=} head \.{+} 1}%
- \@x{\makebox[0pt][r]{\scriptsize 132\hspace{1em}}\@s{16.4} \.{\land} baseline
- \.{'} \.{=} [ known \.{\mapsto} {\FALSE} ,\, failures \.{\mapsto} \{ \} ]}%
- \@x{\makebox[0pt][r]{\scriptsize 133\hspace{1em}}\@s{16.4} \.{\land} quiet
+ \@x{\makebox[0pt][r]{\scriptsize 145\hspace{1em}}\@s{16.4} \.{\land} baseline
+ \.{'} \.{=} NoBaseline \.{\land} touched \.{'} \.{=} {\FALSE} \.{\land} own
+ \.{'} \.{=} \{ \}}%
+ \@x{\makebox[0pt][r]{\scriptsize 146\hspace{1em}}\@s{16.4} \.{\land} quiet
  \.{'} \.{=} {\TRUE} \.{\land} pending \.{'} \.{=} {\langle} {\rangle}}%
- \@x{\makebox[0pt][r]{\scriptsize 134\hspace{1em}}\@s{16.4} \.{\land} from
+ \@x{\makebox[0pt][r]{\scriptsize 147\hspace{1em}}\@s{16.4} \.{\land} from
  \.{'} \.{=} {\IF} busy \.{\THEN} head \.{+} 1 \.{\ELSE} from}%
- \@x{\makebox[0pt][r]{\scriptsize 135\hspace{1em}}\@s{16.4} \.{\land} elapsed
+ \@x{\makebox[0pt][r]{\scriptsize 148\hspace{1em}}\@s{16.4} \.{\land} elapsed
  \.{'} \.{=} {\IF} busy \.{\THEN} 0 \.{\ELSE} elapsed}%
- \@x{\makebox[0pt][r]{\scriptsize 136\hspace{1em}}\@s{16.4} \.{\land}
+ \@x{\makebox[0pt][r]{\scriptsize 149\hspace{1em}}\@s{16.4} \.{\land}
  {\UNCHANGED} {\langle} truth ,\, busy ,\, installed ,\, produced ,\,
  consumed ,\, report ,\, wasFailing ,\, outbox ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 137\hspace{1em}}\@s{89.98} told ,\, flush
- ,\, turn ,\, toldThisTurn ,\, promptQueued ,\, knows ,\, edited {\rangle}}%
-\@pvspace{8.0pt}%
-\@x{\makebox[0pt][r]{\scriptsize 139\hspace{1em}} QuietElapses \.{\defeq}}%
- \@x{\makebox[0pt][r]{\scriptsize 140\hspace{1em}}\@s{16.4} \.{\land} quiet
- \.{\land} installed}%
- \@x{\makebox[0pt][r]{\scriptsize 141\hspace{1em}}\@s{16.4} \.{\land} quiet
- \.{'} \.{=} {\FALSE} \.{\land} busy \.{'} \.{=} {\TRUE} \.{\land} from \.{'}
- \.{=} head \.{\land} elapsed \.{'} \.{=} 0}%
- \@x{\makebox[0pt][r]{\scriptsize 142\hspace{1em}}\@s{16.4} \.{\land}
- {\UNCHANGED} {\langle} truth ,\, head ,\, based ,\, installed ,\, produced
- ,\, consumed ,\, pending ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 143\hspace{1em}}\@s{89.98} report ,\,
- baseline ,\, wasFailing ,\, outbox ,\, told ,\, flush ,\, turn ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 144\hspace{1em}}\@s{89.98} toldThisTurn ,\,
- promptQueued ,\, knows ,\, edited {\rangle}}%
-\@pvspace{8.0pt}%
-\@x{\makebox[0pt][r]{\scriptsize 146\hspace{1em}} Tick \.{\defeq}}%
- \@x{\makebox[0pt][r]{\scriptsize 147\hspace{1em}}\@s{16.4} \.{\land} busy
- \.{\land} elapsed \.{<} Timeout \.{\land} elapsed \.{'} \.{=} elapsed \.{+}
- 1}%
- \@x{\makebox[0pt][r]{\scriptsize 148\hspace{1em}}\@s{16.4} \.{\land}
- {\UNCHANGED} {\langle} truth ,\, head ,\, based ,\, busy ,\, from ,\, quiet
- ,\, installed ,\, produced ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 149\hspace{1em}}\@s{89.98} consumed ,\,
- pending ,\, report ,\, baseline ,\, wasFailing ,\, outbox ,\,}%
  \@x{\makebox[0pt][r]{\scriptsize 150\hspace{1em}}\@s{89.98} told ,\, flush
  ,\, turn ,\, toldThisTurn ,\, promptQueued ,\, knows ,\, edited {\rangle}}%
+\@pvspace{8.0pt}%
+\@x{\makebox[0pt][r]{\scriptsize 152\hspace{1em}} QuietElapses \.{\defeq}}%
+ \@x{\makebox[0pt][r]{\scriptsize 153\hspace{1em}}\@s{16.4} \.{\land} quiet
+ \.{\land} installed}%
+ \@x{\makebox[0pt][r]{\scriptsize 154\hspace{1em}}\@s{16.4} \.{\land} quiet
+ \.{'} \.{=} {\FALSE} \.{\land} busy \.{'} \.{=} {\TRUE} \.{\land} from \.{'}
+ \.{=} head \.{\land} elapsed \.{'} \.{=} 0}%
+ \@x{\makebox[0pt][r]{\scriptsize 155\hspace{1em}}\@s{16.4} \.{\land}
+ {\UNCHANGED} {\langle} truth ,\, head ,\, based ,\, installed ,\, produced
+ ,\, consumed ,\, pending ,\,}%
+ \@x{\makebox[0pt][r]{\scriptsize 156\hspace{1em}}\@s{89.98} report ,\,
+ baseline ,\, wasFailing ,\, outbox ,\, told ,\, flush ,\, turn ,\,}%
+ \@x{\makebox[0pt][r]{\scriptsize 157\hspace{1em}}\@s{89.98} toldThisTurn ,\,
+ promptQueued ,\, knows ,\, edited ,\, touched ,\, own {\rangle}}%
+\@pvspace{8.0pt}%
+\@x{\makebox[0pt][r]{\scriptsize 159\hspace{1em}} Tick \.{\defeq}}%
+ \@x{\makebox[0pt][r]{\scriptsize 160\hspace{1em}}\@s{16.4} \.{\land} busy
+ \.{\land} elapsed \.{<} Timeout \.{\land} elapsed \.{'} \.{=} elapsed \.{+}
+ 1}%
+ \@x{\makebox[0pt][r]{\scriptsize 161\hspace{1em}}\@s{16.4} \.{\land}
+ {\UNCHANGED} {\langle} truth ,\, head ,\, based ,\, busy ,\, from ,\, quiet
+ ,\, installed ,\, produced ,\,}%
+ \@x{\makebox[0pt][r]{\scriptsize 162\hspace{1em}}\@s{89.98} consumed ,\,
+ pending ,\, report ,\, baseline ,\, wasFailing ,\, outbox ,\,}%
+ \@x{\makebox[0pt][r]{\scriptsize 163\hspace{1em}}\@s{89.98} told ,\, flush
+ ,\, turn ,\, toldThisTurn ,\, promptQueued ,\, knows ,\, edited ,\,}%
+ \@x{\makebox[0pt][r]{\scriptsize 164\hspace{1em}}\@s{89.98} touched ,\, own
+ {\rangle}}%
 \@pvspace{8.0pt}%
 \begin{lcom}{0}%
 \begin{cpar}{0}{T}{F}{7.5}{0}{}%
@@ -1270,44 +1299,47 @@ Run completion appends a snapshot to pending without publishing it.
  A later incomplete build does not replace an earlier complete result.
 \end{cpar}%
 \end{lcom}%
- \@x{\makebox[0pt][r]{\scriptsize 160\hspace{1em}} Buffer ( v ,\, f )
+ \@x{\makebox[0pt][r]{\scriptsize 174\hspace{1em}} Buffer ( v ,\, f )
  \.{\defeq}}%
- \@x{\makebox[0pt][r]{\scriptsize 161\hspace{1em}}\@s{16.4} \.{\land} produced
+ \@x{\makebox[0pt][r]{\scriptsize 175\hspace{1em}}\@s{16.4} \.{\land} produced
  \.{'} \.{=} produced \.{+} 1}%
- \@x{\makebox[0pt][r]{\scriptsize 162\hspace{1em}}\@s{16.4} \.{\land} pending
+ \@x{\makebox[0pt][r]{\scriptsize 176\hspace{1em}}\@s{16.4} \.{\land} pending
  \.{'} \.{=} Append ( pending ,\, [ id \.{\mapsto} produced \.{+} 1 ,\, at
  \.{\mapsto} v ,\, failures \.{\mapsto} f ] )}%
- \@x{\makebox[0pt][r]{\scriptsize 163\hspace{1em}}\@s{16.4} \.{\land} busy
+ \@x{\makebox[0pt][r]{\scriptsize 177\hspace{1em}}\@s{16.4} \.{\land} busy
  \.{'} \.{=} {\FALSE} \.{\land} installed \.{'} \.{=} {\TRUE}}%
- \@x{\makebox[0pt][r]{\scriptsize 164\hspace{1em}}\@s{16.4} \.{\land}
+ \@x{\makebox[0pt][r]{\scriptsize 178\hspace{1em}}\@s{16.4} \.{\land}
  {\UNCHANGED} {\langle} truth ,\, head ,\, based ,\, from ,\, quiet ,\,
  consumed ,\, report ,\, baseline ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 165\hspace{1em}}\@s{89.98} wasFailing ,\,
+ \@x{\makebox[0pt][r]{\scriptsize 179\hspace{1em}}\@s{89.98} wasFailing ,\,
  outbox ,\, told ,\, flush ,\, turn ,\, toldThisTurn ,\, promptQueued ,\,
- knows ,\, elapsed ,\, edited {\rangle}}%
+ knows ,\, elapsed ,\, edited ,\,}%
+ \@x{\makebox[0pt][r]{\scriptsize 180\hspace{1em}}\@s{89.98} touched ,\, own
+ {\rangle}}%
 \@pvspace{8.0pt}%
- \@x{\makebox[0pt][r]{\scriptsize 167\hspace{1em}} RunEnds \.{\defeq} busy
+ \@x{\makebox[0pt][r]{\scriptsize 182\hspace{1em}} RunEnds \.{\defeq} busy
  \.{\land} \E\, v \.{\in} from \.{\dotdot} head \.{:} Buffer ( v ,\, truth [
  v ] )}%
- \@x{\makebox[0pt][r]{\scriptsize 168\hspace{1em}} TimesOut \.{\defeq} busy
+ \@x{\makebox[0pt][r]{\scriptsize 183\hspace{1em}} TimesOut \.{\defeq} busy
  \.{\land} elapsed \.{=} Timeout \.{\land} Buffer ( from ,\, \{ TimedOut \}
  )}%
 \@pvspace{8.0pt}%
-\@x{\makebox[0pt][r]{\scriptsize 170\hspace{1em}} ReadResults \.{\defeq}}%
- \@x{\makebox[0pt][r]{\scriptsize 171\hspace{1em}}\@s{16.4} \.{\land} pending
+\@x{\makebox[0pt][r]{\scriptsize 185\hspace{1em}} ReadResults \.{\defeq}}%
+ \@x{\makebox[0pt][r]{\scriptsize 186\hspace{1em}}\@s{16.4} \.{\land} pending
  \.{\neq} {\langle} {\rangle}}%
- \@x{\makebox[0pt][r]{\scriptsize 172\hspace{1em}}\@s{16.4} \.{\land} \.{\LET}
+ \@x{\makebox[0pt][r]{\scriptsize 187\hspace{1em}}\@s{16.4} \.{\land} \.{\LET}
  latest \.{\defeq} pending [ Len ( pending ) ]}%
- \@x{\makebox[0pt][r]{\scriptsize 173\hspace{1em}}\@s{27.51} \.{\IN} Deliver (
+ \@x{\makebox[0pt][r]{\scriptsize 188\hspace{1em}}\@s{27.51} \.{\IN} Deliver (
  latest . at ,\, latest . id ,\, latest . failures )}%
- \@x{\makebox[0pt][r]{\scriptsize 174\hspace{1em}}\@s{16.4} \.{\land} consumed
+ \@x{\makebox[0pt][r]{\scriptsize 189\hspace{1em}}\@s{16.4} \.{\land} consumed
  \.{'} \.{=} produced \.{\land} pending \.{'} \.{=} {\langle} {\rangle}
  \.{\land} edited \.{'} \.{=} {\FALSE}}%
- \@x{\makebox[0pt][r]{\scriptsize 175\hspace{1em}}\@s{16.4} \.{\land}
+ \@x{\makebox[0pt][r]{\scriptsize 190\hspace{1em}}\@s{16.4} \.{\land}
  {\UNCHANGED} {\langle} truth ,\, head ,\, based ,\, busy ,\, from ,\, quiet
  ,\, installed ,\, produced ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 176\hspace{1em}}\@s{89.98} turn ,\,
- toldThisTurn ,\, promptQueued ,\, knows ,\, elapsed {\rangle}}%
+ \@x{\makebox[0pt][r]{\scriptsize 191\hspace{1em}}\@s{89.98} turn ,\,
+ toldThisTurn ,\, promptQueued ,\, knows ,\, elapsed ,\, touched ,\, own
+ {\rangle}}%
 \@pvspace{8.0pt}%
 \begin{lcom}{0}%
 \begin{cpar}{0}{T}{F}{7.5}{0}{}%
@@ -1322,68 +1354,74 @@ A running turn receives at most one notification before another turn starts.
  turn to settle.
 \end{cpar}%
 \end{lcom}%
- \@x{\makebox[0pt][r]{\scriptsize 184\hspace{1em}} Held \.{\defeq} {\IF} turn
+ \@x{\makebox[0pt][r]{\scriptsize 199\hspace{1em}} Held \.{\defeq} {\IF} turn
  \.{=}\@w{running} \.{\THEN} toldThisTurn \.{\ELSE} promptQueued \.{\lor}
  {\lnot} outbox . waking}%
 \@pvspace{8.0pt}%
-\@x{\makebox[0pt][r]{\scriptsize 186\hspace{1em}} Flush \.{\defeq}}%
- \@x{\makebox[0pt][r]{\scriptsize 187\hspace{1em}}\@s{16.4} \.{\land} flush
+\@x{\makebox[0pt][r]{\scriptsize 201\hspace{1em}} Flush \.{\defeq}}%
+ \@x{\makebox[0pt][r]{\scriptsize 202\hspace{1em}}\@s{16.4} \.{\land} flush
  \.{\land} flush \.{'} \.{=} {\FALSE}}%
- \@x{\makebox[0pt][r]{\scriptsize 188\hspace{1em}}\@s{16.4} \.{\land} {\IF}
+ \@x{\makebox[0pt][r]{\scriptsize 203\hspace{1em}}\@s{16.4} \.{\land} {\IF}
  outbox . held \.{\land} {\lnot} Held}%
- \@x{\makebox[0pt][r]{\scriptsize 189\hspace{1em}}\@s{35.71} \.{\THEN}
+ \@x{\makebox[0pt][r]{\scriptsize 204\hspace{1em}}\@s{35.71} \.{\THEN}
  \.{\land} outbox \.{'} \.{=} NoMessage \.{\land} knows \.{'} \.{=} outbox .
  failures}%
- \@x{\makebox[0pt][r]{\scriptsize 190\hspace{1em}}\@s{67.02} \.{\land} {\IF}
+ \@x{\makebox[0pt][r]{\scriptsize 205\hspace{1em}}\@s{67.02} \.{\land} {\IF}
  turn\@s{0.19} \.{=}\@w{running}}%
- \@x{\makebox[0pt][r]{\scriptsize 191\hspace{1em}}\@s{86.33} \.{\THEN}
+ \@x{\makebox[0pt][r]{\scriptsize 206\hspace{1em}}\@s{86.33} \.{\THEN}
  toldThisTurn \.{'}\@s{5.88} \.{=} {\TRUE} \.{\land} {\UNCHANGED}
  promptQueued}%
- \@x{\makebox[0pt][r]{\scriptsize 192\hspace{1em}}\@s{86.33} \.{\ELSE}
+ \@x{\makebox[0pt][r]{\scriptsize 207\hspace{1em}}\@s{86.33} \.{\ELSE}
  promptQueued \.{'} \.{=} {\TRUE} \.{\land} {\UNCHANGED} toldThisTurn}%
- \@x{\makebox[0pt][r]{\scriptsize 193\hspace{1em}}\@s{35.71} \.{\ELSE}
+ \@x{\makebox[0pt][r]{\scriptsize 208\hspace{1em}}\@s{35.71} \.{\ELSE}
  {\UNCHANGED} {\langle} outbox ,\, knows ,\, toldThisTurn ,\, promptQueued
  {\rangle}}%
- \@x{\makebox[0pt][r]{\scriptsize 194\hspace{1em}}\@s{16.4} \.{\land}
+ \@x{\makebox[0pt][r]{\scriptsize 209\hspace{1em}}\@s{16.4} \.{\land}
  {\UNCHANGED} {\langle} truth ,\, head ,\, based ,\, busy ,\, from ,\, quiet
  ,\, installed ,\, produced ,\, consumed ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 195\hspace{1em}}\@s{89.98} pending ,\,
+ \@x{\makebox[0pt][r]{\scriptsize 210\hspace{1em}}\@s{89.98} pending ,\,
  report ,\, baseline ,\, wasFailing ,\, told ,\, turn ,\, elapsed ,\, edited
+ ,\,}%
+ \@x{\makebox[0pt][r]{\scriptsize 211\hspace{1em}}\@s{89.98} touched ,\, own
  {\rangle}}%
 \@pvspace{8.0pt}%
-\@x{\makebox[0pt][r]{\scriptsize 197\hspace{1em}} TurnStarts \.{\defeq}}%
- \@x{\makebox[0pt][r]{\scriptsize 198\hspace{1em}}\@s{16.4} \.{\land} turn
+\@x{\makebox[0pt][r]{\scriptsize 213\hspace{1em}} TurnStarts \.{\defeq}}%
+ \@x{\makebox[0pt][r]{\scriptsize 214\hspace{1em}}\@s{16.4} \.{\land} turn
  \.{=}\@w{idle} \.{\land} turn \.{'} \.{=}\@w{running}}%
- \@x{\makebox[0pt][r]{\scriptsize 199\hspace{1em}}\@s{16.4} \.{\land}
+ \@x{\makebox[0pt][r]{\scriptsize 215\hspace{1em}}\@s{16.4} \.{\land}
  toldThisTurn \.{'} \.{=} promptQueued \.{\land} promptQueued \.{'} \.{=}
  {\FALSE} \.{\land} flush \.{'} \.{=} {\TRUE}}%
- \@x{\makebox[0pt][r]{\scriptsize 200\hspace{1em}}\@s{16.4} \.{\land}
+ \@x{\makebox[0pt][r]{\scriptsize 216\hspace{1em}}\@s{16.4} \.{\land}
  {\UNCHANGED} {\langle} truth ,\, head ,\, based ,\, busy ,\, from ,\, quiet
  ,\, installed ,\, produced ,\, consumed ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 201\hspace{1em}}\@s{89.98} pending ,\,
+ \@x{\makebox[0pt][r]{\scriptsize 217\hspace{1em}}\@s{89.98} pending ,\,
  report ,\, baseline ,\, wasFailing ,\, outbox ,\, told ,\, knows ,\, elapsed
- ,\, edited {\rangle}}%
+ ,\, edited ,\,}%
+ \@x{\makebox[0pt][r]{\scriptsize 218\hspace{1em}}\@s{89.98} touched ,\, own
+ {\rangle}}%
 \@pvspace{8.0pt}%
- \@x{\makebox[0pt][r]{\scriptsize 203\hspace{1em}} WokenTurnStarts \.{\defeq}
+ \@x{\makebox[0pt][r]{\scriptsize 220\hspace{1em}} WokenTurnStarts \.{\defeq}
  promptQueued \.{\land} TurnStarts}%
 \@pvspace{8.0pt}%
-\@x{\makebox[0pt][r]{\scriptsize 205\hspace{1em}} TurnCompletes \.{\defeq}}%
- \@x{\makebox[0pt][r]{\scriptsize 206\hspace{1em}}\@s{16.4} \.{\land} turn
+\@x{\makebox[0pt][r]{\scriptsize 222\hspace{1em}} TurnCompletes \.{\defeq}}%
+ \@x{\makebox[0pt][r]{\scriptsize 223\hspace{1em}}\@s{16.4} \.{\land} turn
  \.{=}\@w{running}}%
- \@x{\makebox[0pt][r]{\scriptsize 207\hspace{1em}}\@s{16.4} \.{\land} {\IF}
+ \@x{\makebox[0pt][r]{\scriptsize 224\hspace{1em}}\@s{16.4} \.{\land} {\IF}
  Guard}%
- \@x{\makebox[0pt][r]{\scriptsize 208\hspace{1em}}\@s{35.71} \.{\THEN}
+ \@x{\makebox[0pt][r]{\scriptsize 225\hspace{1em}}\@s{35.71} \.{\THEN}
  \.{\land} toldThisTurn \.{'} \.{=} {\TRUE} \.{\land} knows \.{'} \.{=}
  report . failures \.{\land} {\UNCHANGED} {\langle} turn ,\, flush {\rangle}}%
- \@x{\makebox[0pt][r]{\scriptsize 209\hspace{1em}}\@s{35.71} \.{\ELSE}
+ \@x{\makebox[0pt][r]{\scriptsize 226\hspace{1em}}\@s{35.71} \.{\ELSE}
  \.{\land} turn \.{'} \.{=}\@w{idle} \.{\land} flush \.{'} \.{=} {\TRUE}
  \.{\land} {\UNCHANGED} {\langle} toldThisTurn ,\, knows {\rangle}}%
- \@x{\makebox[0pt][r]{\scriptsize 210\hspace{1em}}\@s{16.4} \.{\land}
+ \@x{\makebox[0pt][r]{\scriptsize 227\hspace{1em}}\@s{16.4} \.{\land}
  {\UNCHANGED} {\langle} truth ,\, head ,\, based ,\, busy ,\, from ,\, quiet
  ,\, installed ,\, produced ,\, consumed ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 211\hspace{1em}}\@s{89.98} pending ,\,
+ \@x{\makebox[0pt][r]{\scriptsize 228\hspace{1em}}\@s{89.98} pending ,\,
  report ,\, baseline ,\, wasFailing ,\, outbox ,\, told ,\, promptQueued ,\,
- elapsed ,\, edited {\rangle}}%
+ elapsed ,\, edited ,\,}%
+ \@x{\makebox[0pt][r]{\scriptsize 229\hspace{1em}}\@s{89.98} touched ,\, own
+ {\rangle}}%
 \@pvspace{8.0pt}%
 \begin{lcom}{0}%
 \begin{cpar}{0}{T}{F}{7.5}{0}{}%
@@ -1396,21 +1434,21 @@ Next chooses an enabled transition. Spec permits stuttering and requires
  deadlines.
 \end{cpar}%
 \end{lcom}%
- \@x{\makebox[0pt][r]{\scriptsize 218\hspace{1em}} Next \.{\defeq} Edit
+ \@x{\makebox[0pt][r]{\scriptsize 236\hspace{1em}} Next \.{\defeq} Edit
  \.{\lor} OutsideEdit \.{\lor} HeadMoves \.{\lor} QuietElapses \.{\lor} Tick
  \.{\lor} RunEnds \.{\lor} TimesOut}%
- \@x{\makebox[0pt][r]{\scriptsize 219\hspace{1em}}\@s{39.83} \.{\lor}
+ \@x{\makebox[0pt][r]{\scriptsize 237\hspace{1em}}\@s{39.83} \.{\lor}
  ReadResults \.{\lor} Flush \.{\lor} TurnStarts \.{\lor} TurnCompletes}%
 \@pvspace{8.0pt}%
-\@x{\makebox[0pt][r]{\scriptsize 221\hspace{1em}} Spec\@s{1.46} \.{\defeq}}%
- \@x{\makebox[0pt][r]{\scriptsize 222\hspace{1em}}\@s{16.4} \.{\land} Init
+\@x{\makebox[0pt][r]{\scriptsize 239\hspace{1em}} Spec\@s{1.46} \.{\defeq}}%
+ \@x{\makebox[0pt][r]{\scriptsize 240\hspace{1em}}\@s{16.4} \.{\land} Init
  \.{\land} {\Box} [ Next ]_{ vars}}%
- \@x{\makebox[0pt][r]{\scriptsize 223\hspace{1em}}\@s{16.4} \.{\land} {\WF}_{
+ \@x{\makebox[0pt][r]{\scriptsize 241\hspace{1em}}\@s{16.4} \.{\land} {\WF}_{
  vars} ( QuietElapses ) \.{\land} {\WF}_{ vars} ( Tick ) \.{\land} {\WF}_{
  vars} ( TimesOut )}%
- \@x{\makebox[0pt][r]{\scriptsize 224\hspace{1em}}\@s{16.4} \.{\land} {\WF}_{
+ \@x{\makebox[0pt][r]{\scriptsize 242\hspace{1em}}\@s{16.4} \.{\land} {\WF}_{
  vars} ( ReadResults ) \.{\land} {\WF}_{ vars} ( Flush )}%
- \@x{\makebox[0pt][r]{\scriptsize 225\hspace{1em}}\@s{16.4} \.{\land} {\WF}_{
+ \@x{\makebox[0pt][r]{\scriptsize 243\hspace{1em}}\@s{16.4} \.{\land} {\WF}_{
  vars} ( WokenTurnStarts ) \.{\land} {\WF}_{ vars} ( TurnCompletes )}%
 \@pvspace{8.0pt}%
 \begin{lcom}{0}%
@@ -1419,52 +1457,63 @@ Section: Safety and progress properties
 \end{cpar}%
 \vshade{5.0}%
 \begin{cpar}{1}{F}{F}{0}{0}{}%
-Results retain their ordering and checked version. The baseline cannot
- absorb later edits. A failure wakes the agent only when its read follows the
- agent\mbox{'}s own edit, or when the check timed out, so another
- process\mbox{'}s changes
- never wake it. Under \ensuremath{Spec} fairness, checks end, and each
- regression reaches
+Results retain their ordering and checked version. The baseline cannot absorb
+ the session\mbox{'}s edits: a non-empty baseline is exactly the failures of
+ a version
+ at or after the commit that no session edit made or preceded. A failure wakes
+ the agent only when its read follows the agent\mbox{'}s own edit, or when
+ the check
+ timed out, so another process\mbox{'}s changes never wake it. Under
+ \ensuremath{Spec} fairness,
+ checks end, and each regression, a failure outside the baseline taken,
+ reaches
  the agent or waits, without waking it, for its next turn.
  These properties are model-checked within the committed configuration bounds.
 \end{cpar}%
 \end{lcom}%
- \@x{\makebox[0pt][r]{\scriptsize 236\hspace{1em}} BufferedResultsAreOrdered
+ \@x{\makebox[0pt][r]{\scriptsize 256\hspace{1em}} BufferedResultsAreOrdered
  \.{\defeq}}%
- \@x{\makebox[0pt][r]{\scriptsize 237\hspace{1em}}\@s{16.4} \.{\land} \A\, i
+ \@x{\makebox[0pt][r]{\scriptsize 257\hspace{1em}}\@s{16.4} \.{\land} \A\, i
  \.{\in} 1 \.{\dotdot} Len ( pending ) \.{:} pending [ i ] . id \.{>}
  consumed \.{\land} pending [ i ] . id \.{\leq} produced}%
- \@x{\makebox[0pt][r]{\scriptsize 238\hspace{1em}}\@s{16.4} \.{\land} \A\, i
+ \@x{\makebox[0pt][r]{\scriptsize 258\hspace{1em}}\@s{16.4} \.{\land} \A\, i
  \.{\in} 1 \.{\dotdot} ( Len ( pending ) \.{-} 1 ) \.{:} pending [ i ] . id
  \.{<} pending [ i \.{+} 1 ] . id}%
 \@pvspace{8.0pt}%
- \@x{\makebox[0pt][r]{\scriptsize 240\hspace{1em}} ReadsSelectLatestComplete
+ \@x{\makebox[0pt][r]{\scriptsize 260\hspace{1em}} ReadsSelectLatestComplete
  \.{\defeq} report . known \.{\implies} report . id \.{=} consumed}%
- \@x{\makebox[0pt][r]{\scriptsize 241\hspace{1em}} ResultsMatchBuilds
+ \@x{\makebox[0pt][r]{\scriptsize 261\hspace{1em}} ResultsMatchBuilds
  \.{\defeq} report . known \.{\implies} report . failures \.{=} truth [
  report . at ] \.{\lor} report . failures \.{=} \{ TimedOut \}}%
- \@x{\makebox[0pt][r]{\scriptsize 242\hspace{1em}} BaselineNeverAbsorbsEdits
- \.{\defeq} baseline . known \.{\implies} baseline . failures \.{\subseteq}
- truth [ based ]}%
- \@x{\makebox[0pt][r]{\scriptsize 243\hspace{1em}} RunsEnd \.{\defeq} busy
+ \@x{\makebox[0pt][r]{\scriptsize 262\hspace{1em}} BaselineNeverAbsorbsEdits
+ \.{\defeq}}%
+ \@x{\makebox[0pt][r]{\scriptsize 263\hspace{1em}}\@s{16.4} baseline . known
+ \.{\implies} baseline . failures \.{=} \{ \} \.{\lor}}%
+ \@x{\makebox[0pt][r]{\scriptsize 264\hspace{1em}}\@s{32.8} \.{\land} baseline
+ . failures \.{=} truth [ baseline . at ] \.{\land} baseline . at \.{\geq}
+ based}%
+ \@x{\makebox[0pt][r]{\scriptsize 265\hspace{1em}}\@s{32.8} \.{\land} \A\, w
+ \.{\in} own \.{:} w \.{>} baseline . at}%
+ \@x{\makebox[0pt][r]{\scriptsize 266\hspace{1em}} RunsEnd \.{\defeq} busy
  \.{\leadsto} {\lnot} busy}%
- \@x{\makebox[0pt][r]{\scriptsize 244\hspace{1em}} EveryEditIsChecked
+ \@x{\makebox[0pt][r]{\scriptsize 267\hspace{1em}} EveryEditIsChecked
  \.{\defeq} {\Diamond} {\Box} ( report . known \.{\land} report . at \.{=}
  head )}%
- \@x{\makebox[0pt][r]{\scriptsize 245\hspace{1em}} Regressions \.{\defeq}
- truth [ head ] \.{\,\backslash\,} truth [ based ]}%
- \@x{\makebox[0pt][r]{\scriptsize 246\hspace{1em}} WaitsForTurn \.{\defeq}
+ \@x{\makebox[0pt][r]{\scriptsize 268\hspace{1em}} Regressions \.{\defeq}
+ truth [ head ] \.{\,\backslash\,} {\IF} baseline . known \.{\THEN} baseline
+ . failures \.{\ELSE} truth [ based ]}%
+ \@x{\makebox[0pt][r]{\scriptsize 269\hspace{1em}} WaitsForTurn \.{\defeq}
  turn \.{=}\@w{idle} \.{\land} outbox . held \.{\land} {\lnot} outbox .
  waking \.{\land} Regressions \.{\subseteq} outbox . failures}%
- \@x{\makebox[0pt][r]{\scriptsize 247\hspace{1em}} RegressionsReachAgent
+ \@x{\makebox[0pt][r]{\scriptsize 270\hspace{1em}} RegressionsReachAgent
  \.{\defeq} {\Diamond} {\Box} ( Regressions \.{\subseteq} knows \.{\lor}
  TimedOut \.{\in} knows \.{\lor} WaitsForTurn )}%
- \@x{\makebox[0pt][r]{\scriptsize 248\hspace{1em}} OutsideChangesNeverWake
+ \@x{\makebox[0pt][r]{\scriptsize 271\hspace{1em}} OutsideChangesNeverWake
  \.{\defeq}}%
- \@x{\makebox[0pt][r]{\scriptsize 249\hspace{1em}}\@s{16.4} {\Box} [ told
+ \@x{\makebox[0pt][r]{\scriptsize 272\hspace{1em}}\@s{16.4} {\Box} [ told
  \.{'} \.{\neq} told \.{\land} told \.{'} . kind \.{=}\@w{failed} \.{\land}
  outbox \.{'} . waking}%
- \@x{\makebox[0pt][r]{\scriptsize 250\hspace{1em}}\@s{30.75} \.{\implies}
+ \@x{\makebox[0pt][r]{\scriptsize 273\hspace{1em}}\@s{30.75} \.{\implies}
  edited \.{\lor} TimedOut \.{\in} outbox \.{'} . failures ]_{ vars}}%
-\@x{\makebox[0pt][r]{\scriptsize 251\hspace{1em}}}\bottombar\@xx{}%
+\@x{\makebox[0pt][r]{\scriptsize 274\hspace{1em}}}\bottombar\@xx{}%
 \end{document}
