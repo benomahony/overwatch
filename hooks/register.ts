@@ -12,7 +12,7 @@ import {
   type Watcher,
 } from './watchers'
 import { repositoryOf, COMMIT, commitOf, isCommitted, findIn } from './project'
-import { toolchainOf, movedToolchain, stopIfMoved, restartOnMoved } from './toolchain'
+import { toolchainOf, replacedToolchain, stopIfReplaced, restartOnReplaced } from './toolchain'
 import type { LiveWatcher, State, Run, Restart, Ending } from './state'
 import { QUIET_MS, setStatus, schedule, queue, queueEnvironment, writeLog, deliver } from './delivery'
 import { projectPolicy, guardedFailure, completeTurn } from './completion'
@@ -200,7 +200,7 @@ async function ensureAll($: EngineInterface, state: State) {
           found = liveWatcher(key, dir)
           state.liveWatchers.push(found)
         }
-        if (found.isWatching) void stopIfMoved($, found)
+        if (found.isWatching) void stopIfReplaced($, found)
         if (found.isWatching || now < found.retryAt) continue
         found.isWatching = true
         void start($, state, found, watcher)
@@ -222,10 +222,10 @@ async function start($: EngineInterface, state: State, live: LiveWatcher, watche
   const ending = await watch($, { state, live, watcher, cwd: live.dir })
   assert(ending === undefined || ending.endedAt >= ending.startedAt, `${watcher.name} ended at ${ending?.endedAt}, before it started at ${ending?.startedAt}`)
   if (ending === undefined || state.epoch !== epoch) return
-  const moved = await movedToolchain($, live)
+  const replaced = await replacedToolchain($, live)
   if (state.epoch !== epoch) return
-  if (moved === undefined) await restart($, { state, live, watcher, ending })
-  else restartOnMoved($, { state, live, watcher }, moved)
+  if (replaced === undefined) await restart($, { state, live, watcher, ending })
+  else restartOnReplaced($, { state, live, watcher }, replaced)
 }
 
 /**

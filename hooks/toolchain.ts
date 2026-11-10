@@ -21,31 +21,31 @@ export async function toolchainOf($: EngineInterface, argv0: string | undefined)
 }
 
 /** Where the running watch command's program is on PATH now, when it started from somewhere else; undefined otherwise. */
-export async function movedToolchain($: EngineInterface, live: LiveWatcher): Promise<string | undefined> {
+export async function replacedToolchain($: EngineInterface, live: LiveWatcher): Promise<string | undefined> {
   assert(live.toolchain === undefined || live.toolchain !== '', `${live.key} started on an empty toolchain path; record undefined instead`)
   const argv0 = live.watcher?.argv?.[0]
   const now = live.toolchain === undefined ? undefined : await toolchainOf($, argv0)
-  const moved = now !== undefined && now !== live.toolchain ? now : undefined
-  assert(moved === undefined || moved !== live.toolchain, `${argv0} moved to ${moved}, where it already was`)
-  return moved
+  const replaced = now !== undefined && now !== live.toolchain ? now : undefined
+  assert(replaced === undefined || replaced !== live.toolchain, `${argv0} was replaced by ${replaced}, where it already was`)
+  return replaced
 }
 
 /** Stops a running watcher whose program PATH now finds somewhere else, so it ends and restarts on the new one. */
-export async function stopIfMoved($: EngineInterface, live: LiveWatcher): Promise<void> {
+export async function stopIfReplaced($: EngineInterface, live: LiveWatcher): Promise<void> {
   assert(live.isWatching, `${live.key} is not watching; only a running watcher can be on an old toolchain`)
-  const moved = await movedToolchain($, live)
-  if (moved !== undefined) await live.kill?.()
-  assert(moved === undefined || moved !== live.toolchain, `${live.key} was stopped for moving to ${moved}, the toolchain it started on`)
+  const replaced = await replacedToolchain($, live)
+  if (replaced !== undefined) await live.kill?.()
+  assert(replaced === undefined || replaced !== live.toolchain, `${live.key} was stopped for its toolchain being replaced by ${replaced}, the one it started on`)
 }
 
 /** Restarts at once a watcher that ended on an old toolchain, without counting a quick exit, and says where it runs now. */
-export function restartOnMoved($: EngineInterface, { state, live, watcher }: Omit<Run, 'cwd'>, moved: string): void {
-  assert(moved !== '' && moved !== live.toolchain, `${live.key} would restart on ${JSON.stringify(moved)}; pass where PATH finds its program now`)
+export function restartOnReplaced($: EngineInterface, { state, live, watcher }: Omit<Run, 'cwd'>, replaced: string): void {
+  assert(replaced !== '' && replaced !== live.toolchain, `${live.key} would restart on ${JSON.stringify(replaced)}; pass where PATH finds its program now`)
   live.quickExits = 0
   live.isWatching = false
   live.retryAt = 0
   live.toolchain = undefined
-  setStatus($, state, live, `${watcher.name}: ${watcher.argv?.[0]} is now ${moved}, restarting`)
+  setStatus($, state, live, `${watcher.name}: ${watcher.argv?.[0]} is now ${replaced}, restarting`)
   state.onWatcherEnded?.()
   assert(!live.isWatching, `${live.key} still counts as watching after it ended on an old toolchain`)
 }

@@ -45,7 +45,7 @@ IDLE_SECONDS = 300.0
 START_SECONDS = 10.0
 # How often the daemon looks at how long it has been idle, and how often a waiting client tries the socket again.
 TICK_SECONDS = 0.2
-# How long every watcher must stay quiet before its latest report is taken as covering the files a client asked about:
+# How long every watcher must stay inactive before its latest report is taken as covering the files a client asked about:
 # longer than a watch command's own wait between a change and its rebuild, which is half a second or less for each one
 # in watchers.json.
 SETTLE_SECONDS = 1.0
@@ -228,7 +228,7 @@ class Daemon:
         assert len(keys) == len(self.watchings), f"{self.project} has watchers {sorted(keys)} more than once; add each key once"
 
     def settled(self) -> dict[str, object]:
-        """Waits until SETTLE_SECONDS have passed since it was asked with every watcher quiet throughout, and every
+        """Waits until SETTLE_SECONDS have passed since it was asked with every watcher inactive throughout, and every
         watcher has a report, then answers as latest does; an error once COMMAND_TIMEOUT passes first, or when the
         project's watchers can no longer be read."""
         asked = time.monotonic()
@@ -249,21 +249,21 @@ class Daemon:
         return reply
 
     def wait_until_settled(self, asked: float) -> bool:
-        """Whether, before COMMAND_TIMEOUT passes from asked, every watcher has been quiet for SETTLE_SECONDS since
+        """Whether, before COMMAND_TIMEOUT passes from asked, every watcher has been inactive for SETTLE_SECONDS since
         asked, with no output and no change in its processes, and has a report."""
         assert asked <= time.monotonic(), f"settling was asked at {asked}, after now; pass when the client asked"
         seen = [each.activity() for each in self.watchings]
-        quiet_since = asked
+        inactive_since = asked
         while time.monotonic() - asked < COMMAND_TIMEOUT:
             time.sleep(TICK_SECONDS)
             # A client waiting here is still asking, so the daemon does not stop for want of one.
             self.asked = time.monotonic()
             now = [each.activity() for each in self.watchings]
             if now != seen:
-                seen, quiet_since = now, time.monotonic()
-            if time.monotonic() - quiet_since >= SETTLE_SECONDS and all(each.latest() is not None for each in self.watchings):
+                seen, inactive_since = now, time.monotonic()
+            if time.monotonic() - inactive_since >= SETTLE_SECONDS and all(each.latest() is not None for each in self.watchings):
                 break
-        settled = time.monotonic() - quiet_since >= SETTLE_SECONDS and all(each.latest() is not None for each in self.watchings)
+        settled = time.monotonic() - inactive_since >= SETTLE_SECONDS and all(each.latest() is not None for each in self.watchings)
         assert settled or time.monotonic() - asked >= COMMAND_TIMEOUT, f"stopped waiting {time.monotonic() - asked:.2f}s after asked, unsettled and before COMMAND_TIMEOUT"
         return settled
 
@@ -330,8 +330,8 @@ def start(project: Path, root: Path) -> None:
     assert project.is_dir() and root.is_dir(), f"cannot start a daemon for {project} with data in {root}; both must be directories"
     argv = [sys.executable, str(Path(__file__).resolve()), "serve", str(project), "--data", str(root)]
     # Spawned, not run under Popen, since nothing here waits for it: it is meant to outlive this process.
-    quiet = [(os.POSIX_SPAWN_OPEN, descriptor, os.devnull, os.O_RDWR, 0) for descriptor in (0, 1, 2)]
-    pid = os.posix_spawn(sys.executable, argv, os.environ, file_actions=quiet, setsid=True)
+    silenced = [(os.POSIX_SPAWN_OPEN, descriptor, os.devnull, os.O_RDWR, 0) for descriptor in (0, 1, 2)]
+    pid = os.posix_spawn(sys.executable, argv, os.environ, file_actions=silenced, setsid=True)
     assert pid > 0, f"starting {argv} gave no process"
 
 

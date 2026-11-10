@@ -35,7 +35,7 @@ assert str(paths.ROOT / "engine") in sys.path, f"{paths.ROOT / 'engine'} is not 
 ROOT = paths.ROOT
 
 # How long a check may run before the engine must give up on it; short, so a hanging check costs the run little.
-DEADLINE_SECONDS = 1.5
+TIMEOUT_SECONDS = 1.5
 # How many versions of the workspace a trace may make, the model's MaxEdits.
 MAX_VERSIONS = 4
 EVENTS_PER_TRACE = 10
@@ -80,7 +80,7 @@ class EngineTrace:
                      for version, names in enumerate(failures)}
         (root / "check.py").write_text(CHECK)
         # The project's zig watcher runs the fixture check in place of its own command and reads it with its own patterns.
-        override = {"baseline": [sys.executable, str(root / "check.py"), str(self.plan_path), str(self.overlaps)], "timeout": DEADLINE_SECONDS,
+        override = {"baseline": [sys.executable, str(root / "check.py"), str(self.plan_path), str(self.overlaps)], "timeout": TIMEOUT_SECONDS,
                     "gate": {"protected_actions": [{"tool": "Publish", "checks": []}]},
                     "watchers": {"zanity": {"enabled": False}, "git": {"enabled": False}}}
         (self.project / ".overwatch.json").write_text(json.dumps(override))

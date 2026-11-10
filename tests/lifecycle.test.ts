@@ -96,7 +96,7 @@ test('a watcher that exits is restarted at once, and the agent told', async ($, 
   await ending
 })
 
-test('a running watcher restarts once when its program moves on PATH, and not while it stays', async ($, on) => {
+test('a running watcher restarts once when its program is replaced on PATH, and not while it stays', async ($, on) => {
   const clock = mock.clock(on)
   const started: string[] = []
   const statuses: (string | undefined)[] = []

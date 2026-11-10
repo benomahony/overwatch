@@ -121,11 +121,12 @@ def state_path(event: Event, cwd: Path, data: Path) -> Path:
     return path
 
 
-def editing_path(state: Path) -> Path:
-    """The marker beside a session's state saying it has started an editing tool since its state was last saved."""
-    assert state.suffix == ".json", f"editing_path was given {state}; pass a session's state path from state_path"
-    marker = state.with_suffix(".editing")
-    assert marker.parent == state.parent and marker != state, f"editing marker {marker} must sit beside {state}"
+def touched_path(state: Path) -> Path:
+    """The marker beside a session's state saying it has touched the workspace, starting an editing tool, since its
+    state was last saved."""
+    assert state.suffix == ".json", f"touched_path was given {state}; pass a session's state path from state_path"
+    marker = state.with_suffix(".touched")
+    assert marker.parent == state.parent and marker != state, f"touched marker {marker} must sit beside {state}"
     return marker
 
 
@@ -344,7 +345,7 @@ def process_event(event: Event, root: Path) -> dict[str, Any]:
         # An editing tool says so before it runs, without waiting for the lock, so a check running meanwhile knows
         # when it reads its result that the session may have changed what it read.
         if event.tool_name in EDITING_TOOLS:
-            editing_path(in_data(state_path(event, cwd, root), root)).touch(mode=0o600)
+            touched_path(in_data(state_path(event, cwd, root), root)).touch(mode=0o600)
         checks = protected_checks(event.tool_name, tool_command(event.tool_input), read_gate(read_override(cwd)))
         if checks is None:
             return {}
@@ -363,8 +364,8 @@ def process_event(event: Event, root: Path) -> dict[str, Any]:
 def checked_state(session: Session, cwd: Path, edit: bool = False) -> tuple[State, State]:
     """Recheck changed workspaces and rebaseline moved commits. Keep the starting fingerprint so edits during a
     run demand another check instead of marking their newer workspace as already verified. edit says this hook
-    follows the session's own edit, which keeps its later first results from the baseline, as does an editing
-    tool's PreToolUse marker found when the result is read; a commit move starts the baseline afresh and wins over
+    follows the session's own edit, which keeps its later first results from the baseline, as does the touched
+    marker an editing tool's PreToolUse leaves, found when the result is read; a commit move starts the baseline afresh and wins over
     an edit in the same hook, since a pull is not the agent's change."""
     old = load_state(session)
     head = commit_of(cwd)
@@ -379,7 +380,7 @@ def checked_state(session: Session, cwd: Path, edit: bool = False) -> tuple[Stat
                if should_run and os.environ.get("OVERWATCH_DAEMON") == "1" else
                run_checks(cwd, watchers) if should_run else old.reports)
     # Read once the checks have run, as the session may have started editing while they did.
-    marker = editing_path(session.state)
+    marker = touched_path(session.state)
     touched = not moved and (old.touched or edit or marker.exists())
     marker.unlink(missing_ok=True)
     told = old.environment
