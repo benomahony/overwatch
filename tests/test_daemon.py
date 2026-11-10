@@ -145,6 +145,18 @@ class DaemonTests(unittest.TestCase):
         (self.project / ".overwatch.json").write_text(json.dumps(override))
         assert all(override[name] == value for name, value in fields.items()), f"the override {override} lost {fields}"
 
+    def test_settled_reports_a_timeout_for_a_watcher_that_never_settles(self) -> None:
+        self.watch_with("""
+            import time
+            while True:
+                print("still building", flush=True)
+                time.sleep(0.1)
+            """)
+        self.override(timeout=1)
+        self.serving(idle=10)
+        [report] = daemon.latest(self.project, self.data, "settled")
+        self.assertEqual((report.failed, report.failures, report.summary), (True, ("timeout",), "timed out after 1s"))
+
     def test_settled_starts_a_watcher_found_since_the_daemon_started(self) -> None:
         self.override(enabled=False)
         self.serving(idle=10)

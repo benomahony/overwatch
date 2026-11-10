@@ -13,7 +13,8 @@ watch command that has exited, since it no longer watches, and answers once
 SETTLE_SECONDS have passed since the request with no output from any watcher and no change in its processes or their
 CPU time, and every watcher has a report. Each watcher's latest report then covers the files as they were when the
 client asked, given that a watch command starts reacting to a change within SETTLE_SECONDS, and that while it reacts it
-prints, starts or ends a process, or uses CPU, unless it has finished inside SETTLE_SECONDS.
+prints, starts or ends a process, or uses CPU, unless it has finished inside SETTLE_SECONDS. A watcher still working
+when its timeout passes reports timeout instead, the result model's TimesOut, and the others answer as they settle.
 
 Copyright (c) 2026 benomahony. SPDX-License-Identifier: MIT
 """
@@ -35,9 +36,9 @@ from pathlib import Path
 
 from discovery import ConfigurationError, Watcher, find_watchers, key_of, subproject
 import engine
-from reading import last_build, read_report
+from reading import command_line, last_build, read_report
 from records import Report, report_from
-from running import COMMAND_TIMEOUT, terminate
+from running import TimedOut, terminate, timed_out_report, timeout_of
 from unix import try_exclusive
 
 # How long a daemon waits for its next client before it stops, and how long a client waits for one it started.
@@ -199,17 +200,21 @@ class Daemon:
         assert isinstance(request, dict), f"request {request!r} is not a JSON object"
         self.asked = time.monotonic()
         op = request.get("op")
-        reply = (self.settled() if op == "settled" else self.reports_reply() if op == "latest" else
+        reply = (self.settled() if op == "settled" else self.reports_reply(self.watchings, set()) if op == "latest" else
                  {"error": f"unknown request {op!r}; ask for latest or settled"})
         assert ("reports" in reply) != ("error" in reply), f"the reply {reply!r} to {op!r} gives both or neither of reports and an error"
         return reply
 
-    def reports_reply(self) -> dict[str, object]:
-        """Every watcher's latest report, leaving out those with none yet, as a reply to a client."""
-        assert all(each.lock is not None for each in self.watchings), f"watchers {[each.watcher['name'] for each in self.watchings if each.lock is None]} have no lock; build each with Watching()"
-        reports = [asdict(report) for report in (each.latest() for each in self.watchings) if report is not None]
-        assert len(reports) <= len(self.watchings), f"{len(reports)} reports from {len(self.watchings)} watchers; give one each at most"
-        return {"reports": reports, "watchers": len(self.watchings)}
+    def reports_reply(self, watchings: list[Watching], timed_out: set[int]) -> dict[str, object]:
+        """Each of watchings' latest report, leaving out those with none yet, and a timeout report for each index
+        in timed_out, as a reply to a client."""
+        assert timed_out <= set(range(len(watchings))), f"timed out indexes {sorted(timed_out)} are not among {len(watchings)} watchers"
+        latest = [timed_out_report(each.watcher, command_line(each.watcher["argv"]),
+                                   TimedOut(command_line(each.watcher["argv"]), timeout_of(each.watcher), ""))
+                  if index in timed_out else each.latest() for index, each in enumerate(watchings)]
+        reports = [asdict(report) for report in latest if report is not None]
+        assert len(reports) <= len(watchings), f"{len(reports)} reports from {len(watchings)} watchers; give one each at most"
+        return {"reports": reports, "watchers": len(watchings)}
 
     def discover(self) -> None:
         """Searches the project for its watchers afresh and starts each with a watch command the daemon lacks, so one
@@ -228,45 +233,51 @@ class Daemon:
         assert len(keys) == len(self.watchings), f"{self.project} has watchers {sorted(keys)} more than once; add each key once"
 
     def settled(self) -> dict[str, object]:
-        """Waits until SETTLE_SECONDS have passed since it was asked with every watcher inactive throughout, and every
-        watcher has a report, then answers as latest does; an error once COMMAND_TIMEOUT passes first, or when the
-        project's watchers can no longer be read."""
+        """Waits until each watcher has settled, inactive for SETTLE_SECONDS since it was asked with a report, or
+        outlived its timeout, then answers as latest does, with a timeout report for each that timed out, as the
+        model's TimesOut gives; an error when the project's watchers can no longer be read."""
         asked = time.monotonic()
         try:
             self.discover()
         except ConfigurationError as error:
             return {"error": str(error)}
-        assert all(each.thread is not None for each in self.watchings), f"settled was asked before serve started watchers {[each.watcher['name'] for each in self.watchings if each.thread is None]}"
-        for each in self.watchings:
+        watchings = self.watchings
+        assert all(each.thread is not None for each in watchings), f"settled was asked before serve started watchers {[each.watcher['name'] for each in watchings if each.thread is None]}"
+        for each in watchings:
             if not each.is_running():
                 each.start()
-        if not self.wait_until_settled(asked):
-            waiting = [each.watcher["name"] for each in self.watchings if each.latest() is None]
-            return {"error": f"the watchers did not settle within {COMMAND_TIMEOUT}s; still without a report: {waiting}"}
-        assert time.monotonic() - asked >= SETTLE_SECONDS, f"settled {time.monotonic() - asked:.2f}s after asked; wait SETTLE_SECONDS at least"
-        reply = self.reports_reply()
-        assert len(reply["reports"]) == len(self.watchings), f"settled with {len(reply['reports'])} reports from {len(self.watchings)} watchers"
+        timed_out = self.wait_until_settled(watchings, asked)
+        reply = self.reports_reply(watchings, timed_out)
+        assert len(reply["reports"]) == len(watchings), f"settled with {len(reply['reports'])} reports from {len(watchings)} watchers"
         return reply
 
-    def wait_until_settled(self, asked: float) -> bool:
-        """Whether, before COMMAND_TIMEOUT passes from asked, every watcher has been inactive for SETTLE_SECONDS since
-        asked, with no output and no change in its processes, and has a report."""
+    def wait_until_settled(self, watchings: list[Watching], asked: float) -> set[int]:
+        """The indexes in watchings of those that outlived their timeout from asked, once every other one has been
+        inactive for SETTLE_SECONDS since asked, with no output and no change in its processes, and has a report."""
         assert asked <= time.monotonic(), f"settling was asked at {asked}, after now; pass when the client asked"
-        seen = [each.activity() for each in self.watchings]
-        inactive_since = asked
-        while time.monotonic() - asked < COMMAND_TIMEOUT:
+        seen = [each.activity() for each in watchings]
+        inactive_since = [asked] * len(watchings)
+        # Every watcher has settled or timed out by its timeout, so the longest bounds the wait.
+        longest = max((timeout_of(each.watcher) for each in watchings), default=0.0)
+        settled: set[int] = set()
+        timed_out: set[int] = set()
+        for _ in range(int((longest + SETTLE_SECONDS) / TICK_SECONDS) + 2):
             time.sleep(TICK_SECONDS)
             # A client waiting here is still asking, so the daemon does not stop for want of one.
-            self.asked = time.monotonic()
-            now = [each.activity() for each in self.watchings]
-            if now != seen:
-                seen, inactive_since = now, time.monotonic()
-            if time.monotonic() - inactive_since >= SETTLE_SECONDS and all(each.latest() is not None for each in self.watchings):
+            self.asked = now = time.monotonic()
+            settled, timed_out = set(), set()
+            for index, each in enumerate(watchings):
+                activity = each.activity()
+                if activity != seen[index]:
+                    seen[index], inactive_since[index] = activity, now
+                if now - inactive_since[index] >= SETTLE_SECONDS and each.latest() is not None:
+                    settled.add(index)
+                elif now - asked >= timeout_of(each.watcher):
+                    timed_out.add(index)
+            if len(settled) + len(timed_out) == len(watchings):
                 break
-        settled = time.monotonic() - inactive_since >= SETTLE_SECONDS and all(each.latest() is not None for each in self.watchings)
-        assert settled or time.monotonic() - asked >= COMMAND_TIMEOUT, f"stopped waiting {time.monotonic() - asked:.2f}s after asked, unsettled and before COMMAND_TIMEOUT"
-        return settled
-
+        assert len(settled) + len(timed_out) == len(watchings), f"stopped waiting with {len(watchings) - len(settled) - len(timed_out)} watchers neither settled nor timed out"
+        return timed_out
 
 class Server(socketserver.ThreadingUnixStreamServer):
     """The daemon's socket, holding the daemon its answers come from."""
