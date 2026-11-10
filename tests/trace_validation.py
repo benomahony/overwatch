@@ -181,6 +181,8 @@ VALIDATOR = r'''------------------------- MODULE Validate ----------------------
 EXTENDS Overwatch, TLC
 Logs == LOGS
 Truths == TRUTHS
+\* The versions whose check the harness makes hang: only a run of one may time out, as a timeout is the environment's.
+Hangs == HANGS
 VARIABLES scenario, i
 ValInit == Init /\ scenario \in 1..Len(Logs) /\ truth = Truths[scenario] /\ i = 1
 Entry == Logs[scenario][i]
@@ -191,7 +193,7 @@ Env == CASE Entry.kind = "Edit" -> Edit
          [] Entry.kind = "Complete" -> TurnCompletes
          [] OTHER -> FALSE
 Seen == report.known = Entry.known /\ report.failures = Entry.failures /\ Guard = Entry.guarded
-Internal == QuietElapses \/ Tick \/ RunEnds \/ TimesOut \/ ReadResults \/ Flush
+Internal == QuietElapses \/ Tick \/ RunEnds \/ (TimesOut /\ from \in Hangs[scenario]) \/ ReadResults \/ Flush
 ValNext == \/ i <= Len(Logs[scenario]) /\ Entry.kind # "Observe" /\ Env /\ i' = i + 1 /\ UNCHANGED scenario
            \/ i <= Len(Logs[scenario]) /\ Entry.kind = "Observe" /\ Seen /\ i' = i + 1 /\ UNCHANGED <<vars, scenario>>
            \/ Internal /\ UNCHANGED <<scenario, i>>
@@ -220,7 +222,8 @@ def validate(jar: Path, traces: list[tuple[dict[str, dict], list[dict[str, objec
         work = Path(directory)
         for name in ("Overwatch.tla", "FailurePolicy.tla"):
             shutil.copyfile(ROOT / "spec" / name, work / name)
-        (work / "Validate.tla").write_text(VALIDATOR.replace("LOGS", logs).replace("TRUTHS", truths))
+        hangs = "<<" + ", ".join("{" + ", ".join(version for version in plan if plan[version]["hang"]) + "}" for plan, _ in traces) + ">>"
+        (work / "Validate.tla").write_text(VALIDATOR.replace("LOGS", logs).replace("TRUTHS", truths).replace("HANGS", hangs))
         (work / "Validate.cfg").write_text(f'''INIT ValInit
 NEXT ValNext
 CONSTANTS
