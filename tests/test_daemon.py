@@ -145,6 +145,13 @@ class DaemonTests(unittest.TestCase):
         (self.project / ".overwatch.json").write_text(json.dumps(override))
         assert all(override[name] == value for name, value in fields.items()), f"the override {override} lost {fields}"
 
+    def test_settled_says_a_watch_command_could_not_start_as_a_direct_run_does(self) -> None:
+        self.override(argv=["no-such-watcher-anywhere", "--watch"], timeout=30)
+        self.serving(idle=10)
+        # Waiting out the timeout would give a timeout report, not this error.
+        with self.assertRaisesRegex(daemon.ConfigurationError, "could not start no-such-watcher-anywhere --watch"):
+            daemon.latest(self.project, self.data, "settled")
+
     def test_settled_reports_a_timeout_for_a_watcher_that_never_settles(self) -> None:
         self.watch_with("""
             import time

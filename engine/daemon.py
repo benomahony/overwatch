@@ -73,6 +73,8 @@ class Watching:
         self.process: subprocess.Popen[bytes] | None = None
         # How many chunks of output the watcher's commands have printed, so a client can tell it is still reporting.
         self.chunks = 0
+        # Why the watcher's command could not start, which a client is told as the direct run tells it; None once one runs.
+        self.failure: str | None = None
         self.thread: threading.Thread | None = None
         self.lock = threading.Lock()
         assert self.cwd.is_dir(), f"{watcher['name']} runs in {self.cwd}, which is not a directory"
@@ -85,9 +87,9 @@ class Watching:
         assert baseline or argv, f"{self.watcher['name']} has nothing to run; find_watchers gives each one a command"
         if baseline:
             self.follow(list(baseline))
-        if argv:
+        if argv and self.cannot_start() is None:
             self.follow(list(argv))
-        assert self.process is not None and self.process.poll() is not None, f"{self.watcher['name']} still runs after run returned"
+        assert self.cannot_start() is not None or self.process is not None and self.process.poll() is not None, f"{self.watcher['name']} still runs after run returned"
 
     def start(self) -> None:
         """Runs the watcher's commands on a thread of its own: its full suite and watch command the first time, and
@@ -99,8 +101,17 @@ class Watching:
         first = self.thread is None
         with self.lock:
             self.report = None
+            self.failure = None
         self.thread = threading.Thread(target=self.run if first else lambda: self.follow(list(argv)), daemon=True)
         self.thread.start()
+
+    def cannot_start(self) -> str | None:
+        """Why the watcher's command could not start, as the direct run says it; None when it started."""
+        assert self.lock is not None, f"{self.watcher['name']} has no lock; build it with Watching()"
+        with self.lock:
+            failure = self.failure
+        assert failure is None or failure.startswith("could not start "), f"{self.watcher['name']} failed to start with {failure!r}; set it only in follow, from could not start and the command"
+        return failure
 
     def is_running(self) -> bool:
         """Whether the watcher's commands still run, so it still watches the files."""
@@ -117,8 +128,13 @@ class Watching:
         ends having printed none. A build it printed is not replaced by the exit of a run that already reported."""
         assert argv and all(isinstance(part, str) for part in argv), f"{self.watcher['name']} was asked to run {argv!r}; pass its command"
         env = {**os.environ, **self.watcher["env"]} if "env" in self.watcher else None
-        process = subprocess.Popen(argv, cwd=self.cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                   stderr=subprocess.STDOUT, env=env, start_new_session=True)
+        try:
+            process = subprocess.Popen(argv, cwd=self.cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                       stderr=subprocess.STDOUT, env=env, start_new_session=True)
+        except OSError as error:
+            with self.lock:
+                self.failure = f"could not start {command_line(argv)}: {error}"
+            return
         assert process.stdout is not None, f"{argv[0]} started without an output pipe; open it with stdout=PIPE"
         with self.lock:
             self.process = process
@@ -247,6 +263,9 @@ class Daemon:
             if not each.is_running():
                 each.start()
         timed_out = self.wait_until_settled(watchings, asked)
+        failures = [failure for failure in (each.cannot_start() for each in watchings) if failure is not None]
+        if failures:
+            return {"error": "; ".join(failures)}
         reply = self.reports_reply(watchings, timed_out)
         assert len(reply["reports"]) == len(watchings), f"settled with {len(reply['reports'])} reports from {len(watchings)} watchers"
         return reply
@@ -270,7 +289,7 @@ class Daemon:
                 activity = each.activity()
                 if activity != seen[index]:
                     seen[index], inactive_since[index] = activity, now
-                if now - inactive_since[index] >= SETTLE_SECONDS and each.latest() is not None:
+                if now - inactive_since[index] >= SETTLE_SECONDS and each.latest() is not None or each.cannot_start() is not None:
                     settled.add(index)
                 elif now - asked >= timeout_of(each.watcher):
                     timed_out.add(index)
