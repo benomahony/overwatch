@@ -17,6 +17,8 @@ export type LiveWatcher = {
   /** How many times in a row the watcher ended within RETRY_MS of its start. */
   quickExits: number
   kill: (() => Promise<unknown>) | undefined
+  /** The real path the running watch command's program had on PATH when it started, so a swapped toolchain restarts it. */
+  toolchain: string | undefined
   changed: (() => void) | undefined
   wasFailing: boolean
   /** The first result that was not an environment error: what the project was like when the session found it. */

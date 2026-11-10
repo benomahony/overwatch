@@ -188,16 +188,24 @@ export async function findWatchers($: EngineInterface, cwd: string, override: Ov
   return project === undefined ? [] : [project]
 }
 
-/** Whether `name` is an executable in a directory on PATH. */
-export async function isOnPath($: EngineInterface, name: string): Promise<boolean> {
-  assert(name !== '' && !name.includes('/'), `isOnPath was given ${name}; pass an executable's name`)
+/** Where the executable `name` is in the first directory on PATH that has it; undefined when none does. */
+export async function onPath($: EngineInterface, name: string): Promise<string | undefined> {
+  assert(name !== '' && !name.includes('/'), `onPath was given ${name}; pass an executable's name`)
   const path = (await $.env.get('PATH').catch(() => undefined)) ?? ''
   const dirs = path.split(':').filter(dir => dir !== '')
   for (const dir of dirs) {
-    if (await $.fs.exists(`${dir}/${name}`).catch(() => false)) return true
+    if (await $.fs.exists(`${dir}/${name}`).catch(() => false)) return `${dir}/${name}`
   }
   assert(dirs.every(dir => !dir.includes(':')), `PATH ${path} split into ${dirs}; split it at colons`)
-  return false
+  return undefined
+}
+
+/** Whether `name` is an executable in a directory on PATH. */
+export async function isOnPath($: EngineInterface, name: string): Promise<boolean> {
+  assert(name !== '' && !name.includes('/'), `isOnPath was given ${name}; pass an executable's name`)
+  const found = await onPath($, name)
+  assert(found === undefined || found.endsWith(`/${name}`), `${name} was found on PATH as ${found}; give the path in its directory`)
+  return found !== undefined
 }
 
 /** Every watcher the project has, read afresh, then each checker installed; none while overwatch is off. */

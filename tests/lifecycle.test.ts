@@ -96,6 +96,49 @@ test('a watcher that exits is restarted at once, and the agent told', async ($, 
   await ending
 })
 
+test('a running watcher restarts once when its program moves on PATH, and not while it stays', async ($, on) => {
+  const clock = mock.clock(on)
+  const started: string[] = []
+  const statuses: (string | undefined)[] = []
+  let zig = '/nix/store/zig-0.18.0/bin/zig'
+  mock.env(on, { PATH: '/usr/bin' })
+  on('fs.read', () => ({ deny: 'no such file' }))
+  on('fs.exists', ($, e) => ({ value: ['/repo/.git', '/repo/build.zig', '/usr/bin/zig'].includes(e.path) }))
+  on('fs.stat', ($, e) => {
+    const isZig = e.path === '/usr/bin/zig'
+    return { value: { kind: isZig ? ('file' as const) : ('dir' as const), size: 0, mtimeMs: 0, isLink: isZig, realPath: isZig ? zig : e.path } }
+  })
+  on('process.spawn', async function* () {
+    started.push(zig)
+    yield { stream: 'stderr' as const, text: PASSING }
+    // Keeps running, printing blank lines, until it is stopped, which takes effect at a yield.
+    for (let second = 0; second < 3600; second++) {
+      await clock.sleep(1000)
+      yield { stream: 'stderr' as const, text: '\n' }
+    }
+    return { value: { code: 0, signal: null } }
+  })
+  on('ui.status', ($, e, next) => {
+    statuses.push(e.text)
+    return next(e)
+  })
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  turnHooks(on)
+  await $.session.start(start)
+  await clock.advance(1000)
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await clock.advance(1000)
+  expect(started).toEqual(['/nix/store/zig-0.18.0/bin/zig'])
+  zig = '/nix/store/zig-0.17.0/bin/zig'
+  await $.turn.start({ text: 'go on', turnId: 't2' })
+  await clock.advance(1000)
+  expect(started).toEqual(['/nix/store/zig-0.18.0/bin/zig', '/nix/store/zig-0.17.0/bin/zig'])
+  expect(statuses).toContain('zig: zig is now /nix/store/zig-0.17.0/bin/zig, restarting')
+  await $.turn.start({ text: 'and on', turnId: 't3' })
+  await clock.advance(1000)
+  expect(started.length).toBe(2)
+})
+
 test('a watcher that keeps exiting backs off, then gives up and wakes the agent', async ($, on) => {
   const { clock, attempts, prompts, statuses } = quickExitWatcher(on)
   await $.session.start(start)

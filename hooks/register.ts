@@ -12,6 +12,7 @@ import {
   type Watcher,
 } from './watchers'
 import { repositoryOf, COMMIT, commitOf, isCommitted, findIn } from './project'
+import { toolchainOf, movedToolchain, stopIfMoved, restartOnMoved } from './toolchain'
 import type { LiveWatcher, State, Run, Restart, Ending } from './state'
 import { QUIET_MS, setStatus, schedule, queue, queueEnvironment, writeLog, deliver } from './delivery'
 import { projectPolicy, guardedFailure, completeTurn } from './completion'
@@ -112,8 +113,9 @@ async function watch($: EngineInterface, run: Run): Promise<Ending | undefined> 
     if (live.isEdited) live.changed?.()
     return undefined
   }
-  const startedAt = await $.clock.now()
+  const [startedAt, toolchain] = await Promise.all([$.clock.now(), toolchainOf($, watcher.argv[0])])
   if (!live.isWatching) return undefined
+  live.toolchain = toolchain
   const child = $.process.spawn({ argv: watcher.argv, cwd, ...envOf(watcher) })
   live.kill = () => child.return({ code: null, signal: null })
   setStatus($, state, live, `${watcher.name}: starting`)
@@ -165,8 +167,10 @@ async function deliverExit($: EngineInterface, run: Run, output: string) {
  * Finds the watchers of the git repository the session is in afresh, reading
  * its markers and override, so a
  * project scaffolded mid-session gets its watcher, and starts each that is
- * not running or waiting out a retry. One search runs at a time; asked for
- * during one, another follows it. A watcher that exits asks for another, see `restart`.
+ * not running or waiting out a retry. One running a program PATH now finds
+ * somewhere else is stopped, so it restarts on the new one. One search runs at
+ * a time; asked for during one, another follows it. A watcher that exits asks
+ * for another, see `restart`.
  */
 async function ensureAll($: EngineInterface, state: State) {
   if (state.cwd === undefined) return
@@ -196,6 +200,7 @@ async function ensureAll($: EngineInterface, state: State) {
           found = liveWatcher(key, dir)
           state.liveWatchers.push(found)
         }
+        if (found.isWatching) void stopIfMoved($, found)
         if (found.isWatching || now < found.retryAt) continue
         found.isWatching = true
         void start($, state, found, watcher)
@@ -217,7 +222,10 @@ async function start($: EngineInterface, state: State, live: LiveWatcher, watche
   const ending = await watch($, { state, live, watcher, cwd: live.dir })
   assert(ending === undefined || ending.endedAt >= ending.startedAt, `${watcher.name} ended at ${ending?.endedAt}, before it started at ${ending?.startedAt}`)
   if (ending === undefined || state.epoch !== epoch) return
-  await restart($, { state, live, watcher, ending })
+  const moved = await movedToolchain($, live)
+  if (state.epoch !== epoch) return
+  if (moved === undefined) await restart($, { state, live, watcher, ending })
+  else restartOnMoved($, { state, live, watcher }, moved)
 }
 
 /**
@@ -281,6 +289,7 @@ async function stop($: EngineInterface, state: State) {
     each.isWatching = false
     each.retryAt = 0
     each.quickExits = 0
+    each.toolchain = undefined
     each.changed = undefined
     each.wasFailing = false
     each.baseline = undefined
@@ -309,6 +318,7 @@ const liveWatcher = (key: string, dir: string): LiveWatcher => {
     retryAt: 0,
     quickExits: 0,
     kill: undefined,
+    toolchain: undefined,
     changed: undefined,
     wasFailing: false,
     baseline: undefined,
