@@ -37,7 +37,7 @@ The committed model-checking configurations use finite bounds: two checks, a sma
 
 ## Model-derived conformance tests
 
-`python3 scripts/model_traces.py --jar /path/to/tla2tools.jar` generates the result-layer traces. `python3 scripts/integration_traces.py --jar /path/to/tla2tools.jar` generates the host contracts. Both scripts contain input programs; TLC computes the expected observations. `--check` rejects stale TypeScript or JSON fixtures.
+`python3 scripts/model_traces.py --jar /path/to/tla2tools.jar` generates the result-layer traces. `python3 scripts/integration_traces.py --jar /path/to/tla2tools.jar` generates the host contracts. Both scripts contain input programs; TLC computes the expected observations. `model_traces.py` also has TLC walk the result model itself from a fixed seed, taking at each step only an action `Next` enables, and fails unless the walks take every action, timeouts and builds of an older version included; those walks are kept in `tests/fixtures/model-walks.*`, and an integration replays them from the change that makes it follow them. `--check` rejects stale TypeScript or JSON fixtures.
 
 - Claude runs the production `register` hook chain with a controlled host protocol.
 - Codex uses real hook processes, commands, and file-backed state, including lock contention.
