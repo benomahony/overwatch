@@ -70,6 +70,10 @@ def tool_script(output: str, code: int) -> str:
     return script
 
 
+# What a passing run of each fake runner prints, as the real one does: gotestsum names no failures when it passes.
+PASSING_SUMMARIES = {"gotestsum": "DONE 2 tests in 0.184s", "pytest": "=== 3 passed in 0.01s ==="}
+
+
 def passing(summary: str) -> str:
     """The script of a fake tool that prints summary, quoted for the shell, and passes."""
     script = f"#!/bin/sh\necho {shlex.quote(summary)}\nexit 0\n"
@@ -199,11 +203,11 @@ class CodexHook(unittest.TestCase):
         scripts = {path: read(path) for path in self.bin.iterdir()}
         assert scripts, f"{self.bin} has no tools to start passing; add them with tool() first"
         for path in scripts:
-            summary = {"gotestsum": "DONE 2 tests, 0 failures", "pytest": "=== 3 passed in 0.01s ==="}.get(path.name, "")
+            summary = PASSING_SUMMARIES.get(path.name, "")
             write(path, passing(summary), scripts[path])
         self.call("SessionStart")
         for path, text in scripts.items():
-            summary = {"gotestsum": "DONE 2 tests, 0 failures", "pytest": "=== 3 passed in 0.01s ==="}.get(path.name, "")
+            summary = PASSING_SUMMARIES.get(path.name, "")
             write(path, text, passing(summary))
         write(self.cwd / "changed.txt", "changed")
         assert all(read(path) == text for path, text in scripts.items()), f"tools in {self.bin} were not put back after the passing start; write each back"
