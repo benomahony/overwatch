@@ -17,6 +17,7 @@ from paths import ROOT
 import discovery
 import engine
 import reading
+import records
 import running
 import table
 import triage
@@ -123,7 +124,7 @@ class CodexHookTests(CodexHook):
 
     def test_saved_state_reads_back_as_it_was_written(self) -> None:
         state = engine.report_state([fixture_report(failed=True, failures=("legacy",), summary="1 failed")], engine.State())
-        self.assertEqual(engine.state_from(json.loads(json.dumps(engine.state_json(state)))), state)
+        self.assertEqual(records.state_from(json.loads(json.dumps(records.state_json(state)))), state)
 
     def test_saved_state_of_another_shape_starts_the_session_afresh(self) -> None:
         result, count = self.configure()

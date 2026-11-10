@@ -15,23 +15,20 @@ Copyright (c) 2026 benomahony. SPDX-License-Identifier: MIT
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 from pathlib import Path
 import re
 import subprocess
 import sys
-import tempfile
 from collections.abc import Iterator, Mapping
-from contextlib import contextmanager
 from dataclasses import asdict, replace
 from typing import Any
 
 from gating import PolicyError, protected_checks, read_gate, tool_command
 from triage import InventoryError, parse_check, parse_inventory
-from records import REBUILT, TIMED_OUT, Event, First, Report, Session, State, StateError, digest_of, state_from, state_json
-from unix import exclusive, is_private
+from records import TIMED_OUT, Event, Read, First, Report, Session, State, digest_of
+from sessions import data_root, in_data, load_state, locked, save_state, state_path, touched_path, write_log
 from running import run_persistent_checks
 from messages import SUMMARY_DECORATION, context_output, environment_message, failing_suffix, failure_message, failure_status, gate_reason, is_regression, known_failures, recovery_message, report_key
 from workspace import commit_of, fingerprint, is_committed, repository_of
@@ -43,6 +40,8 @@ from discovery import ConfigurationError, find_watchers, key_of, read_override
 EDITING_TOOLS = frozenset({"apply_patch", "Bash", "bash", "Edit", "edit", "MultiEdit", "powershell", "shell", "Write", "write"})
 
 
+# How often a follower looks whether the process that started it still runs, so it stops soon after it.
+PARENT_SECONDS = 5.0
 EVENT_FIELDS = ("hook_event_name", "session_id", "cwd", "tool_name", "integration")
 
 
@@ -63,128 +62,6 @@ def read_event() -> Event:
     assert read == tuple(fields[name] for name in EVENT_FIELDS), f"event {event} lost one of the fields {fields}"
     assert event.tool_input is value.get("tool_input"), f"event for {event.hook_event_name} replaced its tool input; pass it through"
     return event
-
-
-@contextmanager
-def locked(path: Path, root: Path) -> Iterator[Session]:
-    """The session whose state is kept at path, which must lie in root, for the block, while this process holds an
-    exclusive flock on the session's log directory, released however the block ends. The lock orders overwatch's own
-    hook processes; it grants or refuses no one access to anything. The directory is one the session keeps for its
-    logs, so taking the lock leaves nothing behind, and root and the directories this makes are writable by the user
-    alone, so only the user's own processes can take it."""
-    path = in_data(path, root)
-    session = Session(state=path, inventory=path.with_suffix(".baseline.json"), logs=path.with_suffix(""))
-    assert len({session.state, session.inventory, session.logs}) == 3, f"session files of {path} share a name; give each its own suffix"
-    assert session.state.parent == root, f"session {session.state} is outside {root}; name it with state_path"
-    session.logs.mkdir(mode=0o700, parents=True, exist_ok=True)
-    descriptor = os.open(session.logs, os.O_RDONLY)
-    try:
-        with exclusive(descriptor):
-            yield session
-    finally:
-        os.close(descriptor)
-
-
-def data_root(given: str | None) -> Path:
-    """The directory overwatch keeps session state in, resolved and made when missing: given, the PLUGIN_DATA the
-    agent host passes the hook, else ~/.cache/overwatch. A directory another user owns or can write is refused, so no
-    one else can plant or read the state, and a relative one, so state never lands relative to wherever the hook
-    was started."""
-    if given is not None and not Path(given).is_absolute():
-        raise ConfigurationError(f"PLUGIN_DATA is {given!r}, not an absolute path; set it to the plugin's data directory")
-    root = Path(given or Path.home() / ".cache" / "overwatch").resolve()
-    root.mkdir(mode=0o700, parents=True, exist_ok=True)
-    if not is_private(root):
-        raise ConfigurationError(f"data directory {root} is owned or writable by another user; set PLUGIN_DATA to a directory only you can write")
-    assert root.is_absolute(), f"data root {root} is relative; resolve it"
-    assert root == root.resolve(), f"data root {root} still holds a link or a parent step; resolve it"
-    return root
-
-
-def in_data(path: Path, root: Path) -> Path:
-    """path resolved, or ConfigurationError when it lies outside root, the only place overwatch keeps state."""
-    resolved = path.resolve()
-    if not resolved.is_relative_to(root):
-        raise ConfigurationError(f"state file {path} is outside {root}; set PLUGIN_DATA to the directory that holds it")
-    assert resolved.is_absolute() and ".." not in resolved.parts, f"state file {resolved} is not a plain absolute path"
-    assert resolved.is_relative_to(root), f"state file {resolved} escaped {root}"
-    return resolved
-
-
-def state_path(event: Event, cwd: Path, data: Path) -> Path:
-    """Where in data the state of one session in one repository is kept: named by a digest of both, so neither
-    shapes the path."""
-    identity = f"{event.session_id}\0{cwd}"
-    path = data / f"{hashlib.sha256(identity.encode()).hexdigest()}.json"
-    assert path.parent == data, f"state path {path} is outside {data}; name it by digest alone"
-    assert path.suffix == ".json", f"state path {path} is not JSON; save_state's temporary file swaps the suffix"
-    return path
-
-
-def touched_path(state: Path) -> Path:
-    """The marker beside a session's state saying it has touched the workspace, starting an editing tool, since its
-    state was last saved."""
-    assert state.suffix == ".json", f"touched_path was given {state}; pass a session's state path from state_path"
-    marker = state.with_suffix(".touched")
-    assert marker.parent == state.parent and marker != state, f"touched marker {marker} must sit beside {state}"
-    return marker
-
-
-def load_state(session: Session) -> State:
-    """The state saved in session, or an empty one when none was saved yet. A file whose digest does not match its
-    state, or that is unreadable JSON or of another shape, is not one save_state wrote: it is replaced, and the
-    session starts afresh and reruns its checks, as on its first event. Any other failure to read it is raised to
-    the caller, which reports it."""
-    try:
-        saved = json.loads(session.state.read_text())
-        value = saved.get("state") if isinstance(saved, dict) else None
-        if not isinstance(saved, dict) or saved.get("digest") != digest_of(value):
-            raise StateError(f"{session.state} has no digest matching its state{REBUILT}")
-        state = state_from(value)
-    except (FileNotFoundError, json.JSONDecodeError, StateError):
-        state = State()
-    assert session.state.parent == session.logs.parent, f"state {session.state} is not beside its logs {session.logs}; build the session with locked"
-    assert session.state.suffix == ".json", f"state {session.state} is not a .json file; name it with state_path"
-    return state
-
-
-def save_state(session: Session, state: State) -> None:
-    """Replaces the state of session with state in one step, writing it first to a new temporary file that only this
-    process can name or read, in the same directory, and removing that file if the write fails. The state file is
-    overwatch's own cache, which only overwatch reads and which it rebuilds by rerunning the checks, so replacing it
-    loses nothing the user made. session comes from locked(), so this process holds its lock."""
-    value = state_json(state)
-    text = json.dumps({"digest": digest_of(value), "state": value})
-    with tempfile.NamedTemporaryFile("w", dir=session.state.parent, prefix=f"{session.state.stem}.", suffix=".tmp", delete=False) as handle:
-        temporary = Path(handle.name)
-        try:
-            handle.write(text)
-        except OSError:
-            temporary.unlink()
-            raise
-    assert temporary.parent == session.state.parent, f"state {session.state} was written through {temporary}, in another directory; write beside it"
-    temporary.replace(session.state)
-    assert not temporary.exists(), f"{temporary} was left behind; replace the state file with it"
-
-
-def log_path(session: Session, report: Report, prefix: str = "") -> Path:
-    """Where report's full output is kept in session.logs: named by prefix and a digest of the report's key, so each
-    check has one log for each prefix."""
-    log = session.logs / f"{prefix}{hashlib.sha256(report_key(report).encode()).hexdigest()[:16]}.log"
-    assert log.parent == session.logs, f"log {log} is outside {session.logs}; name it by digest alone"
-    assert log.name.startswith(prefix) and log.suffix == ".log", f"log {log} is not named {prefix}<digest>.log"
-    return log
-
-
-def write_log(session: Session, report: Report, prefix: str = "") -> Path:
-    """Writes report's full output to its log_path in session.logs, keeping the output out of the conversation. Logs
-    are overwatch's own cache of output a rerun reproduces, so replacing that check's earlier log loses nothing the
-    user made. session comes from locked(), so this process holds its lock and no other is writing there."""
-    log = log_path(session, report, prefix)
-    log.write_text(report.text)
-    assert log.read_text() == report.text, f"{log} does not hold {report.name}'s output as given; write it whole"
-    assert log.parent == session.logs, f"wrote {report.name}'s output to {log}, outside {session.logs}"
-    return log
 
 
 def report_state(reports: list[Report] | tuple[Report, ...], old: State) -> State:
@@ -243,7 +120,8 @@ def protected_output(event: Event, cwd: Path, session: Session) -> dict[str, Any
     checks = protected_checks(event.tool_name, tool_command(event.tool_input), read_gate(read_override(cwd)))
     if checks is None:
         return {}
-    old, current = checked_state(session, cwd)
+    read = checked_state(session, cwd)
+    old, current = read.old, read.current
     save_state(session, replace(current, told=old.told))
     reports = gate_reports(current, checks)
     if not reports:
@@ -353,16 +231,20 @@ def process_event(event: Event, root: Path) -> dict[str, Any]:
         if event.hook_event_name == "PreToolUse":
             return protected_output(event, cwd, session)
         edit = event.hook_event_name == "PostToolUse" and event.tool_name in EDITING_TOOLS
-        old, current = checked_state(session, cwd, edit)
-        output = report_output(event, old, current, session)
+        read = checked_state(session, cwd, edit)
+        current = read.current
+        output = report_output(event, read, session)
         save_state(session, current)
     assert current.fingerprint is not None, f"state for {cwd} has no fingerprint; checked_state must record one"
     assert session.state.exists(), f"no state was saved for {cwd} at {session.state}; save_state must write it"
     return output
 
 
-def checked_state(session: Session, cwd: Path, edit: bool = False) -> tuple[State, State]:
-    """Recheck changed workspaces and rebaseline moved commits. Keep the starting fingerprint so edits during a
+def checked_state(session: Session, cwd: Path, edit: bool = False, followed: list[Report] | None = None) -> Read:
+    """The state before and after this read, and whether the read follows the session's own edit: the model's
+    edited, which only such a read may wake the agent for. Recheck changed workspaces and rebaseline moved commits;
+    followed, the settled reports a follower got from the daemon, replaces those checks, keeping the last report of
+    each watcher the daemon does not run. Keep the starting fingerprint so edits during a
     run demand another check instead of marking their newer workspace as already verified. edit says this hook
     follows the session's own edit, which keeps its later first results from the baseline, as does the touched
     marker an editing tool's PreToolUse leaves, found when the result is read; a commit move starts the baseline afresh and wins over
@@ -374,12 +256,14 @@ def checked_state(session: Session, cwd: Path, edit: bool = False) -> tuple[Stat
         old = replace(old, baseline={}, fingerprint=None, told=None, failed=False, signatures=())
     gate = read_gate(read_override(cwd))
     before = fingerprint(cwd)
-    should_run = old.fingerprint != before
-    watchers = find_watchers(cwd) if should_run else []
-    reports = run_persistent_checks(cwd, watchers, session.state.parent) if should_run else old.reports
-    # Read once the checks have run, as the session may have started editing while they did.
+    should_run = followed is None and old.fingerprint != before
+    reports = (merged_reports(followed, old.reports) if followed is not None else
+               run_persistent_checks(cwd, find_watchers(cwd), session.state.parent) if should_run else old.reports)
+    # Read once the checks have run, as the session may have started editing while they did. Every read clears
+    # edited, as in the model's ReadResults, so the marker goes once read.
     marker = touched_path(session.state)
-    touched = not moved and (old.touched or edit or marker.exists())
+    edited = edit or marker.exists()
+    touched = not moved and (old.touched or edited)
     marker.unlink(missing_ok=True)
     told = old.environment
     environment = new_environment(reports, told)
@@ -391,23 +275,37 @@ def checked_state(session: Session, cwd: Path, edit: bool = False) -> tuple[Stat
         environment=(*told, *(report.environment for report in environment if report.environment)),
     )
     assert current.environment[:len(told)] == told, f"environment {current.environment} forgot what the agent was told; keep {told} first"
-    assert should_run or current.reports == old.reports, f"unchanged workspace {cwd} got new reports; reuse the saved ones"
-    return old, current
+    assert should_run or followed is not None or current.reports == old.reports, f"unchanged workspace {cwd} got new reports; reuse the saved ones"
+    return Read(old, current, edited)
 
 
-def report_output(event: Event, old: State, current: State, session: Session) -> dict[str, Any]:
-    """The hook output for the new state: what newly fails, recovers or cannot run, and a Stop refusal when guarded."""
+def merged_reports(followed: list[Report], saved: tuple[Report, ...]) -> list[Report]:
+    """The reports a follower read takes: followed, from the daemon, and the saved report of each watcher the daemon
+    does not run, which only a hook reruns."""
+    assert len({report_key(report) for report in followed}) == len(followed), f"the daemon gave {[report.name for report in followed]}, one watcher twice"
+    keys = {report_key(report) for report in followed}
+    merged = [*followed, *(report for report in saved if report_key(report) not in keys)]
+    assert merged[:len(followed)] == followed, f"merged reports {[report.name for report in merged]} dropped the daemon's {[report.name for report in followed]}"
+    return merged
+
+
+def report_output(event: Event, read: Read, session: Session) -> dict[str, Any]:
+    """The hook output for the state read left: what newly fails, recovers or cannot run, and a Stop refusal when
+    guarded. A read that follows the session's own edit: a failure it finds is the agent's, and may wake it, as one
+    after a timeout may; another process's is told without waking, as the model's waking is edited or a timeout."""
+    old, current, edited = read.old, read.current, read.edited
     reports = current.reports
     environment = new_environment(reports, old.environment)
     baseline_notice = baseline_inventory(old, current, session)
     parts: list[str] = [baseline_notice] if baseline_notice else []
     output: dict[str, Any] = {}
     blocking = block_stop(event, current)
+    waking = False
     if current.failed and current.told != old.told:
         regressions = [report for report in reports if is_regression(report, current.baseline)]
         logs = {report_key(report): write_log(session, report) for report in regressions}
-        outside = not (event.hook_event_name == "PostToolUse" and event.tool_name in EDITING_TOOLS)
-        message = failure_message(regressions, current.baseline, logs, outside)
+        waking = edited or any(TIMED_OUT in report.failures for report in regressions)
+        message = failure_message(regressions, current.baseline, logs, not edited)
         parts.append(message)
         output["systemMessage"] = failure_status(regressions)
     elif not current.failed and old.failed:
@@ -420,7 +318,7 @@ def report_output(event: Event, old: State, current: State, session: Session) ->
     if parts:
         output.update(context_output(event.hook_event_name, "\n\n".join(parts)))
     if event.integration:
-        output['overwatch'] = integration_report(current)
+        output['overwatch'] = {**integration_report(current), 'waking': waking}
     assert blocking == (output.get("decision") == "block"), f"output {output} disagrees with blocking={blocking}; block only a guarded Stop"
     assert bool(parts) == ("hookSpecificOutput" in output), f"output {output} drops or invents context for {len(parts)} parts"
     return output
@@ -438,11 +336,42 @@ def integration_report(current: State) -> dict[str, Any]:
     return result
 
 
+def follow(event: Event, root: Path, parent: int) -> Iterator[dict[str, Any]]:
+    """The output for each settled result the project's daemon gives after a watcher publishes, read as a hook
+    reads one and saved in the same state, while the process parent still runs. Hooks keep telling the engine of
+    the session's edits, so a result after one may wake the agent, and another process's never does."""
+    import daemon
+    cwd = repository_of(Path(event.cwd or os.getcwd()).resolve())
+    assert root.is_absolute(), f"follow was given data directory {root}; pass what data_root returned"
+    # A follower whose parent exited before it started has been handed to init, and has no session to follow.
+    if cwd is None or parent <= 1:
+        return
+    generation = 0
+    while os.getppid() == parent:
+        generation, reports = daemon.next_reports(cwd, root, generation, PARENT_SECONDS)
+        if reports is None:
+            continue
+        with locked(state_path(event, cwd, root), root) as session:
+            read = checked_state(session, cwd, followed=reports)
+            output = report_output(event, read, session)
+            save_state(session, read.current)
+        assert session.state.exists(), f"no state was saved for {cwd} at {session.state}; save_state must write it"
+        if output:
+            assert json.loads(json.dumps(output)) == output, f"follow would print {output!r}, which is not plain JSON"
+            yield output
+
+
 def main() -> None:
-    """Answers one hook event on stdin with JSON on stdout. The event comes from the agent host that started this
+    """Answers one hook event on stdin with JSON on stdout; with `follow`, reads one event naming the session and
+    prints a line of JSON for each settled result after that, as a hook would answer it, until its parent exits. The event comes from the agent host that started this
     process, through the pipe it holds, so no one else can write it. Every problem is told to the host in that
     output, as a system message it shows the user: a mistake in .overwatch.json, its gate or the event as the error
     says. An unexpected error is also written to stderr, where the host logs it."""
+    if sys.argv[1:] == ["follow"]:
+        parent = os.getppid()
+        for output in follow(read_event(), data_root(os.environ.get("PLUGIN_DATA")), parent):
+            print(json.dumps(output), flush=True)
+        return
     try:
         output = json.dumps(process_event(read_event(), data_root(os.environ.get("PLUGIN_DATA"))))
     except (ConfigurationError, PolicyError) as error:

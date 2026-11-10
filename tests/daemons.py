@@ -56,3 +56,17 @@ def is_running(pid: int) -> bool:
     except ProcessLookupError:
         return False
     return True
+
+
+def eventually(read, done, seconds: float = 10.0):
+    """read() until done(its value) holds, or AssertionError with the last value once seconds pass."""
+    assert seconds > 0, f"waiting {seconds}s is no wait; give a positive time"
+    deadline = time.monotonic() + seconds
+    value = read()
+    while not done(value):
+        if time.monotonic() > deadline:
+            raise AssertionError(f"still {value!r} after {seconds}s")
+        time.sleep(0.05)
+        value = read()
+    assert done(value), f"{value!r} was returned before it was done"
+    return value

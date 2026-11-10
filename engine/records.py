@@ -23,6 +23,15 @@ class StateError(ValueError):
 
 
 @dataclass(frozen=True)
+class Read:
+    """One read of the checks' results: the state before and after it, and whether it follows the session's own
+    edit, the result model's edited, which only such a read may wake the agent for."""
+    old: "State"
+    current: "State"
+    edited: bool
+
+
+@dataclass(frozen=True)
 class Event:
     """One hook event as read_event checked it: the fields overwatch reads, each a string, and the tool's input."""
     hook_event_name: str

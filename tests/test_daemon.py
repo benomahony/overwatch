@@ -10,12 +10,12 @@ import sys
 import tempfile
 import textwrap
 import threading
-import time
 import unittest
 from pathlib import Path
 
 import paths
 import daemon
+from daemons import eventually
 
 assert str(paths.ROOT / "engine") in sys.path, f"{paths.ROOT / 'engine'} is not on sys.path {sys.path}; paths puts engine/ there so daemon imports by name"
 
@@ -32,20 +32,6 @@ WATCH = textwrap.dedent(
     time.sleep(60)
     """
 )
-
-
-def eventually(read, done, seconds: float = 10.0):
-    """read() until done(its value) holds, or AssertionError with the last value once seconds pass."""
-    assert seconds > 0, f"waiting {seconds}s is no wait; give a positive time"
-    deadline = time.monotonic() + seconds
-    value = read()
-    while not done(value):
-        if time.monotonic() > deadline:
-            raise AssertionError(f"still {value!r} after {seconds}s")
-        time.sleep(0.05)
-        value = read()
-    assert done(value), f"{value!r} was returned before it was done"
-    return value
 
 
 class DaemonTests(unittest.TestCase):
@@ -144,6 +130,23 @@ class DaemonTests(unittest.TestCase):
         override = {**json.loads((self.project / ".overwatch.json").read_text()), **fields}
         (self.project / ".overwatch.json").write_text(json.dumps(override))
         assert all(override[name] == value for name, value in fields.items()), f"the override {override} lost {fields}"
+
+    def test_changed_follows_each_new_build_and_says_when_none_came(self) -> None:
+        self.serving(idle=10)
+        generation, reports = daemon.next_reports(self.project, self.data, 0, daemon.FOLLOW_SECONDS)
+        self.assertEqual([report.summary for report in reports or []], ["RESULT: FAIL"])
+        self.assertEqual(daemon.next_reports(self.project, self.data, generation, wait=0.5), (generation, None))
+        self.let_it_pass()
+        later, reports = daemon.next_reports(self.project, self.data, generation, daemon.FOLLOW_SECONDS)
+        self.assertGreater(later, generation)
+        self.assertEqual([report.summary for report in reports or []], ["RESULT: PASS"])
+
+    def test_changed_refuses_a_generation_or_wait_it_cannot_use(self) -> None:
+        self.serving(idle=10)
+        for request in ({"op": "changed", "since": -1}, {"op": "changed", "since": True},
+                        {"op": "changed", "since": 0, "wait": 0}, {"op": "changed", "since": 0, "wait": 3600}):
+            with self.subTest(request=request):
+                self.assertIn("error", daemon.ask(self.project, self.data, request))
 
     def test_settled_says_a_watch_command_could_not_start_as_a_direct_run_does(self) -> None:
         self.override(argv=["no-such-watcher-anywhere", "--watch"], timeout=30)
