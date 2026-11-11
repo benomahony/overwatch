@@ -30,7 +30,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, replace
 from typing import Any, Required, TypedDict
 
-from gating import PolicyError, protected_checks, read_gate, tool_command
+from gating import PolicyError, brings_in_files, protected_checks, read_gate, tool_command
 from triage import InventoryError, parse_check, parse_inventory
 from records import REBUILT, Event, First, Report, Session, State, StateError, digest_of, state_from, state_json
 from unix import exclusive, is_private, on_path, output_selector, read_available
@@ -47,6 +47,8 @@ TERMINATE_GRACE = 3
 GIT_TIMEOUT = 5
 # The size, in bytes, of a workspace fingerprint's digest.
 FINGERPRINT_BYTES = 20
+REFLOG_DEPTH = 100
+COMMIT_ENTRY = re.compile(r"commit(?: \(amend\))?: ")
 FAILURE_LIMIT = 10
 # Colour codes, which some tools (deno) print even into a pipe.
 ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
@@ -1045,7 +1047,8 @@ def process_event(event: Event, root: Path) -> dict[str, Any]:
     with locked(state_path(event, cwd, root), root) as session:
         if event.hook_event_name == "PreToolUse":
             return protected_output(event, cwd, session)
-        old, current = checked_state(session, cwd)
+        command = tool_command(event.tool_input) if event.hook_event_name == "PostToolUse" else ""
+        old, current = checked_state(session, cwd, command)
         output = report_output(event, old, current, session)
         save_state(session, current)
     assert current.fingerprint is not None, f"state for {cwd} has no fingerprint; checked_state must record one"
@@ -1053,12 +1056,34 @@ def process_event(event: Event, root: Path) -> dict[str, Any]:
     return output
 
 
-def checked_state(session: Session, cwd: Path) -> tuple[State, State]:
-    """Recheck changed workspaces and rebaseline moved commits. Keep the starting fingerprint so edits during a
-    run demand another check instead of marking their newer workspace as already verified."""
+def moved_by_commits(cwd: Path, before: str, after: str) -> bool:
+    """Whether HEAD went from before to after only by commits made here. A commit records the files the workspace
+    already holds and brings in none, so what it leaves failing was the session's own. False when any other
+    operation moved it, or when the reflog does not reach before within REFLOG_DEPTH entries."""
+    assert before != after, f"HEAD is still {after}; ask only after it moved"
+    try:
+        result = subprocess.run(["git", "reflog", "show", "HEAD", f"--max-count={REFLOG_DEPTH}", "--format=%H %gs"],
+                                cwd=cwd, capture_output=True, text=True, timeout=GIT_TIMEOUT, check=True)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    for line in result.stdout.splitlines():
+        commit, _, subject = line.partition(" ")
+        if commit == before:
+            return True
+        if not COMMIT_ENTRY.match(subject):
+            return False
+    assert len(result.stdout.splitlines()) <= REFLOG_DEPTH, f"git listed more than {REFLOG_DEPTH} reflog entries; pass --max-count"
+    return False
+
+
+def checked_state(session: Session, cwd: Path, command: str = "") -> tuple[State, State]:
+    """Recheck changed workspaces and rebaseline moved commits, except those moved only by commits in a step that ran
+    no git operation bringing in files, as command, the step's shell command, tells. Keep the starting fingerprint so
+    edits during a run demand another check instead of marking their newer workspace as already verified."""
     old = load_state(session)
     head = commit_of(cwd)
-    if old.head is not None and head is not None and old.head != head:
+    own_commits = old.head is not None and head is not None and old.head != head and not brings_in_files(command) and moved_by_commits(cwd, old.head, head)
+    if old.head is not None and head is not None and old.head != head and not own_commits:
         old = replace(old, baseline={}, fingerprint=None, told=None, failed=False, signatures=())
     gate = read_gate(read_override(cwd))
     before = fingerprint(cwd)

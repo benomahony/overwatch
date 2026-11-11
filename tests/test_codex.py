@@ -19,7 +19,9 @@ import unittest
 
 from paths import ROOT
 import codex
+import gating
 import table
+import git_commands
 import triage
 
 
@@ -172,6 +174,40 @@ class CodexHookTests(unittest.TestCase):
         assert [watcher["name"] for watcher in watchers][:1] == ["fixture"], f"{self.cwd} runs {[watcher['name'] for watcher in watchers]}, not the fixture check first; check .overwatch.json"
         assert not count.exists(), f"{count} exists before the fixture check ran; nothing but check.py should write it"
         return result, count
+
+    def commit(self, message: str) -> str:
+        """Commits everything in the project as the agent's shell tool would and returns the new HEAD. The commit
+        ignores the machine's git configuration, whose hooks and signing are not what these tests are about."""
+        before = codex.commit_of(self.cwd)
+        git = ["git", "-C", str(self.cwd), "-c", "user.name=test", "-c", "user.email=test@example.com",
+               "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"]
+        subprocess.run([*git, "add", "-A"], check=True, capture_output=True)
+        subprocess.run([*git, "commit", "-q", "-m", message], check=True, capture_output=True)
+        head = codex.commit_of(self.cwd)
+        assert head is not None and head != before, f"committing {message!r} left HEAD at {before}; change a file first"
+        assert read(self.cwd / ".git" / "HEAD").startswith("ref: "), f"{self.cwd} is on a detached HEAD; the tests commit on a branch"
+        return head
+
+    def fast_forward_to(self, branch: str) -> str:
+        """Moves HEAD to the tip of branch, as a pull does, bringing in commits the agent did not make, and returns
+        the new HEAD."""
+        before = codex.commit_of(self.cwd)
+        subprocess.run(["git", "-C", str(self.cwd), "merge", "-q", "--ff-only", branch], check=True, capture_output=True)
+        head = codex.commit_of(self.cwd)
+        assert head is not None and head != before, f"merging {branch} left HEAD at {before}; branch must be ahead of HEAD"
+        assert read(self.cwd / ".git" / "HEAD").startswith("ref: "), f"{self.cwd} is on a detached HEAD after merging {branch}"
+        return head
+
+    def diverge_upstream(self, result: Path, replacing: str) -> None:
+        """Gives a branch called upstream one commit that breaks the check, then returns to the branch the project
+        was on, so a pull of it later brings in a failure the agent did not make."""
+        git = ["git", "-C", str(self.cwd)]
+        subprocess.run([*git, "checkout", "-q", "-b", "upstream"], check=True, capture_output=True)
+        write(result, "RESULT: FAIL", replacing)
+        self.commit("upstream breaks the check")
+        subprocess.run([*git, "checkout", "-q", "-"], check=True, capture_output=True)
+        assert read(result) == replacing, f"{result} reads {read(result)!r} after returning, not {replacing!r}"
+        assert codex.commit_of(self.cwd) is not None, f"{self.cwd} has no commit after returning from upstream"
 
     def call(self, event: str, **fields: object) -> tuple[dict[str, object], float]:
         """Sends one hook event to the hook script, as Codex does, returning its output and how long it took. Only
@@ -374,6 +410,102 @@ class CodexHookTests(unittest.TestCase):
         stopped, _ = self.call("Stop", stop_hook_active=False)
         self.assertEqual(stopped, {})
         self.assertEqual(read(count), "3")
+
+    def test_an_edit_committed_in_the_same_step_is_a_new_failure(self) -> None:
+        result, _ = self.configure()
+        write(result, "RESULT: PASS")
+        self.commit("start green")
+        self.call("SessionStart")
+        write(result, "RESULT: FAIL", "RESULT: PASS")
+        self.commit("break the check")
+        failed, _ = self.call("PostToolUse", tool_name="Bash")
+        self.assertIn("failed after the latest change", failed["hookSpecificOutput"]["additionalContext"])
+        self.assertEqual(self.call("Stop")[0]["decision"], "block")
+
+    def test_a_commit_between_two_edits_leaves_the_second_failure_new(self) -> None:
+        result, _ = self.configure()
+        write(result, "RESULT: PASS")
+        self.commit("start green")
+        self.call("SessionStart")
+        write(result, "RESULT: PASS again", "RESULT: PASS")
+        self.commit("still green")
+        self.assertEqual(self.call("PostToolUse", tool_name="Bash")[0], {})
+        write(result, "RESULT: FAIL", "RESULT: PASS again")
+        failed, _ = self.call("PostToolUse", tool_name="Edit")
+        self.assertIn("failed after the latest change", failed["hookSpecificOutput"]["additionalContext"])
+
+    def squash_upstream_and_commit(self, command: str) -> dict[str, object]:
+        """A project whose upstream branch breaks the check, then one step that squash-merges it and commits,
+        reported to the hook as the shell command given. Returns the hook's answer to that step."""
+        result, _ = self.configure()
+        write(result, "RESULT: PASS")
+        self.commit("start green")
+        self.diverge_upstream(result, "RESULT: PASS")
+        self.call("SessionStart")
+        subprocess.run(["git", "-C", str(self.cwd), "merge", "-q", "--squash", "upstream"], check=True, capture_output=True)
+        self.commit("squash upstream")
+        answer, _ = self.call("PostToolUse", tool_name="Bash", tool_input={"command": command})
+        assert codex.commit_of(self.cwd) is not None, f"{self.cwd} has no commit after the squash step"
+        assert read(result) == "RESULT: FAIL", f"{result} reads {read(result)!r}; the squash should bring in the failure"
+        return answer
+
+    def test_a_squash_merge_committed_in_the_same_step_takes_a_fresh_baseline(self) -> None:
+        answer = self.squash_upstream_and_commit("git merge --squash upstream && git commit -m squash")
+        self.assertNotIn("failed after the latest change", json.dumps(answer))
+        self.assertEqual(self.call("Stop")[0], {})
+
+    def test_a_commit_message_that_names_a_merge_is_still_a_commit(self) -> None:
+        answer = self.squash_upstream_and_commit('git commit -m "merge fix"')
+        self.assertIn("failed after the latest change", answer["hookSpecificOutput"]["additionalContext"])
+
+    def test_commands_that_bring_in_files_are_told_from_commits(self) -> None:
+        corpus = json.loads(read(git_commands.SOURCE))
+        self.assertEqual(read(git_commands.TARGET), git_commands.render_commands(), "run python3 scripts/git_commands.py after editing git-commands.json")
+        assert set(corpus) == {"bringing", "commits", "unseen"}, f"the corpus has {set(corpus)}; keep bringing, commits and unseen"
+        for command in corpus["bringing"]:
+            self.assertTrue(gating.brings_in_files(command), command)
+        for command in corpus["commits"] + corpus["unseen"]:
+            self.assertFalse(gating.brings_in_files(command), command)
+
+    def edit_and_commit_in_one_step(self, command: str) -> dict[str, object]:
+        """A green project, then one step that breaks the check and commits it, reported to the hook as the shell
+        command given. Returns the hook's answer to that step."""
+        result, _ = self.configure()
+        write(result, "RESULT: PASS")
+        self.commit("start green")
+        self.call("SessionStart")
+        write(result, "RESULT: FAIL", "RESULT: PASS")
+        self.commit("break the check")
+        answer, _ = self.call("PostToolUse", tool_name="Bash", tool_input={"command": command})
+        assert read(result) == "RESULT: FAIL", f"{result} reads {read(result)!r}; the step should break the check"
+        assert codex.commit_of(self.cwd) is not None, f"{self.cwd} has no commit after the step"
+        return answer
+
+    def test_a_commit_message_naming_a_git_operation_is_still_a_commit(self) -> None:
+        answer = self.edit_and_commit_in_one_step('git commit -qam "Fix git pull handling"')
+        self.assertIn("failed after the latest change", answer["hookSpecificOutput"]["additionalContext"])
+        self.assertEqual(self.call("Stop")[0]["decision"], "block")
+
+    def test_a_squash_merge_inside_bash_dash_c_takes_a_fresh_baseline(self) -> None:
+        answer = self.squash_upstream_and_commit('bash -lc "git merge --squash upstream && git commit -m squash"')
+        self.assertNotIn("failed after the latest change", json.dumps(answer))
+        self.assertEqual(self.call("Stop")[0], {})
+
+    def test_a_squash_merge_in_a_subshell_takes_a_fresh_baseline(self) -> None:
+        answer = self.squash_upstream_and_commit("(git merge --squash upstream && git commit -m squash)")
+        self.assertNotIn("failed after the latest change", json.dumps(answer))
+        self.assertEqual(self.call("Stop")[0], {})
+
+    def test_a_pull_that_moves_head_takes_a_fresh_baseline(self) -> None:
+        result, _ = self.configure()
+        write(result, "RESULT: PASS")
+        self.commit("start green")
+        self.diverge_upstream(result, "RESULT: PASS")
+        self.call("SessionStart")
+        self.fast_forward_to("upstream")
+        pulled, _ = self.call("PostToolUse", tool_name="Bash")
+        self.assertNotIn("failed after the latest change", json.dumps(pulled))
+        self.assertEqual(self.call("Stop")[0], {})
 
     def test_watch_command_stops_after_its_first_report(self) -> None:
         result, count = self.configure(watch=True)

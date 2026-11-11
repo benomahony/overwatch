@@ -5,6 +5,7 @@
   "type": "module",
   "exports": "./integrations/opencode.js",
   "files": [
+    "hooks/checkpoint.py",
     "hooks/codex.py",
     "hooks/gating.py",
     "hooks/records.py",
