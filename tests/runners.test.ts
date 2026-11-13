@@ -115,6 +115,7 @@ test('Go runners report what failed', () => {
 
 test('zanity names each finding by path, rule and an id that survives a line shift', () => {
   const zanity = CHECKERS.find(checker => checker.name === 'zanity')!
+  expect(zanity.argv).toContain('--plain')
   expect(readResult(zanity, ZANITY_FAILING)[1]).toEqual(['calc.py dead-symbol ba4ccb9f687b', 'calc.py swallowed-error cdde7f46bc45'])
   expect(readResult(zanity, 'zanity: checked 1 file, no issues found\n')[1]).toEqual([])
 })

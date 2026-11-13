@@ -221,7 +221,8 @@ export const TABLE = {
         "check",
         ".",
         "--watch",
-        "--no-color"
+        "--no-color",
+        "--plain"
       ],
       "summary": "^zanity: (?:\\d+ errors?(?:,| and) \\d+ warnings? in .*|checked .*, no issues found\\.?)$",
       "failed": "\\b[1-9]\\d* (?:errors?|warnings?)\\b",

@@ -90,9 +90,9 @@ test('zanity on PATH runs beside the project watcher', async ($, on) => {
   await clock.advance(500)
   await $.tool.call({ tool: 'Edit', file_path: '/repo/main.zig', old_string: 'a', new_string: 'b' })
   await clock.advance(1500)
-  expect(sorted(spawned)).toEqual([['zanity', 'check', '.', '--watch', '--no-color'], ZIG_WATCH])
+  expect(sorted(spawned)).toEqual([['zanity', 'check', '.', '--watch', '--no-color', '--plain'], ZIG_WATCH])
   expect(prompts.length).toBe(1)
-  expect(prompts[0]).toContain('`zanity check . --watch --no-color` failed after the latest change: zanity: 0 errors, 1 warning in 1/1 file.')
+  expect(prompts[0]).toContain('`zanity check . --watch --no-color --plain` failed after the latest change: zanity: 0 errors, 1 warning in 1/1 file.')
   expect(statuses.at(-1)).toBe(
     'zig ✓ 4/4 steps succeeded; 48/48 tests passed · zanity ✗ 0 errors, 1 warning in 1/1 file.',
   )

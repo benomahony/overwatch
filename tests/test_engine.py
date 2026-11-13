@@ -337,6 +337,7 @@ class CodexHookTests(CodexHook):
 
     def test_zanity_names_each_finding_by_path_rule_and_id(self) -> None:
         zanity = next(checker for checker in discovery.CHECKERS if checker["name"] == "zanity")
+        self.assertIn("--plain", zanity["argv"])
         report = reading.read_report(zanity, ZANITY_FAILING)
         assert report is not None, f"zanity's summary was not found in {ZANITY_FAILING!r}; check its summary pattern"
         self.assertEqual(report.failures, ("calc.py dead-symbol ba4ccb9f687b", "calc.py swallowed-error cdde7f46bc45"))
