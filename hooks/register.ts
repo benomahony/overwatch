@@ -1,6 +1,6 @@
 import type { EngineInterface, FsEntry, Register, Timer } from 'claude-code'
 import { assert } from './assert'
-import { protectedChecks, type GatePolicy } from './gating'
+import { bringsInFiles, commandOf, protectedChecks, type GatePolicy } from './gating'
 import {
   CHECKERS,
   LANGUAGES,
@@ -451,6 +451,12 @@ async function repositoryOf($: EngineInterface, dir: string): Promise<string | u
 /** A commit id as git writes it in .git: forty hex digits, or sixty-four in a SHA-256 repository. */
 const COMMIT = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/
 
+/** How many of the newest HEAD reflog entries are read to find what moved HEAD. */
+const REFLOG_DEPTH = 100
+
+/** The reflog subject of a commit made here, or an amended one, as git writes it. */
+const COMMIT_ENTRY = /^commit(?: \(amend\))?: /
+
 /**
  * The commit checked out in the repository at root, read from its .git directory: HEAD itself when detached, else
  * the branch it names, loose or packed. Undefined when none can be read, as in a worktree whose .git is a file.
@@ -842,20 +848,39 @@ async function completeTurn($: EngineInterface, state: State, isAnswered: boolea
 }
 
 /**
+ * Whether HEAD went from `before` to `after` only by commits made here. A commit records the files the workspace
+ * already holds and brings in none, so what it leaves failing was the session's own. False when any other operation
+ * moved it, or when the repository's HEAD reflog is unreadable or does not reach `before` within REFLOG_DEPTH entries.
+ */
+async function movedByCommits($: EngineInterface, root: string, before: string, after: string): Promise<boolean> {
+  assert(COMMIT.test(before) && COMMIT.test(after) && before !== after, `${before} to ${after} is not a move between two commits; ask only after HEAD moved`)
+  const log = await $.fs.read(`${root}/.git/logs/HEAD`).catch(() => '')
+  const entries = log.split('\n').filter(line => line !== '').slice(-REFLOG_DEPTH).reverse()
+  for (const entry of entries) {
+    const [fields = '', subject = ''] = entry.split('\t')
+    if (fields.split(' ')[1] === before) return true
+    if (!COMMIT_ENTRY.test(subject)) return false
+  }
+  assert(entries.length <= REFLOG_DEPTH, `read ${entries.length} reflog entries, over the ${REFLOG_DEPTH} allowed; slice the log`)
+  return false
+}
+
+/**
  * Notes the commit the session's baselines belong to, and takes fresh ones once it moves under the session, as a
  * pull or checkout brings in failures the agent did not make. Each check reruns, stopping a run still reading the
- * old commit, and its next result is its baseline unless the agent edits first.
+ * old commit, and its next result is its baseline unless the agent edits first. A move made only by commits keeps the
+ * baselines, since commits bring in no files, unless `command`, the step that moved it, ran a git operation that can.
  */
-async function rebaselineOnMove($: EngineInterface, state: State) {
+async function rebaselineOnMove($: EngineInterface, state: State, command = '') {
   const { cwd, epoch } = state
   assert(state.head === undefined || COMMIT.test(state.head), `the session's HEAD ${state.head} is not a commit id; note only what commitOf returns`)
   if (cwd === undefined) return
   const root = await repositoryOf($, cwd)
   const head = root === undefined ? undefined : await commitOf($, root)
   if (state.epoch !== epoch || head === undefined || head === state.head) return
-  const isMoved = state.head !== undefined
+  const previous = state.head
   state.head = head
-  if (!isMoved) return
+  if (previous === undefined || (root !== undefined && !bringsInFiles(command) && await movedByCommits($, root, previous, head))) return
   for (const each of state.slots) {
     each.baseline = undefined
     each.isEdited = false
@@ -869,7 +894,7 @@ async function rebaselineOnMove($: EngineInterface, state: State) {
  * A tool that ran is work, so the same correction may be told again, except in the correction's own turn, where
  * inspecting it is the answer to it. An editing tool also reruns each check and may have moved HEAD.
  */
-async function afterTool($: EngineInterface, state: State, tool: string) {
+async function afterTool($: EngineInterface, state: State, tool: string, command = '') {
   assert(tool !== '', `a tool call named the tool ${JSON.stringify(tool)}; pass the name of the tool the agent called`)
   if (!state.isCorrectionTurn) state.completionCorrection = undefined
   assert(!state.isCorrectionTurn || state.completionCorrection !== undefined, `the correction turn lost its correction after ${tool}; keep it while the turn answers it`)
@@ -880,7 +905,7 @@ async function afterTool($: EngineInterface, state: State, tool: string) {
     each.isEditedSinceResult = true
     each.changed?.()
   }
-  await rebaselineOnMove($, state)
+  await rebaselineOnMove($, state, command)
   assert(state.slots.every(each => each.isEdited || each.baseline === undefined), `a slot was not marked edited after ${tool}; mark each so its next result is read against the edit`)
 }
 
@@ -940,7 +965,7 @@ export const register: Register = on => {
       if (reason !== undefined) return { deny: reason }
     }
     const result = await next(e)
-    await afterTool($, state, e.tool)
+    await afterTool($, state, e.tool, commandOf(e))
     return result
   })
 

@@ -11,7 +11,7 @@ This layer receives completed per-check snapshots from Overwatch.
 It specifies requests, responses, delivery channels, and session lifecycle
 for every host. Both layers use the same FailurePolicy definitions.
 *)
-CONSTANTS Hosts, Checks, Names, MaxRequests, MaxChanges, MaxSessions
+CONSTANTS Hosts, Checks, Names, MaxRequests, MaxChanges, MaxSessions, MaxNotices
 
 AllHosts == {"claude", "codex", "opencode1", "opencode2", "pi", "neovim"}
 ASSUME Hosts \subseteq AllHosts /\ Hosts # {}
@@ -44,7 +44,8 @@ Capabilities(h) ==
                     [] OTHER -> "event",
      idleWake |-> h \in {"claude", "opencode2"},
      status |-> h \in {"claude", "pi", "neovim"},
-     noticesOutside |-> h \in {"claude", "codex", "opencode2", "neovim"}]
+     noticesOutside |-> h \in {"claude", "codex", "opencode2", "neovim"},
+     tcr |-> h \in {"codex", "opencode1", "opencode2", "pi"}]
 
 Kinds == {"inspect", "repair", "publish", "complete"}
 Empty == [c \in Checks |-> {}]
@@ -61,13 +62,16 @@ VARIABLES host, active, busy, reports, baseline, inherited, selected,
           request, reply, requests, changes, session,
           visible, contextPending, contextSent, correctionQueued,
           contexts, warnings, corrections, inTurn, wakes, work,
-          correctionPending, correctionTurn, outside, outsides
+          correctionPending, correctionTurn, outside, outsides,
+          noticePending, noticesRaised, noticesTold
 
 vars == <<host, active, busy, reports, baseline, inherited, selected,
           request, reply, requests, changes, session, visible,
           contextPending, contextSent, correctionQueued, contexts,
           warnings, corrections, inTurn, wakes, work,
-          correctionPending, correctionTurn, outside, outsides>>
+          correctionPending, correctionTurn, outside, outsides,
+          noticePending, noticesRaised, noticesTold>>
+noticeVars == <<noticePending, noticesRaised, noticesTold>>
 
 (* Section: Guard selection and inherited policy
 
@@ -104,6 +108,8 @@ TypeOK ==
     /\ corrections \in 0..((MaxSessions + 1) * MaxRequests)
     /\ correctionPending \in BOOLEAN /\ correctionTurn \in BOOLEAN /\ outside \in BOOLEAN
     /\ outsides \in 0..MaxChanges
+    /\ noticePending \in BOOLEAN
+    /\ noticesRaised \in 0..MaxNotices /\ noticesTold \in 0..MaxNotices
 
 (* Section: Initial state
 
@@ -120,6 +126,7 @@ Init ==
     /\ contextPending = FALSE /\ contextSent = FALSE /\ correctionQueued = FALSE
     /\ contexts = 0 /\ warnings = 0 /\ corrections = 0 /\ wakes = 0 /\ work = 0 /\ inTurn \in BOOLEAN
     /\ correctionPending = FALSE /\ correctionTurn = FALSE /\ outside = FALSE /\ outsides = 0
+    /\ noticePending = FALSE /\ noticesRaised = 0 /\ noticesTold = 0
 
 (* Section: Requests and completion decisions
 
@@ -134,7 +141,7 @@ Request(k) ==
     /\ UNCHANGED <<host, active, busy, reports, baseline, inherited, selected,
                    changes, session, visible, contextPending, contextSent,
                    correctionQueued, contexts, warnings, corrections, inTurn, wakes, work,
-                   correctionPending, correctionTurn, outside, outsides>>
+                   correctionPending, correctionTurn, outside, outsides, noticeVars>>
 
 CanRespond ==
     active /\ request # "none" /\ ~reply.ready /\
@@ -165,7 +172,7 @@ Respond ==
                          THEN 1 ELSE 0
     /\ UNCHANGED <<host, active, busy, reports, baseline, inherited, selected,
                    request, requests, changes, session, visible,
-                   contextPending, contextSent, contexts, work, outside, outsides>>
+                   contextPending, contextSent, contexts, work, outside, outsides, noticeVars>>
 
 Acknowledge ==
     /\ request # "none" /\ reply.ready
@@ -174,7 +181,7 @@ Acknowledge ==
                    reply, requests, changes, session, visible,
                    contextPending, contextSent, correctionQueued,
                    contexts, warnings, corrections, inTurn, wakes, work,
-                   correctionPending, correctionTurn, outside, outsides>>
+                   correctionPending, correctionTurn, outside, outsides, noticeVars>>
 
 (* Section: Checks and result delivery
 
@@ -189,7 +196,7 @@ BeginCheck ==
                    request, reply, requests, changes, session, visible,
                    contextPending, contextSent, correctionQueued,
                    contexts, warnings, corrections, inTurn, wakes, work,
-                   correctionPending, correctionTurn, outside, outsides>>
+                   correctionPending, correctionTurn, outside, outsides, noticeVars>>
 
 (* The result-ordering and baseline rules are specified in Overwatch.tla.
    This layer accepts a completed result at that boundary, then constrains
@@ -203,7 +210,7 @@ FinishCheck(f) ==
          ELSE UNCHANGED <<contextSent, correctionQueued, contextPending>>
     /\ UNCHANGED <<host, active, baseline, inherited, selected, request,
                    reply, requests, session, visible, contexts, warnings, corrections, inTurn, wakes, work,
-                   correctionPending, correctionTurn, outsides>>
+                   correctionPending, correctionTurn, outsides, noticeVars>>
 
 (* A check that finishes on another process's change, with no session edit
    since the last result, replaces the reports for status and guards alone:
@@ -217,7 +224,7 @@ OutsideFinish(f) ==
     /\ UNCHANGED <<host, active, baseline, inherited, selected, request,
                    reply, requests, changes, session, visible, contextSent,
                    correctionQueued, contexts, warnings, corrections, inTurn, wakes, work,
-                   correctionPending, correctionTurn>>
+                   correctionPending, correctionTurn, noticeVars>>
 
 Told == Notify /\ ~outside
 Report ==
@@ -229,7 +236,7 @@ Report ==
     /\ UNCHANGED <<host, active, busy, reports, baseline, inherited, selected,
                    request, reply, requests, changes, session,
                    correctionQueued, warnings, corrections, inTurn, wakes, work,
-                   correctionPending, correctionTurn, outside, outsides>>
+                   correctionPending, correctionTurn, outside, outsides, noticeVars>>
 
 Deliver ==
     /\ active /\ contextPending
@@ -238,7 +245,7 @@ Deliver ==
     /\ UNCHANGED <<host, active, busy, reports, baseline, inherited, selected,
                    request, reply, requests, changes, session, visible,
                    correctionQueued, warnings, corrections, inTurn, work,
-                   correctionPending, correctionTurn, outside, outsides>>
+                   correctionPending, correctionTurn, outside, outsides, noticeVars>>
 
 (* Section: Shutdown restart and new work
 
@@ -256,10 +263,10 @@ Stop ==
     /\ active' = FALSE /\ busy' = FALSE /\ request' = "none"
     /\ reply' = [ready |-> TRUE, decision |-> "cancelled"]
     /\ visible' = [known |-> FALSE, failures |-> Empty]
-    /\ contextPending' = FALSE
+    /\ contextPending' = FALSE /\ noticePending' = FALSE
     /\ UNCHANGED <<host, reports, baseline, inherited, selected, requests,
                    changes, session, contextSent, correctionQueued,
-                   contexts, warnings, corrections, wakes, work, outside, outsides>>
+                   contexts, warnings, corrections, wakes, work, outside, outsides, noticesRaised, noticesTold>>
 
 Restart ==
     /\ ~active /\ session < MaxSessions
@@ -271,7 +278,7 @@ Restart ==
     /\ visible' = [known |-> FALSE, failures |-> Empty]
     /\ contextPending' = FALSE /\ contextSent' = FALSE /\ correctionQueued' = FALSE /\ outside' = FALSE
     /\ UNCHANGED <<host, reports, inherited, selected, changes, contexts, warnings, corrections,
-                   wakes, work, outsides>>
+                   wakes, work, outsides, noticeVars>>
 
 StartTurn ==
     /\ active /\ ~inTurn /\ inTurn' = TRUE
@@ -280,7 +287,7 @@ StartTurn ==
     /\ UNCHANGED <<host, active, busy, reports, baseline, inherited, selected,
                    request, reply, requests, changes, session, visible,
                    contextPending, contextSent, correctionQueued, contexts,
-                   warnings, corrections, wakes, work, correctionPending, outside, outsides>>
+                   warnings, corrections, wakes, work, correctionPending, outside, outsides, noticeVars>>
 
 StartCorrectionTurn ==
     /\ active /\ ~inTurn /\ correctionPending
@@ -288,7 +295,7 @@ StartCorrectionTurn ==
     /\ UNCHANGED <<host, active, busy, reports, baseline, inherited, selected,
                    request, reply, requests, changes, session, visible,
                    contextPending, contextSent, correctionQueued, contexts,
-                   warnings, corrections, wakes, work, outside, outsides>>
+                   warnings, corrections, wakes, work, outside, outsides, noticeVars>>
 
 WorkCompleted ==
     /\ active /\ work < (MaxSessions + 1) * MaxRequests
@@ -297,7 +304,37 @@ WorkCompleted ==
     /\ UNCHANGED <<host, active, busy, reports, baseline, inherited, selected,
                    request, reply, requests, changes, session, visible,
                    contextPending, contextSent, contexts, warnings, corrections, inTurn, wakes,
-                   correctionPending, correctionTurn, outside, outsides>>
+                   correctionPending, correctionTurn, outside, outsides, noticeVars>>
+
+(* Section: Notices of a TCR revert
+
+A host that runs TCR reverts an edit that adds a failure, and the agent has to
+be told why. A host that delivers by event appends the notice to the tool
+result at once. OpenCode 2 queues it for the next model request. A notice is
+not a failure: a check that finds nothing guarded clears a queued failure, never
+a queued notice. Each notice is delivered at most once and only a shutdown
+discards one that is still queued.
+*)
+RevertNotice ==
+    /\ active /\ Capabilities(host).tcr /\ noticesRaised < MaxNotices
+    /\ noticesRaised' = noticesRaised + 1
+    /\ IF Capabilities(host).delivery = "context"
+         THEN noticePending' = TRUE /\ UNCHANGED noticesTold
+         ELSE noticesTold' = noticesTold + 1 /\ UNCHANGED noticePending
+    /\ UNCHANGED <<host, active, busy, reports, baseline, inherited, selected,
+                   request, reply, requests, changes, session, visible,
+                   contextPending, contextSent, correctionQueued, contexts, warnings,
+                   corrections, inTurn, wakes, work, correctionPending, correctionTurn,
+                   outside, outsides>>
+
+DeliverNotice ==
+    /\ active /\ noticePending
+    /\ noticePending' = FALSE /\ noticesTold' = noticesTold + 1
+    /\ UNCHANGED <<host, active, busy, reports, baseline, inherited, selected,
+                   request, reply, requests, changes, session, visible,
+                   contextPending, contextSent, correctionQueued, contexts, warnings,
+                   corrections, inTurn, wakes, work, correctionPending, correctionTurn,
+                   outside, outsides, noticesRaised>>
 
 (* Section: Allowed executions and fairness
 
@@ -308,12 +345,13 @@ remains enabled even while a check is held.
 CheckCompletes == \E f \in Snapshots : FinishCheck(f) \/ OutsideFinish(f)
 Next == (\E k \in Kinds : Request(k)) \/ Respond \/ Acknowledge \/ BeginCheck
         \/ CheckCompletes \/ Report \/ Deliver \/ Stop \/ Restart
+        \/ RevertNotice \/ DeliverNotice
         \/ StartTurn \/ StartCorrectionTurn \/ WorkCompleted
         \/ (~active /\ session = MaxSessions /\ UNCHANGED vars)
 (* Check completion fairness is the RunsEnd guarantee of the result model.
    Inspection is independently enabled; it never needs that guarantee to reply. *)
 Spec == Init /\ [][Next]_vars /\ WF_vars(CheckCompletes)
-        /\ WF_vars(Respond) /\ WF_vars(Report) /\ WF_vars(Deliver)
+        /\ WF_vars(Respond) /\ WF_vars(Report) /\ WF_vars(Deliver) /\ WF_vars(DeliverNotice)
 
 (* Section: Safety and progress properties
 
@@ -327,7 +365,7 @@ InspectionAlwaysAllowed ==
     request \in {"inspect", "repair"} /\ reply.ready => reply.decision = "allow"
 EditorNeverGuards ==
     host = "neovim" /\ request # "none" /\ reply.ready => reply.decision = "allow"
-StoppedSessionsStaySilent == ~active => ~contextPending /\ ~visible.known
+StoppedSessionsStaySilent == ~active => ~contextPending /\ ~visible.known /\ ~noticePending
 HostsWithoutIdleWakeStayIdle == ~Capabilities(host).idleWake => wakes = 0
 CorrectionRequestsAreDeduplicated == corrections <= changes + session + work + 1
 PendingContextIsCurrent == contextPending => Notify
@@ -336,7 +374,13 @@ CompletionUsesHostCapability ==
        reply.decision \in {"allow", Capabilities(host).completion}
 EditorOnlyReports ==
     host = "neovim" => contexts = 0 /\ warnings = 0 /\ corrections = 0 /\ wakes = 0
+NoticesAreDeliveredOnce ==
+    noticesTold + (IF noticePending THEN 1 ELSE 0) <= noticesRaised
+OnlyTcrHostsRaiseNotices == noticesRaised > 0 => Capabilities(host).tcr
+NoticesOutliveRecovery ==
+    [][(noticePending /\ ~noticePending') => (noticesTold' = noticesTold + 1 \/ ~active')]_vars
 PendingReportsEventuallyResolve == contextPending ~> ~contextPending
+PendingNoticesEventuallyResolve == noticePending ~> ~noticePending
 FinishedReportsBecomeVisible ==
     (active /\ ~busy) ~> (visible.known \/ ~active)
 InspectionEventuallyReplies ==

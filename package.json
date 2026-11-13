@@ -5,11 +5,15 @@
   "type": "module",
   "exports": "./integrations/opencode.js",
   "files": [
+    "hooks/checkpoint.py",
     "hooks/codex.py",
     "hooks/gating.py",
     "hooks/records.py",
+    "hooks/reports.py",
+    "hooks/tcr.py",
     "hooks/triage.py",
     "hooks/unix.py",
+    "hooks/workspace.py",
     "integrations",
     "watchers.json"
   ],

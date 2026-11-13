@@ -124,6 +124,7 @@ CONSTANTS
     Names = {"a", "b"}
     MaxEdits = 2
     Timeout = 2
+    TcrMode = FALSE
 INVARIANTS
     TypeOK
     BufferedResultsAreOrdered

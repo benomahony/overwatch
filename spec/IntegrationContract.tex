@@ -966,7 +966,8 @@ This layer receives completed per-check snapshots from \ensuremath{Overwatch}.
 \end{cpar}%
 \end{lcom}%
  \@x{\makebox[0pt][r]{\scriptsize 14\hspace{1em}} {\CONSTANTS} Hosts ,\,
- Checks ,\, Names ,\, MaxRequests ,\, MaxChanges ,\, MaxSessions}%
+ Checks ,\, Names ,\, MaxRequests ,\, MaxChanges ,\, MaxSessions ,\,
+ MaxNotices}%
 \@pvspace{8.0pt}%
  \@x{\makebox[0pt][r]{\scriptsize 16\hspace{1em}} AllHosts \.{\defeq}
  \{\@w{claude} ,\,\@w{codex} ,\,\@w{opencode1} ,\,\@w{opencode2} ,\,\@w{pi}
@@ -1030,15 +1031,17 @@ The host determines whether protected requests wait for a running check,
  h \.{\in} \{\@w{claude} ,\,\@w{pi} ,\,\@w{neovim} \} ,\,}%
  \@x{\makebox[0pt][r]{\scriptsize 47\hspace{1em}}\@s{19.17} noticesOutside
  \.{\mapsto} h \.{\in} \{\@w{claude} ,\,\@w{codex} ,\,\@w{opencode2}
- ,\,\@w{neovim} \} ]}%
+ ,\,\@w{neovim} \} ,\,}%
+ \@x{\makebox[0pt][r]{\scriptsize 48\hspace{1em}}\@s{19.17} tcr \.{\mapsto} h
+ \.{\in} \{\@w{codex} ,\,\@w{opencode1} ,\,\@w{opencode2} ,\,\@w{pi} \} ]}%
 \@pvspace{8.0pt}%
- \@x{\makebox[0pt][r]{\scriptsize 49\hspace{1em}} Kinds\@s{2.73} \.{\defeq}
+ \@x{\makebox[0pt][r]{\scriptsize 50\hspace{1em}} Kinds\@s{2.73} \.{\defeq}
  \{\@w{inspect} ,\,\@w{repair} ,\,\@w{publish} ,\,\@w{complete} \}}%
- \@x{\makebox[0pt][r]{\scriptsize 50\hspace{1em}} Empty \.{\defeq} [ c \.{\in}
+ \@x{\makebox[0pt][r]{\scriptsize 51\hspace{1em}} Empty \.{\defeq} [ c \.{\in}
  Checks \.{\mapsto} \{ \} ]}%
- \@x{\makebox[0pt][r]{\scriptsize 51\hspace{1em}} Snapshots \.{\defeq} [
+ \@x{\makebox[0pt][r]{\scriptsize 52\hspace{1em}} Snapshots \.{\defeq} [
  Checks \.{\rightarrow} {\SUBSET} Names ]}%
- \@x{\makebox[0pt][r]{\scriptsize 52\hspace{1em}} NoReply \.{\defeq} [ ready
+ \@x{\makebox[0pt][r]{\scriptsize 53\hspace{1em}} NoReply \.{\defeq} [ ready
  \.{\mapsto} {\FALSE} ,\, decision \.{\mapsto}\@w{none} ]}%
 \@pvspace{8.0pt}%
 \begin{lcom}{0}%
@@ -1052,28 +1055,34 @@ Request and reply are separate so that a check can finish or a session can
  idle wakeups are separate observations.
 \end{cpar}%
 \end{lcom}%
- \@x{\makebox[0pt][r]{\scriptsize 60\hspace{1em}} {\VARIABLES} host ,\, active
+ \@x{\makebox[0pt][r]{\scriptsize 61\hspace{1em}} {\VARIABLES} host ,\, active
  ,\, busy ,\, reports ,\, baseline ,\, inherited ,\, selected ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 61\hspace{1em}}\@s{51.42} request ,\, reply
+ \@x{\makebox[0pt][r]{\scriptsize 62\hspace{1em}}\@s{51.42} request ,\, reply
  ,\, requests ,\, changes ,\, session ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 62\hspace{1em}}\@s{51.42} visible ,\,
+ \@x{\makebox[0pt][r]{\scriptsize 63\hspace{1em}}\@s{51.42} visible ,\,
  contextPending ,\, contextSent ,\, correctionQueued ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 63\hspace{1em}}\@s{51.42} contexts ,\,
+ \@x{\makebox[0pt][r]{\scriptsize 64\hspace{1em}}\@s{51.42} contexts ,\,
  warnings ,\, corrections ,\, inTurn ,\, wakes ,\, work ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 64\hspace{1em}}\@s{51.42} correctionPending
- ,\, correctionTurn ,\, outside ,\, outsides}%
+ \@x{\makebox[0pt][r]{\scriptsize 65\hspace{1em}}\@s{51.42} correctionPending
+ ,\, correctionTurn ,\, outside ,\, outsides ,\,}%
+ \@x{\makebox[0pt][r]{\scriptsize 66\hspace{1em}}\@s{51.42} noticePending ,\,
+ noticesRaised ,\, noticesTold}%
 \@pvspace{8.0pt}%
- \@x{\makebox[0pt][r]{\scriptsize 66\hspace{1em}} vars \.{\defeq} {\langle}
+ \@x{\makebox[0pt][r]{\scriptsize 68\hspace{1em}} vars \.{\defeq} {\langle}
  host ,\, active ,\, busy ,\, reports ,\, baseline ,\, inherited ,\, selected
  ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 67\hspace{1em}}\@s{41.61} request ,\, reply
+ \@x{\makebox[0pt][r]{\scriptsize 69\hspace{1em}}\@s{41.61} request ,\, reply
  ,\, requests ,\, changes ,\, session ,\, visible ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 68\hspace{1em}}\@s{41.61} contextPending ,\,
+ \@x{\makebox[0pt][r]{\scriptsize 70\hspace{1em}}\@s{41.61} contextPending ,\,
  contextSent ,\, correctionQueued ,\, contexts ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 69\hspace{1em}}\@s{41.61} warnings ,\,
+ \@x{\makebox[0pt][r]{\scriptsize 71\hspace{1em}}\@s{41.61} warnings ,\,
  corrections ,\, inTurn ,\, wakes ,\, work ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 70\hspace{1em}}\@s{41.61} correctionPending
- ,\, correctionTurn ,\, outside ,\, outsides {\rangle}}%
+ \@x{\makebox[0pt][r]{\scriptsize 72\hspace{1em}}\@s{41.61} correctionPending
+ ,\, correctionTurn ,\, outside ,\, outsides ,\,}%
+ \@x{\makebox[0pt][r]{\scriptsize 73\hspace{1em}}\@s{41.61} noticePending ,\,
+ noticesRaised ,\, noticesTold {\rangle}}%
+ \@x{\makebox[0pt][r]{\scriptsize 74\hspace{1em}} noticeVars \.{\defeq}
+ {\langle} noticePending ,\, noticesRaised ,\, noticesTold {\rangle}}%
 \@pvspace{8.0pt}%
 \begin{lcom}{0}%
 \begin{cpar}{0}{T}{F}{7.5}{0}{}%
@@ -1087,18 +1096,18 @@ Section: \ensuremath{Guard} selection and inherited policy
  failures for delivery.
 \end{cpar}%
 \end{lcom}%
- \@x{\makebox[0pt][r]{\scriptsize 77\hspace{1em}} Guarded ( scope )
+ \@x{\makebox[0pt][r]{\scriptsize 81\hspace{1em}} Guarded ( scope )
  \.{\defeq}}%
- \@x{\makebox[0pt][r]{\scriptsize 78\hspace{1em}}\@s{16.4} \{ c \.{\in} scope
+ \@x{\makebox[0pt][r]{\scriptsize 82\hspace{1em}}\@s{16.4} \{ c \.{\in} scope
  \.{:} FailureGuards ( reports [ c ] ,\, baseline [ c ] ,\, inherited ) \}}%
- \@x{\makebox[0pt][r]{\scriptsize 79\hspace{1em}} Guard \.{\defeq}
+ \@x{\makebox[0pt][r]{\scriptsize 83\hspace{1em}} Guard \.{\defeq}
  Capabilities ( host ) . agent \.{\land} Guarded ( Checks ) \.{\neq} \{ \}}%
- \@x{\makebox[0pt][r]{\scriptsize 80\hspace{1em}} Notify \.{\defeq}
+ \@x{\makebox[0pt][r]{\scriptsize 84\hspace{1em}} Notify \.{\defeq}
  Capabilities ( host ) . agent \.{\land}}%
- \@x{\makebox[0pt][r]{\scriptsize 81\hspace{1em}}\@s{46.62} ( \E\, c \.{\in}
+ \@x{\makebox[0pt][r]{\scriptsize 85\hspace{1em}}\@s{46.62} ( \E\, c \.{\in}
  Checks \.{:} FailureGuards ( reports [ c ] ,\, baseline [ c ] ,\,\@w{allow}
  ) )}%
- \@x{\makebox[0pt][r]{\scriptsize 82\hspace{1em}} SelectedChecks \.{\defeq}
+ \@x{\makebox[0pt][r]{\scriptsize 86\hspace{1em}} SelectedChecks \.{\defeq}
  {\IF} selected \.{=} \{ \} \.{\THEN} Checks \.{\ELSE} selected}%
 \@pvspace{8.0pt}%
 \begin{lcom}{0}%
@@ -1112,51 +1121,56 @@ Section: State domains
  do not assert a runtime limit on requests or sessions.
 \end{cpar}%
 \end{lcom}%
-\@x{\makebox[0pt][r]{\scriptsize 89\hspace{1em}} TypeOK \.{\defeq}}%
- \@x{\makebox[0pt][r]{\scriptsize 90\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
+\@x{\makebox[0pt][r]{\scriptsize 93\hspace{1em}} TypeOK \.{\defeq}}%
+ \@x{\makebox[0pt][r]{\scriptsize 94\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
  host\@s{3.06} \.{\in} Hosts \.{\land} active \.{\in} {\BOOLEAN} \.{\land}
  busy \.{\in} {\BOOLEAN}}%
- \@x{\makebox[0pt][r]{\scriptsize 91\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
+ \@x{\makebox[0pt][r]{\scriptsize 95\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
  work \.{\in} 0 \.{\dotdot} ( ( MaxSessions \.{+} 1 ) \.{*} MaxRequests )}%
- \@x{\makebox[0pt][r]{\scriptsize 92\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
+ \@x{\makebox[0pt][r]{\scriptsize 96\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
  inTurn \.{\in} {\BOOLEAN}}%
- \@x{\makebox[0pt][r]{\scriptsize 93\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
+ \@x{\makebox[0pt][r]{\scriptsize 97\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
  wakes \.{\in} 0 \.{\dotdot} ( MaxChanges \.{+} MaxSessions \.{+} 1 \.{+} (
  MaxSessions \.{+} 1 ) \.{*} MaxRequests )}%
- \@x{\makebox[0pt][r]{\scriptsize 94\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
+ \@x{\makebox[0pt][r]{\scriptsize 98\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
  reports \.{\in} Snapshots \.{\land} baseline \.{\in} Snapshots}%
- \@x{\makebox[0pt][r]{\scriptsize 95\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
+ \@x{\makebox[0pt][r]{\scriptsize 99\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
  inherited \.{\in} \{\@w{allow} ,\,\@w{block} \} \.{\land} selected
  \.{\subseteq} Checks}%
- \@x{\makebox[0pt][r]{\scriptsize 96\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
+ \@x{\makebox[0pt][r]{\scriptsize 100\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
  request \.{\in} Kinds \.{\cup} \{\@w{none} \}}%
- \@x{\makebox[0pt][r]{\scriptsize 97\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
+ \@x{\makebox[0pt][r]{\scriptsize 101\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
  reply \.{\in} [ ready \.{:} {\BOOLEAN} ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 98\hspace{1em}}\@s{79.17} decision \.{:}
+ \@x{\makebox[0pt][r]{\scriptsize 102\hspace{1em}}\@s{79.17} decision \.{:}
  \{\@w{none} ,\,\@w{allow} ,\,\@w{deny} ,\,\@w{block} ,\,\@w{warn}
  ,\,\@w{queue} ,\,\@w{continue} ,\,\@w{cancelled} \} ]}%
- \@x{\makebox[0pt][r]{\scriptsize 99\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
+ \@x{\makebox[0pt][r]{\scriptsize 103\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
  requests \.{\in} 0 \.{\dotdot} MaxRequests \.{\land} changes \.{\in} 0
  \.{\dotdot} MaxChanges \.{\land} session \.{\in} 0 \.{\dotdot} MaxSessions}%
- \@x{\makebox[0pt][r]{\scriptsize 100\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
+ \@x{\makebox[0pt][r]{\scriptsize 104\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
  visible \.{\in} [ known \.{:} {\BOOLEAN} ,\, failures \.{:} Snapshots ]}%
- \@x{\makebox[0pt][r]{\scriptsize 101\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
+ \@x{\makebox[0pt][r]{\scriptsize 105\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
  contextPending \.{\in} {\BOOLEAN} \.{\land} contextSent \.{\in} {\BOOLEAN}
  \.{\land} correctionQueued \.{\in} {\BOOLEAN}}%
- \@x{\makebox[0pt][r]{\scriptsize 102\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
+ \@x{\makebox[0pt][r]{\scriptsize 106\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
  contexts\@s{4.17} \.{\in} 0 \.{\dotdot} ( MaxChanges \.{+} MaxSessions \.{+}
  1 )}%
- \@x{\makebox[0pt][r]{\scriptsize 103\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
+ \@x{\makebox[0pt][r]{\scriptsize 107\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
  warnings \.{\in} 0 \.{\dotdot} ( ( MaxSessions \.{+} 1 ) \.{*} MaxRequests
  )}%
- \@x{\makebox[0pt][r]{\scriptsize 104\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
+ \@x{\makebox[0pt][r]{\scriptsize 108\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
  corrections \.{\in} 0 \.{\dotdot} ( ( MaxSessions \.{+} 1 ) \.{*}
  MaxRequests )}%
- \@x{\makebox[0pt][r]{\scriptsize 105\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
+ \@x{\makebox[0pt][r]{\scriptsize 109\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
  correctionPending \.{\in} {\BOOLEAN} \.{\land} correctionTurn \.{\in}
  {\BOOLEAN} \.{\land} outside \.{\in} {\BOOLEAN}}%
- \@x{\makebox[0pt][r]{\scriptsize 106\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
+ \@x{\makebox[0pt][r]{\scriptsize 110\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
  outsides \.{\in} 0 \.{\dotdot} MaxChanges}%
+ \@x{\makebox[0pt][r]{\scriptsize 111\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
+ noticePending \.{\in} {\BOOLEAN}}%
+ \@x{\makebox[0pt][r]{\scriptsize 112\hspace{1em}}\@s{16.4} \.{\land}\@s{9.74}
+ noticesRaised\@s{2.91} \.{\in} 0 \.{\dotdot} MaxNotices \.{\land}
+ noticesTold \.{\in} 0 \.{\dotdot} MaxNotices}%
 \@pvspace{8.0pt}%
 \begin{lcom}{0}%
 \begin{cpar}{0}{T}{F}{7.5}{0}{}%
@@ -1169,31 +1183,34 @@ Section: Initial state
  No reply, visible report, deferred context, or correction has been produced.
 \end{cpar}%
 \end{lcom}%
-\@x{\makebox[0pt][r]{\scriptsize 113\hspace{1em}} Init \.{\defeq}}%
- \@x{\makebox[0pt][r]{\scriptsize 114\hspace{1em}}\@s{16.4} \.{\land} host
+\@x{\makebox[0pt][r]{\scriptsize 119\hspace{1em}} Init \.{\defeq}}%
+ \@x{\makebox[0pt][r]{\scriptsize 120\hspace{1em}}\@s{16.4} \.{\land} host
  \.{\in} Hosts \.{\land} active \.{=} {\TRUE} \.{\land} busy \.{\in}
  {\BOOLEAN}}%
- \@x{\makebox[0pt][r]{\scriptsize 115\hspace{1em}}\@s{16.4} \.{\land} reports
+ \@x{\makebox[0pt][r]{\scriptsize 121\hspace{1em}}\@s{16.4} \.{\land} reports
  \.{\in} Snapshots \.{\land} baseline \.{\in} Snapshots}%
- \@x{\makebox[0pt][r]{\scriptsize 116\hspace{1em}}\@s{16.4} \.{\land}
+ \@x{\makebox[0pt][r]{\scriptsize 122\hspace{1em}}\@s{16.4} \.{\land}
  inherited \.{\in} \{\@w{allow} ,\,\@w{block} \} \.{\land} selected \.{\in}
  {\SUBSET} Checks}%
- \@x{\makebox[0pt][r]{\scriptsize 117\hspace{1em}}\@s{16.4} \.{\land} request
+ \@x{\makebox[0pt][r]{\scriptsize 123\hspace{1em}}\@s{16.4} \.{\land} request
  \.{=}\@w{none} \.{\land} reply \.{=} NoReply}%
- \@x{\makebox[0pt][r]{\scriptsize 118\hspace{1em}}\@s{16.4} \.{\land} requests
+ \@x{\makebox[0pt][r]{\scriptsize 124\hspace{1em}}\@s{16.4} \.{\land} requests
  \.{=} 0 \.{\land} changes \.{=} 0 \.{\land} session \.{=} 0}%
- \@x{\makebox[0pt][r]{\scriptsize 119\hspace{1em}}\@s{16.4} \.{\land} visible
+ \@x{\makebox[0pt][r]{\scriptsize 125\hspace{1em}}\@s{16.4} \.{\land} visible
  \.{=} [ known \.{\mapsto} {\FALSE} ,\, failures \.{\mapsto} Empty ]}%
- \@x{\makebox[0pt][r]{\scriptsize 120\hspace{1em}}\@s{16.4} \.{\land}
+ \@x{\makebox[0pt][r]{\scriptsize 126\hspace{1em}}\@s{16.4} \.{\land}
  contextPending \.{=} {\FALSE} \.{\land} contextSent \.{=} {\FALSE} \.{\land}
  correctionQueued \.{=} {\FALSE}}%
- \@x{\makebox[0pt][r]{\scriptsize 121\hspace{1em}}\@s{16.4} \.{\land} contexts
+ \@x{\makebox[0pt][r]{\scriptsize 127\hspace{1em}}\@s{16.4} \.{\land} contexts
  \.{=} 0 \.{\land} warnings \.{=} 0 \.{\land} corrections\@s{12.71} \.{=} 0
  \.{\land} wakes \.{=} 0 \.{\land} work \.{=} 0 \.{\land} inTurn\@s{0.76}
  \.{\in} {\BOOLEAN}}%
- \@x{\makebox[0pt][r]{\scriptsize 122\hspace{1em}}\@s{16.4} \.{\land}
+ \@x{\makebox[0pt][r]{\scriptsize 128\hspace{1em}}\@s{16.4} \.{\land}
  correctionPending \.{=} {\FALSE} \.{\land} correctionTurn \.{=} {\FALSE}
  \.{\land} outside \.{=} {\FALSE} \.{\land} outsides \.{=} 0}%
+ \@x{\makebox[0pt][r]{\scriptsize 129\hspace{1em}}\@s{16.4} \.{\land}
+ noticePending \.{=} {\FALSE} \.{\land} noticesRaised \.{=} 0 \.{\land}
+ noticesTold \.{=} 0}%
 \@pvspace{8.0pt}%
 \begin{lcom}{0}%
 \begin{cpar}{0}{T}{F}{7.5}{0}{}%
@@ -1207,105 +1224,106 @@ Inspection and repair remain answerable during checks. Protected requests
  corrections, and wakeups; \ensuremath{Acknowledge} releases the request slot.
 \end{cpar}%
 \end{lcom}%
-\@x{\makebox[0pt][r]{\scriptsize 131\hspace{1em}} Request ( k ) \.{\defeq}}%
- \@x{\makebox[0pt][r]{\scriptsize 132\hspace{1em}}\@s{16.4} \.{\land}\@s{6.28}
+\@x{\makebox[0pt][r]{\scriptsize 138\hspace{1em}} Request ( k ) \.{\defeq}}%
+ \@x{\makebox[0pt][r]{\scriptsize 139\hspace{1em}}\@s{16.4} \.{\land}\@s{6.28}
  active \.{\land} request \.{=}\@w{none} \.{\land} requests \.{<}
  MaxRequests}%
- \@x{\makebox[0pt][r]{\scriptsize 133\hspace{1em}}\@s{16.4} \.{\land}\@s{6.28}
+ \@x{\makebox[0pt][r]{\scriptsize 140\hspace{1em}}\@s{16.4} \.{\land}\@s{6.28}
  request \.{'} \.{=} k \.{\land} reply \.{'} \.{=} NoReply \.{\land} requests
  \.{'} \.{=} requests \.{+} 1}%
- \@x{\makebox[0pt][r]{\scriptsize 134\hspace{1em}}\@s{16.4} \.{\land}\@s{6.28}
+ \@x{\makebox[0pt][r]{\scriptsize 141\hspace{1em}}\@s{16.4} \.{\land}\@s{6.28}
  {\UNCHANGED} {\langle} host ,\, active ,\, busy ,\, reports ,\, baseline ,\,
  inherited ,\, selected ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 135\hspace{1em}}\@s{96.27} changes ,\,
+ \@x{\makebox[0pt][r]{\scriptsize 142\hspace{1em}}\@s{96.27} changes ,\,
  session ,\, visible ,\, contextPending ,\, contextSent ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 136\hspace{1em}}\@s{96.27} correctionQueued
+ \@x{\makebox[0pt][r]{\scriptsize 143\hspace{1em}}\@s{96.27} correctionQueued
  ,\, contexts ,\, warnings ,\, corrections ,\, inTurn ,\, wakes ,\, work ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 137\hspace{1em}}\@s{96.27} correctionPending
- ,\, correctionTurn ,\, outside ,\, outsides {\rangle}}%
+ \@x{\makebox[0pt][r]{\scriptsize 144\hspace{1em}}\@s{96.27} correctionPending
+ ,\, correctionTurn ,\, outside ,\, outsides ,\, noticeVars {\rangle}}%
 \@pvspace{8.0pt}%
-\@x{\makebox[0pt][r]{\scriptsize 139\hspace{1em}} CanRespond \.{\defeq}}%
- \@x{\makebox[0pt][r]{\scriptsize 140\hspace{1em}}\@s{16.4} active \.{\land}
+\@x{\makebox[0pt][r]{\scriptsize 146\hspace{1em}} CanRespond \.{\defeq}}%
+ \@x{\makebox[0pt][r]{\scriptsize 147\hspace{1em}}\@s{16.4} active \.{\land}
  request \.{\neq}\@w{none} \.{\land} {\lnot} reply . ready \.{\land}}%
- \@x{\makebox[0pt][r]{\scriptsize 141\hspace{1em}}\@s{16.4} ( request \.{\in}
+ \@x{\makebox[0pt][r]{\scriptsize 148\hspace{1em}}\@s{16.4} ( request \.{\in}
  \{\@w{inspect} ,\,\@w{repair} \}\@s{17.78} \.{\lor} {\lnot} Capabilities (
  host ) . agent \.{\lor}}%
- \@x{\makebox[0pt][r]{\scriptsize 142\hspace{1em}}\@s{20.28} {\lnot}
+ \@x{\makebox[0pt][r]{\scriptsize 149\hspace{1em}}\@s{20.28} {\lnot}
  Capabilities ( host ) . waitsForCheck \.{\lor} {\lnot} busy )}%
 \@pvspace{8.0pt}%
-\@x{\makebox[0pt][r]{\scriptsize 144\hspace{1em}} Decision \.{\defeq}}%
- \@x{\makebox[0pt][r]{\scriptsize 145\hspace{1em}}\@s{16.4} {\CASE} request
+\@x{\makebox[0pt][r]{\scriptsize 151\hspace{1em}} Decision \.{\defeq}}%
+ \@x{\makebox[0pt][r]{\scriptsize 152\hspace{1em}}\@s{16.4} {\CASE} request
  \.{\in} \{\@w{inspect} ,\,\@w{repair} \} \.{\rightarrow}\@w{allow}}%
- \@x{\makebox[0pt][r]{\scriptsize 146\hspace{1em}}\@s{24.59} {\Box}\@s{10.30}
+ \@x{\makebox[0pt][r]{\scriptsize 153\hspace{1em}}\@s{24.59} {\Box}\@s{10.30}
  request \.{=}\@w{publish} \.{\rightarrow}}%
- \@x{\makebox[0pt][r]{\scriptsize 147\hspace{1em}}\@s{50.57} {\IF}
+ \@x{\makebox[0pt][r]{\scriptsize 154\hspace{1em}}\@s{50.57} {\IF}
  Capabilities ( host ) . agent \.{\land} Guarded ( SelectedChecks ) \.{\neq}
  \{ \}}%
- \@x{\makebox[0pt][r]{\scriptsize 148\hspace{1em}}\@s{50.57}
+ \@x{\makebox[0pt][r]{\scriptsize 155\hspace{1em}}\@s{50.57}
  \.{\THEN}\@w{deny} \.{\ELSE}\@w{allow}}%
- \@x{\makebox[0pt][r]{\scriptsize 149\hspace{1em}}\@s{24.59} {\Box}\@s{10.30}
+ \@x{\makebox[0pt][r]{\scriptsize 156\hspace{1em}}\@s{24.59} {\Box}\@s{10.30}
  request \.{=}\@w{complete} \.{\rightarrow} {\IF} Guard \.{\THEN}
  Capabilities ( host ) . completion \.{\ELSE}\@w{allow}}%
 \@pvspace{8.0pt}%
- \@x{\makebox[0pt][r]{\scriptsize 151\hspace{1em}} QueuesCorrection \.{\defeq}
+ \@x{\makebox[0pt][r]{\scriptsize 158\hspace{1em}} QueuesCorrection \.{\defeq}
  Decision \.{=}\@w{queue} \.{\lor} ( host \.{=}\@w{claude} \.{\land} Decision
  \.{=}\@w{block} )}%
- \@x{\makebox[0pt][r]{\scriptsize 152\hspace{1em}} EndsTurn \.{\defeq} request
+ \@x{\makebox[0pt][r]{\scriptsize 159\hspace{1em}} EndsTurn \.{\defeq} request
  \.{=}\@w{complete} \.{\land} ( Decision \.{\in} \{\@w{allow} ,\,\@w{warn}
  ,\,\@w{queue} \} \.{\lor} host \.{=}\@w{claude} )}%
 \@pvspace{8.0pt}%
-\@x{\makebox[0pt][r]{\scriptsize 154\hspace{1em}} Respond \.{\defeq}}%
- \@x{\makebox[0pt][r]{\scriptsize 155\hspace{1em}}\@s{16.4} \.{\land}
+\@x{\makebox[0pt][r]{\scriptsize 161\hspace{1em}} Respond \.{\defeq}}%
+ \@x{\makebox[0pt][r]{\scriptsize 162\hspace{1em}}\@s{16.4} \.{\land}
  CanRespond}%
- \@x{\makebox[0pt][r]{\scriptsize 156\hspace{1em}}\@s{16.4} \.{\land} inTurn
+ \@x{\makebox[0pt][r]{\scriptsize 163\hspace{1em}}\@s{16.4} \.{\land} inTurn
  \.{'} \.{=} {\IF} EndsTurn \.{\THEN} {\FALSE} \.{\ELSE} inTurn}%
- \@x{\makebox[0pt][r]{\scriptsize 157\hspace{1em}}\@s{16.4} \.{\land}
+ \@x{\makebox[0pt][r]{\scriptsize 164\hspace{1em}}\@s{16.4} \.{\land}
  correctionTurn \.{'} \.{=} {\IF} EndsTurn \.{\THEN} {\FALSE} \.{\ELSE}
  correctionTurn}%
- \@x{\makebox[0pt][r]{\scriptsize 158\hspace{1em}}\@s{16.4} \.{\land}
+ \@x{\makebox[0pt][r]{\scriptsize 165\hspace{1em}}\@s{16.4} \.{\land}
  correctionPending \.{'} \.{=} ( correctionPending \.{\lor} (
  QueuesCorrection \.{\land} {\lnot} correctionQueued ) )}%
- \@x{\makebox[0pt][r]{\scriptsize 159\hspace{1em}}\@s{16.4} \.{\land} reply
+ \@x{\makebox[0pt][r]{\scriptsize 166\hspace{1em}}\@s{16.4} \.{\land} reply
  \.{'} \.{=} [ ready \.{\mapsto} {\TRUE} ,\, decision \.{\mapsto} Decision ]}%
- \@x{\makebox[0pt][r]{\scriptsize 160\hspace{1em}}\@s{16.4} \.{\land} warnings
+ \@x{\makebox[0pt][r]{\scriptsize 167\hspace{1em}}\@s{16.4} \.{\land} warnings
  \.{'} \.{=} warnings \.{+} {\IF} Decision \.{=}\@w{warn} \.{\THEN} 1
  \.{\ELSE} 0}%
- \@x{\makebox[0pt][r]{\scriptsize 161\hspace{1em}}\@s{16.4} \.{\land}
+ \@x{\makebox[0pt][r]{\scriptsize 168\hspace{1em}}\@s{16.4} \.{\land}
  corrections \.{'} \.{=} corrections \.{+} {\IF} QueuesCorrection \.{\land}
  {\lnot} correctionQueued \.{\THEN} 1 \.{\ELSE} 0}%
- \@x{\makebox[0pt][r]{\scriptsize 162\hspace{1em}}\@s{16.4} \.{\land}
+ \@x{\makebox[0pt][r]{\scriptsize 169\hspace{1em}}\@s{16.4} \.{\land}
  correctionQueued \.{'} \.{=} ( correctionQueued \.{\lor} QueuesCorrection )}%
- \@x{\makebox[0pt][r]{\scriptsize 163\hspace{1em}}\@s{16.4} \.{\land} wakes
+ \@x{\makebox[0pt][r]{\scriptsize 170\hspace{1em}}\@s{16.4} \.{\land} wakes
  \.{'} \.{=} wakes \.{+} {\IF} QueuesCorrection \.{\land} {\lnot}
  correctionQueued \.{\land}}%
- \@x{\makebox[0pt][r]{\scriptsize 164\hspace{1em}}\@s{123.85} ( host
+ \@x{\makebox[0pt][r]{\scriptsize 171\hspace{1em}}\@s{123.85} ( host
  \.{=}\@w{opencode2} \.{\lor} {\lnot} inTurn )}%
- \@x{\makebox[0pt][r]{\scriptsize 165\hspace{1em}}\@s{111.70} \.{\THEN} 1
+ \@x{\makebox[0pt][r]{\scriptsize 172\hspace{1em}}\@s{111.70} \.{\THEN} 1
  \.{\ELSE} 0}%
- \@x{\makebox[0pt][r]{\scriptsize 166\hspace{1em}}\@s{16.4} \.{\land}
- {\UNCHANGED} {\langle} host ,\, active ,\, busy ,\, reports ,\, baseline ,\,
- inherited ,\, selected ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 167\hspace{1em}}\@s{89.98} request ,\,
- requests ,\, changes ,\, session ,\, visible ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 168\hspace{1em}}\@s{89.98} contextPending
- ,\, contextSent ,\, contexts ,\, work ,\, outside ,\, outsides {\rangle}}%
-\@pvspace{8.0pt}%
-\@x{\makebox[0pt][r]{\scriptsize 170\hspace{1em}} Acknowledge \.{\defeq}}%
- \@x{\makebox[0pt][r]{\scriptsize 171\hspace{1em}}\@s{16.4} \.{\land} request
- \.{\neq}\@w{none} \.{\land} reply . ready}%
- \@x{\makebox[0pt][r]{\scriptsize 172\hspace{1em}}\@s{16.4} \.{\land} request
- \.{'} \.{=}\@w{none}}%
  \@x{\makebox[0pt][r]{\scriptsize 173\hspace{1em}}\@s{16.4} \.{\land}
  {\UNCHANGED} {\langle} host ,\, active ,\, busy ,\, reports ,\, baseline ,\,
  inherited ,\, selected ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 174\hspace{1em}}\@s{89.98} reply ,\,
+ \@x{\makebox[0pt][r]{\scriptsize 174\hspace{1em}}\@s{89.98} request ,\,
  requests ,\, changes ,\, session ,\, visible ,\,}%
  \@x{\makebox[0pt][r]{\scriptsize 175\hspace{1em}}\@s{89.98} contextPending
+ ,\, contextSent ,\, contexts ,\, work ,\, outside ,\, outsides ,\,
+ noticeVars {\rangle}}%
+\@pvspace{8.0pt}%
+\@x{\makebox[0pt][r]{\scriptsize 177\hspace{1em}} Acknowledge \.{\defeq}}%
+ \@x{\makebox[0pt][r]{\scriptsize 178\hspace{1em}}\@s{16.4} \.{\land} request
+ \.{\neq}\@w{none} \.{\land} reply . ready}%
+ \@x{\makebox[0pt][r]{\scriptsize 179\hspace{1em}}\@s{16.4} \.{\land} request
+ \.{'} \.{=}\@w{none}}%
+ \@x{\makebox[0pt][r]{\scriptsize 180\hspace{1em}}\@s{16.4} \.{\land}
+ {\UNCHANGED} {\langle} host ,\, active ,\, busy ,\, reports ,\, baseline ,\,
+ inherited ,\, selected ,\,}%
+ \@x{\makebox[0pt][r]{\scriptsize 181\hspace{1em}}\@s{89.98} reply ,\,
+ requests ,\, changes ,\, session ,\, visible ,\,}%
+ \@x{\makebox[0pt][r]{\scriptsize 182\hspace{1em}}\@s{89.98} contextPending
  ,\, contextSent ,\, correctionQueued ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 176\hspace{1em}}\@s{89.98} contexts ,\,
+ \@x{\makebox[0pt][r]{\scriptsize 183\hspace{1em}}\@s{89.98} contexts ,\,
  warnings ,\, corrections ,\, inTurn ,\, wakes ,\, work ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 177\hspace{1em}}\@s{89.98} correctionPending
- ,\, correctionTurn ,\, outside ,\, outsides {\rangle}}%
+ \@x{\makebox[0pt][r]{\scriptsize 184\hspace{1em}}\@s{89.98} correctionPending
+ ,\, correctionTurn ,\, outside ,\, outsides ,\, noticeVars {\rangle}}%
 \@pvspace{8.0pt}%
 \begin{lcom}{0}%
 \begin{cpar}{0}{T}{F}{7.5}{0}{}%
@@ -1319,22 +1337,22 @@ A completed check replaces the reports. Changed findings invalidate old
  clears stale context.
 \end{cpar}%
 \end{lcom}%
-\@x{\makebox[0pt][r]{\scriptsize 185\hspace{1em}} BeginCheck \.{\defeq}}%
- \@x{\makebox[0pt][r]{\scriptsize 186\hspace{1em}}\@s{16.4} \.{\land} active
+\@x{\makebox[0pt][r]{\scriptsize 192\hspace{1em}} BeginCheck \.{\defeq}}%
+ \@x{\makebox[0pt][r]{\scriptsize 193\hspace{1em}}\@s{16.4} \.{\land} active
  \.{\land} {\lnot} busy \.{\land} changes \.{<} MaxChanges}%
- \@x{\makebox[0pt][r]{\scriptsize 187\hspace{1em}}\@s{16.4} \.{\land} busy
+ \@x{\makebox[0pt][r]{\scriptsize 194\hspace{1em}}\@s{16.4} \.{\land} busy
  \.{'} \.{=} {\TRUE}}%
- \@x{\makebox[0pt][r]{\scriptsize 188\hspace{1em}}\@s{16.4} \.{\land}
+ \@x{\makebox[0pt][r]{\scriptsize 195\hspace{1em}}\@s{16.4} \.{\land}
  {\UNCHANGED} {\langle} host ,\, active ,\, reports ,\, baseline ,\,
  inherited ,\, selected ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 189\hspace{1em}}\@s{89.98} request ,\, reply
+ \@x{\makebox[0pt][r]{\scriptsize 196\hspace{1em}}\@s{89.98} request ,\, reply
  ,\, requests ,\, changes ,\, session ,\, visible ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 190\hspace{1em}}\@s{89.98} contextPending
+ \@x{\makebox[0pt][r]{\scriptsize 197\hspace{1em}}\@s{89.98} contextPending
  ,\, contextSent ,\, correctionQueued ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 191\hspace{1em}}\@s{89.98} contexts ,\,
+ \@x{\makebox[0pt][r]{\scriptsize 198\hspace{1em}}\@s{89.98} contexts ,\,
  warnings ,\, corrections ,\, inTurn ,\, wakes ,\, work ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 192\hspace{1em}}\@s{89.98} correctionPending
- ,\, correctionTurn ,\, outside ,\, outsides {\rangle}}%
+ \@x{\makebox[0pt][r]{\scriptsize 199\hspace{1em}}\@s{89.98} correctionPending
+ ,\, correctionTurn ,\, outside ,\, outsides ,\, noticeVars {\rangle}}%
 \@pvspace{8.0pt}%
 \begin{lcom}{7.5}%
 \begin{cpar}{0}{F}{F}{0}{0}{}%
@@ -1344,31 +1362,31 @@ A completed check replaces the reports. Changed findings invalidate old
  what every host must expose and which requests it may hold behind a check.
 \end{cpar}%
 \end{lcom}%
- \@x{\makebox[0pt][r]{\scriptsize 197\hspace{1em}} FinishCheck ( f )
+ \@x{\makebox[0pt][r]{\scriptsize 204\hspace{1em}} FinishCheck ( f )
  \.{\defeq}}%
- \@x{\makebox[0pt][r]{\scriptsize 198\hspace{1em}}\@s{16.4} \.{\land} active
+ \@x{\makebox[0pt][r]{\scriptsize 205\hspace{1em}}\@s{16.4} \.{\land} active
  \.{\land} busy \.{\land} changes \.{<} MaxChanges}%
- \@x{\makebox[0pt][r]{\scriptsize 199\hspace{1em}}\@s{16.4} \.{\land} reports
+ \@x{\makebox[0pt][r]{\scriptsize 206\hspace{1em}}\@s{16.4} \.{\land} reports
  \.{'} \.{=} f \.{\land} busy \.{'} \.{=} {\FALSE} \.{\land} changes \.{'}
  \.{=} changes \.{+} 1 \.{\land} outside \.{'} \.{=} {\FALSE}}%
- \@x{\makebox[0pt][r]{\scriptsize 200\hspace{1em}}\@s{16.4} \.{\land} {\IF} f
+ \@x{\makebox[0pt][r]{\scriptsize 207\hspace{1em}}\@s{16.4} \.{\land} {\IF} f
  \.{\neq} reports}%
- \@x{\makebox[0pt][r]{\scriptsize 201\hspace{1em}}\@s{35.71} \.{\THEN}
+ \@x{\makebox[0pt][r]{\scriptsize 208\hspace{1em}}\@s{35.71} \.{\THEN}
  \.{\land} contextSent \.{'} \.{=} {\FALSE} \.{\land} correctionQueued \.{'}
  \.{=} {\FALSE}}%
- \@x{\makebox[0pt][r]{\scriptsize 202\hspace{1em}}\@s{67.02} \.{\land}
+ \@x{\makebox[0pt][r]{\scriptsize 209\hspace{1em}}\@s{67.02} \.{\land}
  contextPending \.{'} \.{=} {\FALSE}}%
- \@x{\makebox[0pt][r]{\scriptsize 203\hspace{1em}}\@s{35.71} \.{\ELSE}
+ \@x{\makebox[0pt][r]{\scriptsize 210\hspace{1em}}\@s{35.71} \.{\ELSE}
  {\UNCHANGED} {\langle} contextSent ,\, correctionQueued ,\, contextPending
  {\rangle}}%
- \@x{\makebox[0pt][r]{\scriptsize 204\hspace{1em}}\@s{16.4} \.{\land}
+ \@x{\makebox[0pt][r]{\scriptsize 211\hspace{1em}}\@s{16.4} \.{\land}
  {\UNCHANGED} {\langle} host ,\, active ,\, baseline ,\, inherited ,\,
  selected ,\, request ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 205\hspace{1em}}\@s{89.98} reply ,\,
+ \@x{\makebox[0pt][r]{\scriptsize 212\hspace{1em}}\@s{89.98} reply ,\,
  requests ,\, session ,\, visible ,\, contexts ,\, warnings ,\, corrections
  ,\, inTurn ,\, wakes ,\, work ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 206\hspace{1em}}\@s{89.98} correctionPending
- ,\, correctionTurn ,\, outsides {\rangle}}%
+ \@x{\makebox[0pt][r]{\scriptsize 213\hspace{1em}}\@s{89.98} correctionPending
+ ,\, correctionTurn ,\, outsides ,\, noticeVars {\rangle}}%
 \@pvspace{8.0pt}%
 \begin{lcom}{7.5}%
 \begin{cpar}{0}{F}{F}{0}{0}{}%
@@ -1380,72 +1398,72 @@ A check that finishes on another process\mbox{'}s change, with no session edit
  waiting for the old reports is dropped, as a newer result replaces it.
 \end{cpar}%
 \end{lcom}%
- \@x{\makebox[0pt][r]{\scriptsize 213\hspace{1em}} OutsideFinish ( f )
+ \@x{\makebox[0pt][r]{\scriptsize 220\hspace{1em}} OutsideFinish ( f )
  \.{\defeq}}%
- \@x{\makebox[0pt][r]{\scriptsize 214\hspace{1em}}\@s{16.4} \.{\land} active
+ \@x{\makebox[0pt][r]{\scriptsize 221\hspace{1em}}\@s{16.4} \.{\land} active
  \.{\land} busy \.{\land} outsides \.{<} MaxChanges \.{\land} Capabilities (
  host ) . noticesOutside}%
- \@x{\makebox[0pt][r]{\scriptsize 215\hspace{1em}}\@s{16.4} \.{\land} reports
+ \@x{\makebox[0pt][r]{\scriptsize 222\hspace{1em}}\@s{16.4} \.{\land} reports
  \.{'} \.{=} f \.{\land} busy \.{'} \.{=} {\FALSE} \.{\land} outside \.{'}
  \.{=} {\TRUE} \.{\land} outsides \.{'} \.{=} outsides \.{+} 1}%
- \@x{\makebox[0pt][r]{\scriptsize 216\hspace{1em}}\@s{16.4} \.{\land}
+ \@x{\makebox[0pt][r]{\scriptsize 223\hspace{1em}}\@s{16.4} \.{\land}
  contextPending \.{'} \.{=} ( contextPending \.{\land} f \.{=} reports )}%
- \@x{\makebox[0pt][r]{\scriptsize 217\hspace{1em}}\@s{16.4} \.{\land}
+ \@x{\makebox[0pt][r]{\scriptsize 224\hspace{1em}}\@s{16.4} \.{\land}
  {\UNCHANGED} {\langle} host ,\, active ,\, baseline ,\, inherited ,\,
  selected ,\, request ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 218\hspace{1em}}\@s{89.98} reply ,\,
+ \@x{\makebox[0pt][r]{\scriptsize 225\hspace{1em}}\@s{89.98} reply ,\,
  requests ,\, changes ,\, session ,\, visible ,\, contextSent ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 219\hspace{1em}}\@s{89.98} correctionQueued
+ \@x{\makebox[0pt][r]{\scriptsize 226\hspace{1em}}\@s{89.98} correctionQueued
  ,\, contexts ,\, warnings ,\, corrections ,\, inTurn ,\, wakes ,\, work ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 220\hspace{1em}}\@s{89.98} correctionPending
- ,\, correctionTurn {\rangle}}%
+ \@x{\makebox[0pt][r]{\scriptsize 227\hspace{1em}}\@s{89.98} correctionPending
+ ,\, correctionTurn ,\, noticeVars {\rangle}}%
 \@pvspace{8.0pt}%
- \@x{\makebox[0pt][r]{\scriptsize 222\hspace{1em}} Told \.{\defeq} Notify
+ \@x{\makebox[0pt][r]{\scriptsize 229\hspace{1em}} Told \.{\defeq} Notify
  \.{\land} {\lnot} outside}%
-\@x{\makebox[0pt][r]{\scriptsize 223\hspace{1em}} Report \.{\defeq}}%
- \@x{\makebox[0pt][r]{\scriptsize 224\hspace{1em}}\@s{16.4} \.{\land}\@s{2.07}
+\@x{\makebox[0pt][r]{\scriptsize 230\hspace{1em}} Report \.{\defeq}}%
+ \@x{\makebox[0pt][r]{\scriptsize 231\hspace{1em}}\@s{16.4} \.{\land}\@s{2.07}
  active \.{\land} {\lnot} busy}%
- \@x{\makebox[0pt][r]{\scriptsize 225\hspace{1em}}\@s{16.4} \.{\land}\@s{2.07}
+ \@x{\makebox[0pt][r]{\scriptsize 232\hspace{1em}}\@s{16.4} \.{\land}\@s{2.07}
  visible \.{'} \.{=} [ known \.{\mapsto} {\TRUE} ,\, failures \.{\mapsto}
  reports ]}%
- \@x{\makebox[0pt][r]{\scriptsize 226\hspace{1em}}\@s{16.4} \.{\land}\@s{2.07}
+ \@x{\makebox[0pt][r]{\scriptsize 233\hspace{1em}}\@s{16.4} \.{\land}\@s{2.07}
  contextPending \.{'} \.{=} ( Told \.{\land} {\lnot} contextSent \.{\land}
  Capabilities ( host ) . delivery \.{\in} \{\@w{turn} ,\,\@w{context} \} )}%
- \@x{\makebox[0pt][r]{\scriptsize 227\hspace{1em}}\@s{16.4} \.{\land}\@s{2.07}
+ \@x{\makebox[0pt][r]{\scriptsize 234\hspace{1em}}\@s{16.4} \.{\land}\@s{2.07}
  contextSent \.{'} \.{=} ( contextSent \.{\lor} ( Told \.{\land} Capabilities
  ( host ) . delivery \.{=}\@w{event} ) )}%
- \@x{\makebox[0pt][r]{\scriptsize 228\hspace{1em}}\@s{16.4} \.{\land}\@s{2.07}
+ \@x{\makebox[0pt][r]{\scriptsize 235\hspace{1em}}\@s{16.4} \.{\land}\@s{2.07}
  contexts \.{'} \.{=} contexts \.{+} {\IF} Told \.{\land} {\lnot} contextSent
  \.{\land} Capabilities ( host ) . delivery \.{=}\@w{event} \.{\THEN} 1
  \.{\ELSE} 0}%
- \@x{\makebox[0pt][r]{\scriptsize 229\hspace{1em}}\@s{16.4} \.{\land}\@s{2.07}
+ \@x{\makebox[0pt][r]{\scriptsize 236\hspace{1em}}\@s{16.4} \.{\land}\@s{2.07}
  {\UNCHANGED} {\langle} host ,\, active ,\, busy ,\, reports ,\, baseline ,\,
  inherited ,\, selected ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 230\hspace{1em}}\@s{92.05} request ,\, reply
+ \@x{\makebox[0pt][r]{\scriptsize 237\hspace{1em}}\@s{92.05} request ,\, reply
  ,\, requests ,\, changes ,\, session ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 231\hspace{1em}}\@s{92.05} correctionQueued
+ \@x{\makebox[0pt][r]{\scriptsize 238\hspace{1em}}\@s{92.05} correctionQueued
  ,\, warnings ,\, corrections ,\, inTurn ,\, wakes ,\, work ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 232\hspace{1em}}\@s{92.05} correctionPending
- ,\, correctionTurn ,\, outside ,\, outsides {\rangle}}%
+ \@x{\makebox[0pt][r]{\scriptsize 239\hspace{1em}}\@s{92.05} correctionPending
+ ,\, correctionTurn ,\, outside ,\, outsides ,\, noticeVars {\rangle}}%
 \@pvspace{8.0pt}%
-\@x{\makebox[0pt][r]{\scriptsize 234\hspace{1em}} Deliver \.{\defeq}}%
- \@x{\makebox[0pt][r]{\scriptsize 235\hspace{1em}}\@s{16.4} \.{\land} active
+\@x{\makebox[0pt][r]{\scriptsize 241\hspace{1em}} Deliver \.{\defeq}}%
+ \@x{\makebox[0pt][r]{\scriptsize 242\hspace{1em}}\@s{16.4} \.{\land} active
  \.{\land} contextPending}%
- \@x{\makebox[0pt][r]{\scriptsize 236\hspace{1em}}\@s{16.4} \.{\land} wakes
+ \@x{\makebox[0pt][r]{\scriptsize 243\hspace{1em}}\@s{16.4} \.{\land} wakes
  \.{'} \.{=} wakes \.{+} {\IF} host \.{=}\@w{claude} \.{\land} {\lnot} inTurn
  \.{\THEN} 1 \.{\ELSE} 0}%
- \@x{\makebox[0pt][r]{\scriptsize 237\hspace{1em}}\@s{16.4} \.{\land}
+ \@x{\makebox[0pt][r]{\scriptsize 244\hspace{1em}}\@s{16.4} \.{\land}
  contextSent \.{'} \.{=} {\TRUE} \.{\land} contextPending \.{'} \.{=}
  {\FALSE} \.{\land} contexts \.{'} \.{=} contexts \.{+} 1}%
- \@x{\makebox[0pt][r]{\scriptsize 238\hspace{1em}}\@s{16.4} \.{\land}
+ \@x{\makebox[0pt][r]{\scriptsize 245\hspace{1em}}\@s{16.4} \.{\land}
  {\UNCHANGED} {\langle} host ,\, active ,\, busy ,\, reports ,\, baseline ,\,
  inherited ,\, selected ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 239\hspace{1em}}\@s{89.98} request ,\, reply
+ \@x{\makebox[0pt][r]{\scriptsize 246\hspace{1em}}\@s{89.98} request ,\, reply
  ,\, requests ,\, changes ,\, session ,\, visible ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 240\hspace{1em}}\@s{89.98} correctionQueued
+ \@x{\makebox[0pt][r]{\scriptsize 247\hspace{1em}}\@s{89.98} correctionQueued
  ,\, warnings ,\, corrections ,\, inTurn ,\, work ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 241\hspace{1em}}\@s{89.98} correctionPending
- ,\, correctionTurn ,\, outside ,\, outsides {\rangle}}%
+ \@x{\makebox[0pt][r]{\scriptsize 248\hspace{1em}}\@s{89.98} correctionPending
+ ,\, correctionTurn ,\, outside ,\, outsides ,\, noticeVars {\rangle}}%
 \@pvspace{8.0pt}%
 \begin{lcom}{0}%
 \begin{cpar}{0}{T}{F}{7.5}{0}{}%
@@ -1463,113 +1481,175 @@ Stop cancels an outstanding request and clears visible and pending delivery.
  own turn, where inspecting and repairing are its answer.
 \end{cpar}%
 \end{lcom}%
-\@x{\makebox[0pt][r]{\scriptsize 252\hspace{1em}} Stop \.{\defeq}}%
-\@x{\makebox[0pt][r]{\scriptsize 253\hspace{1em}}\@s{16.4} \.{\land} active}%
- \@x{\makebox[0pt][r]{\scriptsize 254\hspace{1em}}\@s{16.4} \.{\land} inTurn
+\@x{\makebox[0pt][r]{\scriptsize 259\hspace{1em}} Stop \.{\defeq}}%
+\@x{\makebox[0pt][r]{\scriptsize 260\hspace{1em}}\@s{16.4} \.{\land} active}%
+ \@x{\makebox[0pt][r]{\scriptsize 261\hspace{1em}}\@s{16.4} \.{\land} inTurn
  \.{'} \.{=} {\FALSE}}%
- \@x{\makebox[0pt][r]{\scriptsize 255\hspace{1em}}\@s{16.4} \.{\land}
+ \@x{\makebox[0pt][r]{\scriptsize 262\hspace{1em}}\@s{16.4} \.{\land}
  correctionPending \.{'} \.{=} {\FALSE} \.{\land} correctionTurn \.{'} \.{=}
  {\FALSE}}%
- \@x{\makebox[0pt][r]{\scriptsize 256\hspace{1em}}\@s{16.4} \.{\land} active
+ \@x{\makebox[0pt][r]{\scriptsize 263\hspace{1em}}\@s{16.4} \.{\land} active
  \.{'} \.{=} {\FALSE} \.{\land} busy \.{'} \.{=} {\FALSE} \.{\land} request
  \.{'} \.{=}\@w{none}}%
- \@x{\makebox[0pt][r]{\scriptsize 257\hspace{1em}}\@s{16.4} \.{\land} reply
+ \@x{\makebox[0pt][r]{\scriptsize 264\hspace{1em}}\@s{16.4} \.{\land} reply
  \.{'} \.{=} [ ready \.{\mapsto} {\TRUE} ,\, decision
  \.{\mapsto}\@w{cancelled} ]}%
- \@x{\makebox[0pt][r]{\scriptsize 258\hspace{1em}}\@s{16.4} \.{\land} visible
+ \@x{\makebox[0pt][r]{\scriptsize 265\hspace{1em}}\@s{16.4} \.{\land} visible
  \.{'} \.{=} [ known \.{\mapsto} {\FALSE} ,\, failures \.{\mapsto} Empty ]}%
- \@x{\makebox[0pt][r]{\scriptsize 259\hspace{1em}}\@s{16.4} \.{\land}
- contextPending \.{'} \.{=} {\FALSE}}%
- \@x{\makebox[0pt][r]{\scriptsize 260\hspace{1em}}\@s{16.4} \.{\land}
+ \@x{\makebox[0pt][r]{\scriptsize 266\hspace{1em}}\@s{16.4} \.{\land}
+ contextPending \.{'} \.{=} {\FALSE} \.{\land} noticePending \.{'} \.{=}
+ {\FALSE}}%
+ \@x{\makebox[0pt][r]{\scriptsize 267\hspace{1em}}\@s{16.4} \.{\land}
  {\UNCHANGED} {\langle} host ,\, reports ,\, baseline ,\, inherited ,\,
  selected ,\, requests ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 261\hspace{1em}}\@s{89.98} changes ,\,
+ \@x{\makebox[0pt][r]{\scriptsize 268\hspace{1em}}\@s{89.98} changes ,\,
  session ,\, contextSent ,\, correctionQueued ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 262\hspace{1em}}\@s{89.98} contexts ,\,
- warnings ,\, corrections ,\, wakes ,\, work ,\, outside ,\, outsides
- {\rangle}}%
+ \@x{\makebox[0pt][r]{\scriptsize 269\hspace{1em}}\@s{89.98} contexts ,\,
+ warnings ,\, corrections ,\, wakes ,\, work ,\, outside ,\, outsides ,\,
+ noticesRaised ,\, noticesTold {\rangle}}%
 \@pvspace{8.0pt}%
-\@x{\makebox[0pt][r]{\scriptsize 264\hspace{1em}} Restart \.{\defeq}}%
- \@x{\makebox[0pt][r]{\scriptsize 265\hspace{1em}}\@s{16.4} \.{\land} {\lnot}
+\@x{\makebox[0pt][r]{\scriptsize 271\hspace{1em}} Restart \.{\defeq}}%
+ \@x{\makebox[0pt][r]{\scriptsize 272\hspace{1em}}\@s{16.4} \.{\land} {\lnot}
  active \.{\land} session \.{<} MaxSessions}%
- \@x{\makebox[0pt][r]{\scriptsize 266\hspace{1em}}\@s{16.4} \.{\land} inTurn
+ \@x{\makebox[0pt][r]{\scriptsize 273\hspace{1em}}\@s{16.4} \.{\land} inTurn
  \.{'} \.{=} {\FALSE}}%
- \@x{\makebox[0pt][r]{\scriptsize 267\hspace{1em}}\@s{16.4} \.{\land}
+ \@x{\makebox[0pt][r]{\scriptsize 274\hspace{1em}}\@s{16.4} \.{\land}
  correctionPending \.{'} \.{=} {\FALSE} \.{\land} correctionTurn \.{'} \.{=}
  {\FALSE}}%
- \@x{\makebox[0pt][r]{\scriptsize 268\hspace{1em}}\@s{16.4} \.{\land} active
+ \@x{\makebox[0pt][r]{\scriptsize 275\hspace{1em}}\@s{16.4} \.{\land} active
  \.{'} \.{=} {\TRUE} \.{\land} session \.{'} \.{=} session \.{+} 1 \.{\land}
  busy \.{'} \.{=} {\FALSE}}%
- \@x{\makebox[0pt][r]{\scriptsize 269\hspace{1em}}\@s{16.4} \.{\land} baseline
+ \@x{\makebox[0pt][r]{\scriptsize 276\hspace{1em}}\@s{16.4} \.{\land} baseline
  \.{'} \.{=} reports}%
- \@x{\makebox[0pt][r]{\scriptsize 270\hspace{1em}}\@s{16.4} \.{\land} request
+ \@x{\makebox[0pt][r]{\scriptsize 277\hspace{1em}}\@s{16.4} \.{\land} request
  \.{'} \.{=}\@w{none} \.{\land} reply \.{'} \.{=} NoReply \.{\land} requests
  \.{'} \.{=} 0}%
- \@x{\makebox[0pt][r]{\scriptsize 271\hspace{1em}}\@s{16.4} \.{\land} visible
+ \@x{\makebox[0pt][r]{\scriptsize 278\hspace{1em}}\@s{16.4} \.{\land} visible
  \.{'}\@s{3.39} \.{=} [ known \.{\mapsto} {\FALSE} ,\, failures \.{\mapsto}
  Empty ]}%
- \@x{\makebox[0pt][r]{\scriptsize 272\hspace{1em}}\@s{16.4} \.{\land}
+ \@x{\makebox[0pt][r]{\scriptsize 279\hspace{1em}}\@s{16.4} \.{\land}
  contextPending \.{'} \.{=} {\FALSE} \.{\land} contextSent \.{'} \.{=}
  {\FALSE} \.{\land} correctionQueued \.{'} \.{=} {\FALSE} \.{\land} outside
  \.{'} \.{=} {\FALSE}}%
- \@x{\makebox[0pt][r]{\scriptsize 273\hspace{1em}}\@s{16.4} \.{\land}
+ \@x{\makebox[0pt][r]{\scriptsize 280\hspace{1em}}\@s{16.4} \.{\land}
  {\UNCHANGED} {\langle} host ,\, reports ,\, inherited ,\, selected ,\,
  changes ,\, contexts ,\, warnings ,\, corrections ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 274\hspace{1em}}\@s{89.98} wakes ,\, work
- ,\, outsides {\rangle}}%
+ \@x{\makebox[0pt][r]{\scriptsize 281\hspace{1em}}\@s{89.98} wakes ,\, work
+ ,\, outsides ,\, noticeVars {\rangle}}%
 \@pvspace{8.0pt}%
-\@x{\makebox[0pt][r]{\scriptsize 276\hspace{1em}} StartTurn \.{\defeq}}%
- \@x{\makebox[0pt][r]{\scriptsize 277\hspace{1em}}\@s{16.4} \.{\land} active
+\@x{\makebox[0pt][r]{\scriptsize 283\hspace{1em}} StartTurn \.{\defeq}}%
+ \@x{\makebox[0pt][r]{\scriptsize 284\hspace{1em}}\@s{16.4} \.{\land} active
  \.{\land} {\lnot} inTurn \.{\land} inTurn \.{'} \.{=} {\TRUE}}%
- \@x{\makebox[0pt][r]{\scriptsize 278\hspace{1em}}\@s{16.4} \.{\land} {\lnot}
+ \@x{\makebox[0pt][r]{\scriptsize 285\hspace{1em}}\@s{16.4} \.{\land} {\lnot}
  ( host \.{=}\@w{opencode2} \.{\land} correctionPending )}%
- \@x{\makebox[0pt][r]{\scriptsize 279\hspace{1em}}\@s{16.4} \.{\land}
+ \@x{\makebox[0pt][r]{\scriptsize 286\hspace{1em}}\@s{16.4} \.{\land}
  correctionTurn \.{'} \.{=} {\FALSE}}%
- \@x{\makebox[0pt][r]{\scriptsize 280\hspace{1em}}\@s{16.4} \.{\land}
+ \@x{\makebox[0pt][r]{\scriptsize 287\hspace{1em}}\@s{16.4} \.{\land}
  {\UNCHANGED} {\langle} host ,\, active ,\, busy ,\, reports ,\, baseline ,\,
  inherited ,\, selected ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 281\hspace{1em}}\@s{89.98} request ,\, reply
+ \@x{\makebox[0pt][r]{\scriptsize 288\hspace{1em}}\@s{89.98} request ,\, reply
  ,\, requests ,\, changes ,\, session ,\, visible ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 282\hspace{1em}}\@s{89.98} contextPending
+ \@x{\makebox[0pt][r]{\scriptsize 289\hspace{1em}}\@s{89.98} contextPending
  ,\, contextSent ,\, correctionQueued ,\, contexts ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 283\hspace{1em}}\@s{89.98} warnings ,\,
+ \@x{\makebox[0pt][r]{\scriptsize 290\hspace{1em}}\@s{89.98} warnings ,\,
  corrections ,\, wakes ,\, work ,\, correctionPending ,\, outside ,\,
- outsides {\rangle}}%
+ outsides ,\, noticeVars {\rangle}}%
 \@pvspace{8.0pt}%
- \@x{\makebox[0pt][r]{\scriptsize 285\hspace{1em}} StartCorrectionTurn
+ \@x{\makebox[0pt][r]{\scriptsize 292\hspace{1em}} StartCorrectionTurn
  \.{\defeq}}%
- \@x{\makebox[0pt][r]{\scriptsize 286\hspace{1em}}\@s{16.4} \.{\land} active
+ \@x{\makebox[0pt][r]{\scriptsize 293\hspace{1em}}\@s{16.4} \.{\land} active
  \.{\land} {\lnot} inTurn \.{\land} correctionPending}%
- \@x{\makebox[0pt][r]{\scriptsize 287\hspace{1em}}\@s{16.4} \.{\land} inTurn
+ \@x{\makebox[0pt][r]{\scriptsize 294\hspace{1em}}\@s{16.4} \.{\land} inTurn
  \.{'} \.{=} {\TRUE} \.{\land} correctionTurn \.{'} \.{=} {\TRUE} \.{\land}
  correctionPending \.{'} \.{=} {\FALSE}}%
- \@x{\makebox[0pt][r]{\scriptsize 288\hspace{1em}}\@s{16.4} \.{\land}
+ \@x{\makebox[0pt][r]{\scriptsize 295\hspace{1em}}\@s{16.4} \.{\land}
  {\UNCHANGED} {\langle} host ,\, active ,\, busy ,\, reports ,\, baseline ,\,
  inherited ,\, selected ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 289\hspace{1em}}\@s{89.98} request ,\, reply
+ \@x{\makebox[0pt][r]{\scriptsize 296\hspace{1em}}\@s{89.98} request ,\, reply
  ,\, requests ,\, changes ,\, session ,\, visible ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 290\hspace{1em}}\@s{89.98} contextPending
+ \@x{\makebox[0pt][r]{\scriptsize 297\hspace{1em}}\@s{89.98} contextPending
  ,\, contextSent ,\, correctionQueued ,\, contexts ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 291\hspace{1em}}\@s{89.98} warnings ,\,
- corrections ,\, wakes ,\, work ,\, outside ,\, outsides {\rangle}}%
+ \@x{\makebox[0pt][r]{\scriptsize 298\hspace{1em}}\@s{89.98} warnings ,\,
+ corrections ,\, wakes ,\, work ,\, outside ,\, outsides ,\, noticeVars
+ {\rangle}}%
 \@pvspace{8.0pt}%
-\@x{\makebox[0pt][r]{\scriptsize 293\hspace{1em}} WorkCompleted \.{\defeq}}%
- \@x{\makebox[0pt][r]{\scriptsize 294\hspace{1em}}\@s{16.4} \.{\land} active
+\@x{\makebox[0pt][r]{\scriptsize 300\hspace{1em}} WorkCompleted \.{\defeq}}%
+ \@x{\makebox[0pt][r]{\scriptsize 301\hspace{1em}}\@s{16.4} \.{\land} active
  \.{\land} work \.{<} ( MaxSessions \.{+} 1 ) \.{*} MaxRequests}%
- \@x{\makebox[0pt][r]{\scriptsize 295\hspace{1em}}\@s{16.4} \.{\land} work
+ \@x{\makebox[0pt][r]{\scriptsize 302\hspace{1em}}\@s{16.4} \.{\land} work
  \.{'} \.{=} work \.{+} {\IF} correctionTurn \.{\THEN} 0 \.{\ELSE} 1}%
- \@x{\makebox[0pt][r]{\scriptsize 296\hspace{1em}}\@s{16.4} \.{\land}
+ \@x{\makebox[0pt][r]{\scriptsize 303\hspace{1em}}\@s{16.4} \.{\land}
  correctionQueued \.{'} \.{=} ( correctionTurn \.{\land} correctionQueued )}%
- \@x{\makebox[0pt][r]{\scriptsize 297\hspace{1em}}\@s{16.4} \.{\land}
+ \@x{\makebox[0pt][r]{\scriptsize 304\hspace{1em}}\@s{16.4} \.{\land}
  {\UNCHANGED} {\langle} host ,\, active ,\, busy ,\, reports ,\, baseline ,\,
  inherited ,\, selected ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 298\hspace{1em}}\@s{89.98} request ,\, reply
+ \@x{\makebox[0pt][r]{\scriptsize 305\hspace{1em}}\@s{89.98} request ,\, reply
  ,\, requests ,\, changes ,\, session ,\, visible ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 299\hspace{1em}}\@s{89.98} contextPending
+ \@x{\makebox[0pt][r]{\scriptsize 306\hspace{1em}}\@s{89.98} contextPending
  ,\, contextSent ,\, contexts ,\, warnings ,\, corrections ,\, inTurn ,\,
  wakes ,\,}%
- \@x{\makebox[0pt][r]{\scriptsize 300\hspace{1em}}\@s{89.98} correctionPending
- ,\, correctionTurn ,\, outside ,\, outsides {\rangle}}%
+ \@x{\makebox[0pt][r]{\scriptsize 307\hspace{1em}}\@s{89.98} correctionPending
+ ,\, correctionTurn ,\, outside ,\, outsides ,\, noticeVars {\rangle}}%
+\@pvspace{8.0pt}%
+\begin{lcom}{0}%
+\begin{cpar}{0}{T}{F}{7.5}{0}{}%
+Section: Notices of a \ensuremath{TCR} revert
+\end{cpar}%
+\vshade{5.0}%
+\begin{cpar}{1}{F}{F}{0}{0}{}%
+ A host that runs \ensuremath{TCR} reverts an edit that adds a failure, and
+ the agent has to
+ be told why. A host that delivers by event appends the notice to the tool
+ result at once. \ensuremath{OpenCode} 2 queues it for the next model
+ request. A notice is
+ not a failure: a check that finds nothing guarded clears a queued failure,
+ never
+ a queued notice. Each notice is delivered at most once and only a shutdown
+ discards one that is still queued.
+\end{cpar}%
+\end{lcom}%
+\@x{\makebox[0pt][r]{\scriptsize 318\hspace{1em}} RevertNotice \.{\defeq}}%
+ \@x{\makebox[0pt][r]{\scriptsize 319\hspace{1em}}\@s{16.4} \.{\land} active
+ \.{\land} Capabilities ( host ) . tcr \.{\land} noticesRaised \.{<}
+ MaxNotices}%
+ \@x{\makebox[0pt][r]{\scriptsize 320\hspace{1em}}\@s{16.4} \.{\land}
+ noticesRaised \.{'} \.{=} noticesRaised \.{+} 1}%
+ \@x{\makebox[0pt][r]{\scriptsize 321\hspace{1em}}\@s{16.4} \.{\land} {\IF}
+ Capabilities ( host ) . delivery \.{=}\@w{context}}%
+ \@x{\makebox[0pt][r]{\scriptsize 322\hspace{1em}}\@s{35.71} \.{\THEN}
+ noticePending \.{'} \.{=} {\TRUE} \.{\land} {\UNCHANGED} noticesTold}%
+ \@x{\makebox[0pt][r]{\scriptsize 323\hspace{1em}}\@s{35.71} \.{\ELSE}
+ noticesTold \.{'} \.{=} noticesTold \.{+} 1 \.{\land} {\UNCHANGED}
+ noticePending}%
+ \@x{\makebox[0pt][r]{\scriptsize 324\hspace{1em}}\@s{16.4} \.{\land}
+ {\UNCHANGED} {\langle} host ,\, active ,\, busy ,\, reports ,\, baseline ,\,
+ inherited ,\, selected ,\,}%
+ \@x{\makebox[0pt][r]{\scriptsize 325\hspace{1em}}\@s{89.98} request ,\, reply
+ ,\, requests ,\, changes ,\, session ,\, visible ,\,}%
+ \@x{\makebox[0pt][r]{\scriptsize 326\hspace{1em}}\@s{89.98} contextPending
+ ,\, contextSent ,\, correctionQueued ,\, contexts ,\, warnings ,\,}%
+ \@x{\makebox[0pt][r]{\scriptsize 327\hspace{1em}}\@s{89.98} corrections ,\,
+ inTurn ,\, wakes ,\, work ,\, correctionPending ,\, correctionTurn ,\,}%
+ \@x{\makebox[0pt][r]{\scriptsize 328\hspace{1em}}\@s{89.98} outside ,\,
+ outsides {\rangle}}%
+\@pvspace{8.0pt}%
+\@x{\makebox[0pt][r]{\scriptsize 330\hspace{1em}} DeliverNotice \.{\defeq}}%
+ \@x{\makebox[0pt][r]{\scriptsize 331\hspace{1em}}\@s{16.4} \.{\land} active
+ \.{\land} noticePending}%
+ \@x{\makebox[0pt][r]{\scriptsize 332\hspace{1em}}\@s{16.4} \.{\land}
+ noticePending \.{'} \.{=} {\FALSE} \.{\land} noticesTold \.{'} \.{=}
+ noticesTold \.{+} 1}%
+ \@x{\makebox[0pt][r]{\scriptsize 333\hspace{1em}}\@s{16.4} \.{\land}
+ {\UNCHANGED} {\langle} host ,\, active ,\, busy ,\, reports ,\, baseline ,\,
+ inherited ,\, selected ,\,}%
+ \@x{\makebox[0pt][r]{\scriptsize 334\hspace{1em}}\@s{89.98} request ,\, reply
+ ,\, requests ,\, changes ,\, session ,\, visible ,\,}%
+ \@x{\makebox[0pt][r]{\scriptsize 335\hspace{1em}}\@s{89.98} contextPending
+ ,\, contextSent ,\, correctionQueued ,\, contexts ,\, warnings ,\,}%
+ \@x{\makebox[0pt][r]{\scriptsize 336\hspace{1em}}\@s{89.98} corrections ,\,
+ inTurn ,\, wakes ,\, work ,\, correctionPending ,\, correctionTurn ,\,}%
+ \@x{\makebox[0pt][r]{\scriptsize 337\hspace{1em}}\@s{89.98} outside ,\,
+ outsides ,\, noticesRaised {\rangle}}%
 \@pvspace{8.0pt}%
 \begin{lcom}{0}%
 \begin{cpar}{0}{T}{F}{7.5}{0}{}%
@@ -1582,18 +1662,20 @@ Spec composes check-completion fairness with fair response and report
  remains enabled even while a check is held.
 \end{cpar}%
 \end{lcom}%
- \@x{\makebox[0pt][r]{\scriptsize 308\hspace{1em}} CheckCompletes \.{\defeq}
+ \@x{\makebox[0pt][r]{\scriptsize 345\hspace{1em}} CheckCompletes \.{\defeq}
  \E\, f \.{\in} Snapshots \.{:} FinishCheck ( f ) \.{\lor} OutsideFinish ( f
  )}%
- \@x{\makebox[0pt][r]{\scriptsize 309\hspace{1em}} Next \.{\defeq} ( \E\, k
+ \@x{\makebox[0pt][r]{\scriptsize 346\hspace{1em}} Next \.{\defeq} ( \E\, k
  \.{\in} Kinds \.{:} Request ( k ) ) \.{\lor} Respond \.{\lor} Acknowledge
  \.{\lor} BeginCheck}%
- \@x{\makebox[0pt][r]{\scriptsize 310\hspace{1em}}\@s{39.83} \.{\lor}
+ \@x{\makebox[0pt][r]{\scriptsize 347\hspace{1em}}\@s{39.83} \.{\lor}
  CheckCompletes \.{\lor} Report \.{\lor} Deliver \.{\lor} Stop \.{\lor}
  Restart}%
- \@x{\makebox[0pt][r]{\scriptsize 311\hspace{1em}}\@s{39.83} \.{\lor}
+ \@x{\makebox[0pt][r]{\scriptsize 348\hspace{1em}}\@s{39.83} \.{\lor}
+ RevertNotice \.{\lor} DeliverNotice}%
+ \@x{\makebox[0pt][r]{\scriptsize 349\hspace{1em}}\@s{39.83} \.{\lor}
  StartTurn \.{\lor} StartCorrectionTurn \.{\lor} WorkCompleted}%
- \@x{\makebox[0pt][r]{\scriptsize 312\hspace{1em}}\@s{39.83} \.{\lor} (
+ \@x{\makebox[0pt][r]{\scriptsize 350\hspace{1em}}\@s{39.83} \.{\lor} (
  {\lnot} active \.{\land} session \.{=} MaxSessions \.{\land} {\UNCHANGED}
  vars )}%
 \begin{lcom}{7.5}%
@@ -1603,12 +1685,12 @@ Spec composes check-completion fairness with fair response and report
  Inspection is independently enabled; it never needs that guarantee to reply.
 \end{cpar}%
 \end{lcom}%
- \@x{\makebox[0pt][r]{\scriptsize 315\hspace{1em}} Spec \.{\defeq} Init
+ \@x{\makebox[0pt][r]{\scriptsize 353\hspace{1em}} Spec \.{\defeq} Init
  \.{\land} {\Box} [ Next ]_{ vars} \.{\land} {\WF}_{ vars} ( CheckCompletes
  )}%
- \@x{\makebox[0pt][r]{\scriptsize 316\hspace{1em}}\@s{38.36} \.{\land} {\WF}_{
+ \@x{\makebox[0pt][r]{\scriptsize 354\hspace{1em}}\@s{38.36} \.{\land} {\WF}_{
  vars} ( Respond ) \.{\land} {\WF}_{ vars} ( Report ) \.{\land} {\WF}_{ vars}
- ( Deliver )}%
+ ( Deliver ) \.{\land} {\WF}_{ vars} ( DeliverNotice )}%
 \@pvspace{8.0pt}%
 \begin{lcom}{0}%
 \begin{cpar}{0}{T}{F}{7.5}{0}{}%
@@ -1622,56 +1704,71 @@ Capabilities constrain completion, editors never acquire agent gates,
  \ensuremath{Spec}.
 \end{cpar}%
 \end{lcom}%
- \@x{\makebox[0pt][r]{\scriptsize 324\hspace{1em}}
+ \@x{\makebox[0pt][r]{\scriptsize 362\hspace{1em}}
  InspectionIndependentOfChecks \.{\defeq}}%
- \@x{\makebox[0pt][r]{\scriptsize 325\hspace{1em}}\@s{16.4} active \.{\land}
+ \@x{\makebox[0pt][r]{\scriptsize 363\hspace{1em}}\@s{16.4} active \.{\land}
  request \.{\in} \{\@w{inspect} ,\,\@w{repair} \} \.{\land} {\lnot} reply .
  ready \.{\implies} {\ENABLED} Respond}%
- \@x{\makebox[0pt][r]{\scriptsize 326\hspace{1em}} InspectionAlwaysAllowed
+ \@x{\makebox[0pt][r]{\scriptsize 364\hspace{1em}} InspectionAlwaysAllowed
  \.{\defeq}}%
- \@x{\makebox[0pt][r]{\scriptsize 327\hspace{1em}}\@s{16.4} request \.{\in}
+ \@x{\makebox[0pt][r]{\scriptsize 365\hspace{1em}}\@s{16.4} request \.{\in}
  \{\@w{inspect} ,\,\@w{repair} \} \.{\land} reply . ready \.{\implies} reply
  . decision \.{=}\@w{allow}}%
- \@x{\makebox[0pt][r]{\scriptsize 328\hspace{1em}} EditorNeverGuards
+ \@x{\makebox[0pt][r]{\scriptsize 366\hspace{1em}} EditorNeverGuards
  \.{\defeq}}%
- \@x{\makebox[0pt][r]{\scriptsize 329\hspace{1em}}\@s{16.4} host
+ \@x{\makebox[0pt][r]{\scriptsize 367\hspace{1em}}\@s{16.4} host
  \.{=}\@w{neovim} \.{\land} request \.{\neq}\@w{none} \.{\land} reply . ready
  \.{\implies} reply . decision \.{=}\@w{allow}}%
- \@x{\makebox[0pt][r]{\scriptsize 330\hspace{1em}} StoppedSessionsStaySilent
+ \@x{\makebox[0pt][r]{\scriptsize 368\hspace{1em}} StoppedSessionsStaySilent
  \.{\defeq} {\lnot} active \.{\implies} {\lnot} contextPending \.{\land}
- {\lnot} visible . known}%
- \@x{\makebox[0pt][r]{\scriptsize 331\hspace{1em}}
+ {\lnot} visible . known \.{\land} {\lnot} noticePending}%
+ \@x{\makebox[0pt][r]{\scriptsize 369\hspace{1em}}
  HostsWithoutIdleWakeStayIdle \.{\defeq} {\lnot} Capabilities ( host ) .
  idleWake \.{\implies} wakes \.{=} 0}%
- \@x{\makebox[0pt][r]{\scriptsize 332\hspace{1em}}
+ \@x{\makebox[0pt][r]{\scriptsize 370\hspace{1em}}
  CorrectionRequestsAreDeduplicated \.{\defeq} corrections \.{\leq} changes
  \.{+} session \.{+} work \.{+} 1}%
- \@x{\makebox[0pt][r]{\scriptsize 333\hspace{1em}} PendingContextIsCurrent
+ \@x{\makebox[0pt][r]{\scriptsize 371\hspace{1em}} PendingContextIsCurrent
  \.{\defeq} contextPending \.{\implies} Notify}%
- \@x{\makebox[0pt][r]{\scriptsize 334\hspace{1em}}
+ \@x{\makebox[0pt][r]{\scriptsize 372\hspace{1em}}
  CompletionUsesHostCapability \.{\defeq}}%
- \@x{\makebox[0pt][r]{\scriptsize 335\hspace{1em}}\@s{16.4} request
+ \@x{\makebox[0pt][r]{\scriptsize 373\hspace{1em}}\@s{16.4} request
  \.{=}\@w{complete} \.{\land} reply . ready \.{\implies}}%
- \@x{\makebox[0pt][r]{\scriptsize 336\hspace{1em}}\@s{28.69} reply . decision
+ \@x{\makebox[0pt][r]{\scriptsize 374\hspace{1em}}\@s{28.69} reply . decision
  \.{\in} \{\@w{allow} ,\, Capabilities ( host ) . completion \}}%
- \@x{\makebox[0pt][r]{\scriptsize 337\hspace{1em}} EditorOnlyReports
+ \@x{\makebox[0pt][r]{\scriptsize 375\hspace{1em}} EditorOnlyReports
  \.{\defeq}}%
- \@x{\makebox[0pt][r]{\scriptsize 338\hspace{1em}}\@s{16.4} host
+ \@x{\makebox[0pt][r]{\scriptsize 376\hspace{1em}}\@s{16.4} host
  \.{=}\@w{neovim} \.{\implies} contexts \.{=} 0 \.{\land} warnings \.{=} 0
  \.{\land} corrections \.{=} 0 \.{\land} wakes \.{=} 0}%
- \@x{\makebox[0pt][r]{\scriptsize 339\hspace{1em}}
+ \@x{\makebox[0pt][r]{\scriptsize 377\hspace{1em}} NoticesAreDeliveredOnce
+ \.{\defeq}}%
+ \@x{\makebox[0pt][r]{\scriptsize 378\hspace{1em}}\@s{16.4} noticesTold \.{+}
+ ( {\IF} noticePending \.{\THEN} 1 \.{\ELSE} 0 ) \.{\leq} noticesRaised}%
+ \@x{\makebox[0pt][r]{\scriptsize 379\hspace{1em}} OnlyTcrHostsRaiseNotices
+ \.{\defeq} noticesRaised \.{>} 0 \.{\implies} Capabilities ( host ) . tcr}%
+ \@x{\makebox[0pt][r]{\scriptsize 380\hspace{1em}} NoticesOutliveRecovery
+ \.{\defeq}}%
+ \@x{\makebox[0pt][r]{\scriptsize 381\hspace{1em}}\@s{16.4} {\Box} [ (
+ noticePending \.{\land} {\lnot} noticePending \.{'} ) \.{\implies} (
+ noticesTold \.{'} \.{=} noticesTold \.{+} 1 \.{\lor} {\lnot} active \.{'} )
+ ]_{ vars}}%
+ \@x{\makebox[0pt][r]{\scriptsize 382\hspace{1em}}
  PendingReportsEventuallyResolve \.{\defeq} contextPending \.{\leadsto}
  {\lnot} contextPending}%
- \@x{\makebox[0pt][r]{\scriptsize 340\hspace{1em}}
+ \@x{\makebox[0pt][r]{\scriptsize 383\hspace{1em}}
+ PendingNoticesEventuallyResolve\@s{1.01} \.{\defeq} noticePending
+ \.{\leadsto} {\lnot} noticePending}%
+ \@x{\makebox[0pt][r]{\scriptsize 384\hspace{1em}}
  FinishedReportsBecomeVisible \.{\defeq}}%
- \@x{\makebox[0pt][r]{\scriptsize 341\hspace{1em}}\@s{16.4} ( active \.{\land}
+ \@x{\makebox[0pt][r]{\scriptsize 385\hspace{1em}}\@s{16.4} ( active \.{\land}
  {\lnot} busy ) \.{\leadsto} ( visible . known \.{\lor} {\lnot} active )}%
- \@x{\makebox[0pt][r]{\scriptsize 342\hspace{1em}} InspectionEventuallyReplies
+ \@x{\makebox[0pt][r]{\scriptsize 386\hspace{1em}} InspectionEventuallyReplies
  \.{\defeq}}%
- \@x{\makebox[0pt][r]{\scriptsize 343\hspace{1em}}\@s{16.4} ( active \.{\land}
+ \@x{\makebox[0pt][r]{\scriptsize 387\hspace{1em}}\@s{16.4} ( active \.{\land}
  request \.{\in} \{\@w{inspect} ,\,\@w{repair} \} \.{\land} {\lnot} reply .
  ready )}%
- \@x{\makebox[0pt][r]{\scriptsize 344\hspace{1em}}\@s{24.38} \.{\leadsto} (
+ \@x{\makebox[0pt][r]{\scriptsize 388\hspace{1em}}\@s{24.38} \.{\leadsto} (
  reply . ready \.{\lor} {\lnot} active )}%
-\@x{\makebox[0pt][r]{\scriptsize 345\hspace{1em}}}\bottombar\@xx{}%
+\@x{\makebox[0pt][r]{\scriptsize 389\hspace{1em}}}\bottombar\@xx{}%
 \end{document}

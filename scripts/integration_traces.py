@@ -147,6 +147,7 @@ CONSTANTS
  MaxRequests = 3
  MaxChanges = 1
  MaxSessions = 1
+ MaxNotices = 0
 INVARIANTS
  TypeOK
  InspectionIndependentOfChecks

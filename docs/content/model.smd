@@ -74,7 +74,7 @@ Finite bounds are supplied by the TLC configuration, not by the runtime.
 
 ```=mathtex
 \begin{aligned}
-&\mathit{CONSTANTS} \mathit{Names} , \mathit{MaxEdits} , \mathit{Timeout}
+&\mathit{CONSTANTS} \mathit{Names} , \mathit{MaxEdits} , \mathit{Timeout} , \mathit{TcrMode}
 \end{aligned}
 ```
 
@@ -82,7 +82,7 @@ Finite bounds are supplied by the TLC configuration, not by the runtime.
 
 ```=mathtex
 \begin{aligned}
-&\mathit{ASSUME} \texttt{"timeout"} \notin \mathit{Names}
+&\mathit{ASSUME} \texttt{"timeout"} \notin \mathit{Names} \land \mathit{TcrMode} \in \mathit{BOOLEAN}
 \end{aligned}
 ```
 
@@ -147,7 +147,8 @@ separate. TypeOK constrains their domains without advancing an execution.
 &\mathit{VARIABLES} \\
 &\quad \hspace{1.33em}\mathit{truth} , \mathit{head} , \mathit{based} , \mathit{busy} , \mathit{from} , \mathit{quiet} , \mathit{installed} , \\
 &\quad \hspace{1.33em}\mathit{produced} , \mathit{consumed} , \mathit{pending} , \mathit{report} , \mathit{baseline} , \mathit{wasFailing} , \\
-&\quad \hspace{1.33em}\mathit{outbox} , \mathit{told} , \mathit{flush} , \mathit{turn} , \mathit{toldThisTurn} , \mathit{promptQueued} , \mathit{knows} , \mathit{elapsed} , \mathit{edited}
+&\quad \hspace{1.33em}\mathit{outbox} , \mathit{told} , \mathit{flush} , \mathit{turn} , \mathit{toldThisTurn} , \mathit{promptQueued} , \mathit{knows} , \mathit{elapsed} , \mathit{edited} , \\
+&\quad \hspace{1.33em}\mathit{tcr} , \mathit{ck} , \mathit{person} , \mathit{settleDue} , \mathit{noticePending} , \mathit{noticeCause} , \mathit{noticeTold}
 \end{aligned}
 ```
 
@@ -157,7 +158,16 @@ separate. TypeOK constrains their domains without advancing an execution.
 \begin{aligned}
 &\mathit{vars} \triangleq \langle \mathit{truth} , \mathit{head} , \mathit{based} , \mathit{busy} , \mathit{from} , \mathit{quiet} , \mathit{installed} , \\
 &\quad \hspace{3.33em}\mathit{produced} , \mathit{consumed} , \mathit{pending} , \mathit{report} , \mathit{baseline} , \mathit{wasFailing} , \\
-&\quad \hspace{3.33em}\mathit{outbox} , \mathit{told} , \mathit{flush} , \mathit{turn} , \mathit{toldThisTurn} , \mathit{promptQueued} , \mathit{knows} , \mathit{elapsed} , \mathit{edited} \rangle
+&\quad \hspace{3.33em}\mathit{outbox} , \mathit{told} , \mathit{flush} , \mathit{turn} , \mathit{toldThisTurn} , \mathit{promptQueued} , \mathit{knows} , \mathit{elapsed} , \mathit{edited} , \\
+&\quad \hspace{3.33em}\mathit{tcr} , \mathit{ck} , \mathit{person} , \mathit{settleDue} , \mathit{noticePending} , \mathit{noticeCause} , \mathit{noticeTold} \rangle
+\end{aligned}
+```
+
+### [Overwatch - tcrVars]($heading.id('overwatch---tcrvars'))
+
+```=mathtex
+\begin{aligned}
+&\mathit{tcrVars} \triangleq \langle \mathit{tcr} , \mathit{ck} , \mathit{person} , \mathit{settleDue} , \mathit{noticePending} , \mathit{noticeCause} , \mathit{noticeTold} \rangle
 \end{aligned}
 ```
 
@@ -180,7 +190,10 @@ separate. TypeOK constrains their domains without advancing an execution.
 &\quad \hspace{1.33em}\land \mathit{turn} \in \{ \texttt{"idle"} , \texttt{"running"} \} \\
 &\quad \hspace{1.33em}\land \mathit{toldThisTurn} \in \mathit{BOOLEAN} \land \mathit{promptQueued} \in \mathit{BOOLEAN} \\
 &\quad \hspace{1.33em}\land \mathit{knows} \in \mathit{Outcomes} \land \mathit{elapsed} \in 0 \mathbin{\text{..}} \mathit{Timeout} \\
-&\quad \hspace{1.33em}\land \mathit{edited} \in \mathit{BOOLEAN}
+&\quad \hspace{1.33em}\land \mathit{edited} \in \mathit{BOOLEAN} \\
+&\quad \hspace{1.33em}\land \mathit{tcr} \in \{ \texttt{"off"} , \texttt{"active"} , \texttt{"unavailable"} \} \land \mathit{ck} \in \mathit{Versions} \land \mathit{ck} \leq \mathit{head} \\
+&\quad \hspace{1.33em}\land \mathit{person} \in \{ \texttt{"none"} , \texttt{"unseen"} , \texttt{"seen"} \} \land \mathit{settleDue} \in \mathit{BOOLEAN} \\
+&\quad \hspace{1.33em}\land \mathit{noticePending} \in \mathit{BOOLEAN} \land \mathit{noticeCause} \in \mathit{Outcomes} \land \mathit{noticeTold} \in \mathit{Outcomes}
 \end{aligned}
 ```
 
@@ -214,6 +227,14 @@ session baseline, or when the check times out.
 \end{aligned}
 ```
 
+### [Overwatch - Clean]($heading.id('overwatch---clean'))
+
+```=mathtex
+\begin{aligned}
+&\mathit{Clean} \triangleq \mathit{person} = \texttt{"none"} \land \mathit{ck} = \mathit{head}
+\end{aligned}
+```
+
 ## [Overwatch - Initial state]($heading.id('overwatch---initial-state'))
 
 
@@ -233,7 +254,11 @@ baseline is known and no notification has been sent.
 &\quad \hspace{1.33em}\land \mathit{wasFailing} = \mathit{FALSE} \\
 &\quad \hspace{1.33em}\land \mathit{outbox} = \mathit{NoMessage} \land \mathit{told} = \mathit{NotTold} \land \mathit{flush} = \mathit{FALSE} \\
 &\quad \hspace{1.33em}\land \mathit{turn} = \texttt{"idle"} \land \mathit{toldThisTurn} = \mathit{FALSE} \land \mathit{promptQueued} = \mathit{FALSE} \\
-&\quad \hspace{1.33em}\land \mathit{knows} = \{ \} \land \mathit{elapsed} = 0 \land \mathit{edited} = \mathit{FALSE}
+&\quad \hspace{1.33em}\land \mathit{knows} = \{ \} \land \mathit{elapsed} = 0 \land \mathit{edited} = \mathit{FALSE} \\
+&\quad \hspace{1.33em}\land \mathit{person} \in \mathit{IF} \mathit{TcrMode} \mathit{THEN} \{ \texttt{"none"} , \texttt{"seen"} \} \mathit{ELSE} \{ \texttt{"none"} \} \\
+&\quad \hspace{1.33em}\land \mathit{tcr} = \mathit{IF} \neg \mathit{TcrMode} \mathit{THEN} \texttt{"off"} \mathit{ELSE} \mathit{IF} \mathit{person} = \texttt{"none"} \mathit{THEN} \texttt{"active"} \mathit{ELSE} \texttt{"unavailable"} \\
+&\quad \hspace{1.33em}\land \mathit{ck} = 0 \land \mathit{settleDue} = \mathit{FALSE} \\
+&\quad \hspace{1.33em}\land \mathit{noticePending} = \mathit{FALSE} \land \mathit{noticeCause} = \{ \} \land \mathit{noticeTold} = \{ \}
 \end{aligned}
 ```
 
@@ -289,9 +314,11 @@ unread results. QuietElapses starts the next check; Tick advances its timeout cl
 \begin{aligned}
 &\mathit{Edit} \triangleq \land \mathit{turn} = \texttt{"running"} \land \mathit{head} < \mathit{MaxEdits} \\
 &\quad \hspace{1.33em}\land \mathit{head} ' = \mathit{head} + 1 \land \mathit{quiet} ' = \mathit{TRUE} \land \mathit{edited} ' = \mathit{TRUE} \\
+&\quad \hspace{1.33em}\land \mathit{settleDue} ' = ( \mathit{settleDue} \lor \mathit{tcr} = \texttt{"active"} ) \\
 &\quad \hspace{1.33em}\land \mathit{UNCHANGED} \langle \mathit{truth} , \mathit{based} , \mathit{busy} , \mathit{from} , \mathit{installed} , \mathit{produced} , \mathit{consumed} , \mathit{pending} , \\
 &\quad \hspace{6.33em}\mathit{report} , \mathit{baseline} , \mathit{wasFailing} , \mathit{outbox} , \mathit{told} , \mathit{flush} , \mathit{turn} , \\
-&\quad \hspace{6.33em}\mathit{toldThisTurn} , \mathit{promptQueued} , \mathit{knows} , \mathit{elapsed} \rangle
+&\quad \hspace{6.33em}\mathit{toldThisTurn} , \mathit{promptQueued} , \mathit{knows} , \mathit{elapsed} , \mathit{tcr} , \mathit{ck} , \mathit{person} , \\
+&\quad \hspace{6.33em}\mathit{noticePending} , \mathit{noticeCause} , \mathit{noticeTold} \rangle
 \end{aligned}
 ```
 
@@ -301,9 +328,11 @@ unread results. QuietElapses starts the next check; Tick advances its timeout cl
 \begin{aligned}
 &\mathit{OutsideEdit} \triangleq \land \mathit{head} < \mathit{MaxEdits} \\
 &\quad \hspace{1.33em}\land \mathit{head} ' = \mathit{head} + 1 \land \mathit{quiet} ' = \mathit{TRUE} \\
+&\quad \hspace{1.33em}\land \mathit{person} ' = \mathit{IF} \mathit{TcrMode} \land \mathit{person} = \texttt{"none"} \mathit{THEN} \texttt{"unseen"} \mathit{ELSE} \mathit{person} \\
 &\quad \hspace{1.33em}\land \mathit{UNCHANGED} \langle \mathit{truth} , \mathit{based} , \mathit{busy} , \mathit{from} , \mathit{installed} , \mathit{produced} , \mathit{consumed} , \mathit{pending} , \\
 &\quad \hspace{6.33em}\mathit{report} , \mathit{baseline} , \mathit{wasFailing} , \mathit{outbox} , \mathit{told} , \mathit{flush} , \mathit{turn} , \\
-&\quad \hspace{6.33em}\mathit{toldThisTurn} , \mathit{promptQueued} , \mathit{knows} , \mathit{elapsed} , \mathit{edited} \rangle
+&\quad \hspace{6.33em}\mathit{toldThisTurn} , \mathit{promptQueued} , \mathit{knows} , \mathit{elapsed} , \mathit{edited} , \mathit{tcr} , \mathit{ck} , \mathit{settleDue} , \\
+&\quad \hspace{6.33em}\mathit{noticePending} , \mathit{noticeCause} , \mathit{noticeTold} \rangle
 \end{aligned}
 ```
 
@@ -312,13 +341,16 @@ unread results. QuietElapses starts the next check; Tick advances its timeout cl
 ```=mathtex
 \begin{aligned}
 &\mathit{HeadMoves} \triangleq \land \mathit{head} < \mathit{MaxEdits} \\
+&\quad \hspace{1.33em}\land \mathit{TcrMode} \Rightarrow ( \mathit{person} = \texttt{"none"} \land \mathit{ck} = \mathit{head} ) \\
 &\quad \hspace{1.33em}\land \mathit{head} ' = \mathit{head} + 1 \land \mathit{based} ' = \mathit{head} + 1 \\
+&\quad \hspace{1.33em}\land \mathit{ck} ' = \mathit{IF} \mathit{TcrMode} \mathit{THEN} \mathit{head} + 1 \mathit{ELSE} \mathit{ck} \\
 &\quad \hspace{1.33em}\land \mathit{baseline} ' = [ \mathit{known} \mapsto \mathit{FALSE} , \mathit{failures} \mapsto \{ \} ] \\
 &\quad \hspace{1.33em}\land \mathit{quiet} ' = \mathit{TRUE} \land \mathit{pending} ' = \langle \rangle \\
 &\quad \hspace{1.33em}\land \mathit{from} ' = \mathit{IF} \mathit{busy} \mathit{THEN} \mathit{head} + 1 \mathit{ELSE} \mathit{from} \\
 &\quad \hspace{1.33em}\land \mathit{elapsed} ' = \mathit{IF} \mathit{busy} \mathit{THEN} 0 \mathit{ELSE} \mathit{elapsed} \\
 &\quad \hspace{1.33em}\land \mathit{UNCHANGED} \langle \mathit{truth} , \mathit{busy} , \mathit{installed} , \mathit{produced} , \mathit{consumed} , \mathit{report} , \mathit{wasFailing} , \mathit{outbox} , \\
-&\quad \hspace{6.33em}\mathit{told} , \mathit{flush} , \mathit{turn} , \mathit{toldThisTurn} , \mathit{promptQueued} , \mathit{knows} , \mathit{edited} \rangle
+&\quad \hspace{6.33em}\mathit{told} , \mathit{flush} , \mathit{turn} , \mathit{toldThisTurn} , \mathit{promptQueued} , \mathit{knows} , \mathit{edited} , \mathit{tcr} , \mathit{person} , \\
+&\quad \hspace{6.33em}\mathit{settleDue} , \mathit{noticePending} , \mathit{noticeCause} , \mathit{noticeTold} \rangle
 \end{aligned}
 ```
 
@@ -330,7 +362,7 @@ unread results. QuietElapses starts the next check; Tick advances its timeout cl
 &\quad \hspace{1.33em}\land \mathit{quiet} ' = \mathit{FALSE} \land \mathit{busy} ' = \mathit{TRUE} \land \mathit{from} ' = \mathit{head} \land \mathit{elapsed} ' = 0 \\
 &\quad \hspace{1.33em}\land \mathit{UNCHANGED} \langle \mathit{truth} , \mathit{head} , \mathit{based} , \mathit{installed} , \mathit{produced} , \mathit{consumed} , \mathit{pending} , \\
 &\quad \hspace{6.33em}\mathit{report} , \mathit{baseline} , \mathit{wasFailing} , \mathit{outbox} , \mathit{told} , \mathit{flush} , \mathit{turn} , \\
-&\quad \hspace{6.33em}\mathit{toldThisTurn} , \mathit{promptQueued} , \mathit{knows} , \mathit{edited} \rangle
+&\quad \hspace{6.33em}\mathit{toldThisTurn} , \mathit{promptQueued} , \mathit{knows} , \mathit{edited} , \mathit{tcrVars} \rangle
 \end{aligned}
 ```
 
@@ -341,7 +373,7 @@ unread results. QuietElapses starts the next check; Tick advances its timeout cl
 &\mathit{Tick} \triangleq \land \mathit{busy} \land \mathit{elapsed} < \mathit{Timeout} \land \mathit{elapsed} ' = \mathit{elapsed} + 1 \\
 &\quad \hspace{1.33em}\land \mathit{UNCHANGED} \langle \mathit{truth} , \mathit{head} , \mathit{based} , \mathit{busy} , \mathit{from} , \mathit{quiet} , \mathit{installed} , \mathit{produced} , \\
 &\quad \hspace{6.33em}\mathit{consumed} , \mathit{pending} , \mathit{report} , \mathit{baseline} , \mathit{wasFailing} , \mathit{outbox} , \\
-&\quad \hspace{6.33em}\mathit{told} , \mathit{flush} , \mathit{turn} , \mathit{toldThisTurn} , \mathit{promptQueued} , \mathit{knows} , \mathit{edited} \rangle
+&\quad \hspace{6.33em}\mathit{told} , \mathit{flush} , \mathit{turn} , \mathit{toldThisTurn} , \mathit{promptQueued} , \mathit{knows} , \mathit{edited} , \mathit{tcrVars} \rangle
 \end{aligned}
 ```
 
@@ -362,7 +394,8 @@ A later incomplete build does not replace an earlier complete result.
 &\quad \hspace{1.33em}\land \mathit{pending} ' = \mathit{Append} ( \mathit{pending} , [ \mathit{id} \mapsto \mathit{produced} + 1 , \mathit{at} \mapsto \mathit{v} , \mathit{failures} \mapsto \mathit{f} ] ) \\
 &\quad \hspace{1.33em}\land \mathit{busy} ' = \mathit{FALSE} \land \mathit{installed} ' = \mathit{TRUE} \\
 &\quad \hspace{1.33em}\land \mathit{UNCHANGED} \langle \mathit{truth} , \mathit{head} , \mathit{based} , \mathit{from} , \mathit{quiet} , \mathit{consumed} , \mathit{report} , \mathit{baseline} , \\
-&\quad \hspace{6.33em}\mathit{wasFailing} , \mathit{outbox} , \mathit{told} , \mathit{flush} , \mathit{turn} , \mathit{toldThisTurn} , \mathit{promptQueued} , \mathit{knows} , \mathit{elapsed} , \mathit{edited} \rangle
+&\quad \hspace{6.33em}\mathit{wasFailing} , \mathit{outbox} , \mathit{told} , \mathit{flush} , \mathit{turn} , \mathit{toldThisTurn} , \mathit{promptQueued} , \mathit{knows} , \mathit{elapsed} , \mathit{edited} , \\
+&\quad \hspace{6.33em}\mathit{tcrVars} \rangle
 \end{aligned}
 ```
 
@@ -391,7 +424,7 @@ A later incomplete build does not replace an earlier complete result.
 &\quad \hspace{2.33em}\mathit{IN} \mathit{Deliver} ( \mathit{latest} . \mathit{at} , \mathit{latest} . \mathit{id} , \mathit{latest} . \mathit{failures} ) \\
 &\quad \hspace{1.33em}\land \mathit{consumed} ' = \mathit{produced} \land \mathit{pending} ' = \langle \rangle \land \mathit{edited} ' = \mathit{FALSE} \\
 &\quad \hspace{1.33em}\land \mathit{UNCHANGED} \langle \mathit{truth} , \mathit{head} , \mathit{based} , \mathit{busy} , \mathit{from} , \mathit{quiet} , \mathit{installed} , \mathit{produced} , \\
-&\quad \hspace{6.33em}\mathit{turn} , \mathit{toldThisTurn} , \mathit{promptQueued} , \mathit{knows} , \mathit{elapsed} \rangle
+&\quad \hspace{6.33em}\mathit{turn} , \mathit{toldThisTurn} , \mathit{promptQueued} , \mathit{knows} , \mathit{elapsed} , \mathit{tcrVars} \rangle
 \end{aligned}
 ```
 
@@ -422,7 +455,7 @@ TurnCompletes keeps a guarded turn running and permits a clean turn to settle.
 &\quad \hspace{6.33em}\mathit{ELSE} \mathit{promptQueued} ' = \mathit{TRUE} \land \mathit{UNCHANGED} \mathit{toldThisTurn} \\
 &\quad \hspace{3.0em}\mathit{ELSE} \mathit{UNCHANGED} \langle \mathit{outbox} , \mathit{knows} , \mathit{toldThisTurn} , \mathit{promptQueued} \rangle \\
 &\quad \hspace{1.33em}\land \mathit{UNCHANGED} \langle \mathit{truth} , \mathit{head} , \mathit{based} , \mathit{busy} , \mathit{from} , \mathit{quiet} , \mathit{installed} , \mathit{produced} , \mathit{consumed} , \\
-&\quad \hspace{6.33em}\mathit{pending} , \mathit{report} , \mathit{baseline} , \mathit{wasFailing} , \mathit{told} , \mathit{turn} , \mathit{elapsed} , \mathit{edited} \rangle
+&\quad \hspace{6.33em}\mathit{pending} , \mathit{report} , \mathit{baseline} , \mathit{wasFailing} , \mathit{told} , \mathit{turn} , \mathit{elapsed} , \mathit{edited} , \mathit{tcrVars} \rangle
 \end{aligned}
 ```
 
@@ -432,8 +465,10 @@ TurnCompletes keeps a guarded turn running and permits a clean turn to settle.
 \begin{aligned}
 &\mathit{TurnStarts} \triangleq \land \mathit{turn} = \texttt{"idle"} \land \mathit{turn} ' = \texttt{"running"} \\
 &\quad \hspace{1.33em}\land \mathit{toldThisTurn} ' = \mathit{promptQueued} \land \mathit{promptQueued} ' = \mathit{FALSE} \land \mathit{flush} ' = \mathit{TRUE} \\
+&\quad \hspace{1.33em}\land \mathit{tcr} ' = \mathit{IF} \mathit{tcr} = \texttt{"off"} \mathit{THEN} \texttt{"off"} \mathit{ELSE} \mathit{IF} \mathit{Clean} \mathit{THEN} \texttt{"active"} \mathit{ELSE} \texttt{"unavailable"} \\
 &\quad \hspace{1.33em}\land \mathit{UNCHANGED} \langle \mathit{truth} , \mathit{head} , \mathit{based} , \mathit{busy} , \mathit{from} , \mathit{quiet} , \mathit{installed} , \mathit{produced} , \mathit{consumed} , \\
-&\quad \hspace{6.33em}\mathit{pending} , \mathit{report} , \mathit{baseline} , \mathit{wasFailing} , \mathit{outbox} , \mathit{told} , \mathit{knows} , \mathit{elapsed} , \mathit{edited} \rangle
+&\quad \hspace{6.33em}\mathit{pending} , \mathit{report} , \mathit{baseline} , \mathit{wasFailing} , \mathit{outbox} , \mathit{told} , \mathit{knows} , \mathit{elapsed} , \mathit{edited} , \\
+&\quad \hspace{6.33em}\mathit{ck} , \mathit{person} , \mathit{settleDue} , \mathit{noticePending} , \mathit{noticeCause} , \mathit{noticeTold} \rangle
 \end{aligned}
 ```
 
@@ -454,7 +489,122 @@ TurnCompletes keeps a guarded turn running and permits a clean turn to settle.
 &\quad \hspace{3.0em}\mathit{THEN} \land \mathit{toldThisTurn} ' = \mathit{TRUE} \land \mathit{knows} ' = \mathit{report} . \mathit{failures} \land \mathit{UNCHANGED} \langle \mathit{turn} , \mathit{flush} \rangle \\
 &\quad \hspace{3.0em}\mathit{ELSE} \land \mathit{turn} ' = \texttt{"idle"} \land \mathit{flush} ' = \mathit{TRUE} \land \mathit{UNCHANGED} \langle \mathit{toldThisTurn} , \mathit{knows} \rangle \\
 &\quad \hspace{1.33em}\land \mathit{UNCHANGED} \langle \mathit{truth} , \mathit{head} , \mathit{based} , \mathit{busy} , \mathit{from} , \mathit{quiet} , \mathit{installed} , \mathit{produced} , \mathit{consumed} , \\
-&\quad \hspace{6.33em}\mathit{pending} , \mathit{report} , \mathit{baseline} , \mathit{wasFailing} , \mathit{outbox} , \mathit{told} , \mathit{promptQueued} , \mathit{elapsed} , \mathit{edited} \rangle
+&\quad \hspace{6.33em}\mathit{pending} , \mathit{report} , \mathit{baseline} , \mathit{wasFailing} , \mathit{outbox} , \mathit{told} , \mathit{promptQueued} , \mathit{elapsed} , \mathit{edited} , \\
+&\quad \hspace{6.33em}\mathit{tcrVars} \rangle
+\end{aligned}
+```
+
+## [Overwatch - TCR mode]($heading.id('overwatch---tcr-mode'))
+
+
+With TcrMode, an edit of the agent is settled once a result for the current
+workspace has been read: a green result commits the workspace as the new
+restore point ck, and a result with a new failure restores the workspace to
+the restore point. A revert is a new workspace version, so head only grows,
+and its content is that of the restore point. A pull replaces the restore point.
+A person's uncommitted work is unseen after an outside edit and seen once a
+tool that does not edit follows it, or when it was there at the start; TCR
+then waits until the person commits it. A check that timed out cannot judge an
+edit. The notice of a revert is kept apart from the failure message, so the
+recovery that a revert causes cannot cancel it. A pull with uncommitted work
+and the instant in which a hook edits and settles are outside this abstraction:
+a turn may start before the result of an edit is read, and TCR then waits.
+
+### [Overwatch - Judged]($heading.id('overwatch---judged'))
+
+```=mathtex
+\begin{aligned}
+&\mathit{Judged} \triangleq \mathit{tcr} = \texttt{"active"} \land \mathit{settleDue} \land \mathit{report} . \mathit{known} \land \mathit{report} . \mathit{at} = \mathit{head} \\
+&\quad \hspace{3.33em}\land \mathit{TimedOut} \notin \mathit{report} . \mathit{failures}
+\end{aligned}
+```
+
+### [Overwatch - FreshFailures]($heading.id('overwatch---freshfailures'))
+
+```=mathtex
+\begin{aligned}
+&\mathit{FreshFailures} \triangleq \mathit{report} . \mathit{failures} \setminus \mathit{baseline} . \mathit{failures}
+\end{aligned}
+```
+
+### [Overwatch - Observe]($heading.id('overwatch---observe'))
+
+```=mathtex
+\begin{aligned}
+&\mathit{Observe} \triangleq \land \mathit{tcr} = \texttt{"active"} \land \mathit{person} = \texttt{"unseen"} \land \neg \mathit{settleDue} \\
+&\quad \hspace{1.33em}\land \mathit{person} ' = \texttt{"seen"} \land \mathit{tcr} ' = \texttt{"unavailable"} \\
+&\quad \hspace{1.33em}\land \mathit{UNCHANGED} \langle \mathit{truth} , \mathit{head} , \mathit{based} , \mathit{busy} , \mathit{from} , \mathit{quiet} , \mathit{installed} , \mathit{produced} , \mathit{consumed} , \\
+&\quad \hspace{6.33em}\mathit{pending} , \mathit{report} , \mathit{baseline} , \mathit{wasFailing} , \mathit{outbox} , \mathit{told} , \mathit{flush} , \mathit{turn} , \\
+&\quad \hspace{6.33em}\mathit{toldThisTurn} , \mathit{promptQueued} , \mathit{knows} , \mathit{elapsed} , \mathit{edited} , \mathit{ck} , \mathit{settleDue} , \\
+&\quad \hspace{6.33em}\mathit{noticePending} , \mathit{noticeCause} , \mathit{noticeTold} \rangle
+\end{aligned}
+```
+
+### [Overwatch - PersonCommits]($heading.id('overwatch---personcommits'))
+
+```=mathtex
+\begin{aligned}
+&\mathit{PersonCommits} \triangleq \land \mathit{tcr} = \texttt{"unavailable"} \\
+&\quad \hspace{1.33em}\land \mathit{ck} ' = \mathit{head} \land \mathit{person} ' = \texttt{"none"} \land \mathit{settleDue} ' = \mathit{FALSE} \\
+&\quad \hspace{1.33em}\land \mathit{UNCHANGED} \langle \mathit{truth} , \mathit{head} , \mathit{based} , \mathit{busy} , \mathit{from} , \mathit{quiet} , \mathit{installed} , \mathit{produced} , \mathit{consumed} , \\
+&\quad \hspace{6.33em}\mathit{pending} , \mathit{report} , \mathit{baseline} , \mathit{wasFailing} , \mathit{outbox} , \mathit{told} , \mathit{flush} , \mathit{turn} , \\
+&\quad \hspace{6.33em}\mathit{toldThisTurn} , \mathit{promptQueued} , \mathit{knows} , \mathit{elapsed} , \mathit{edited} , \mathit{tcr} , \\
+&\quad \hspace{6.33em}\mathit{noticePending} , \mathit{noticeCause} , \mathit{noticeTold} \rangle
+\end{aligned}
+```
+
+### [Overwatch - Checkpoint]($heading.id('overwatch---checkpoint'))
+
+```=mathtex
+\begin{aligned}
+&\mathit{Checkpoint} \triangleq \land \mathit{Judged} \land \neg \mathit{Guard} \\
+&\quad \hspace{1.33em}\land \mathit{ck} ' = \mathit{head} \land \mathit{settleDue} ' = \mathit{FALSE} \land \mathit{person} ' = \texttt{"none"} \\
+&\quad \hspace{1.33em}\land \mathit{UNCHANGED} \langle \mathit{truth} , \mathit{head} , \mathit{based} , \mathit{busy} , \mathit{from} , \mathit{quiet} , \mathit{installed} , \mathit{produced} , \mathit{consumed} , \\
+&\quad \hspace{6.33em}\mathit{pending} , \mathit{report} , \mathit{baseline} , \mathit{wasFailing} , \mathit{outbox} , \mathit{told} , \mathit{flush} , \mathit{turn} , \\
+&\quad \hspace{6.33em}\mathit{toldThisTurn} , \mathit{promptQueued} , \mathit{knows} , \mathit{elapsed} , \mathit{edited} , \mathit{tcr} , \\
+&\quad \hspace{6.33em}\mathit{noticePending} , \mathit{noticeCause} , \mathit{noticeTold} \rangle
+\end{aligned}
+```
+
+### [Overwatch - CheckpointFails]($heading.id('overwatch---checkpointfails'))
+
+```=mathtex
+\begin{aligned}
+&\mathit{CheckpointFails} \triangleq \land \mathit{Judged} \land \neg \mathit{Guard} \\
+&\quad \hspace{1.33em}\land \mathit{tcr} ' = \texttt{"unavailable"} \\
+&\quad \hspace{1.33em}\land \mathit{UNCHANGED} \langle \mathit{truth} , \mathit{head} , \mathit{based} , \mathit{busy} , \mathit{from} , \mathit{quiet} , \mathit{installed} , \mathit{produced} , \mathit{consumed} , \\
+&\quad \hspace{6.33em}\mathit{pending} , \mathit{report} , \mathit{baseline} , \mathit{wasFailing} , \mathit{outbox} , \mathit{told} , \mathit{flush} , \mathit{turn} , \\
+&\quad \hspace{6.33em}\mathit{toldThisTurn} , \mathit{promptQueued} , \mathit{knows} , \mathit{elapsed} , \mathit{edited} , \mathit{ck} , \mathit{person} , \\
+&\quad \hspace{6.33em}\mathit{settleDue} , \mathit{noticePending} , \mathit{noticeCause} , \mathit{noticeTold} \rangle
+\end{aligned}
+```
+
+### [Overwatch - Revert]($heading.id('overwatch---revert'))
+
+```=mathtex
+\begin{aligned}
+&\mathit{Revert} \triangleq \land \mathit{Judged} \land \mathit{Guard} \land \mathit{person} \neq \texttt{"seen"} \\
+&\quad \hspace{1.33em}\land \mathit{head} < \mathit{MaxEdits} \land \mathit{truth} [ \mathit{head} + 1 ] = \mathit{truth} [ \mathit{ck} ] \\
+&\quad \hspace{1.33em}\land \mathit{head} ' = \mathit{head} + 1 \land \mathit{ck} ' = \mathit{head} + 1 \land \mathit{quiet} ' = \mathit{TRUE} \\
+&\quad \hspace{1.33em}\land \mathit{settleDue} ' = \mathit{FALSE} \land \mathit{person} ' = \texttt{"none"} \\
+&\quad \hspace{1.33em}\land \mathit{noticePending} ' = \mathit{TRUE} \\
+&\quad \hspace{1.33em}\land \mathit{noticeCause} ' = \mathit{IF} \mathit{noticePending} \mathit{THEN} \mathit{noticeCause} \cup \mathit{FreshFailures} \mathit{ELSE} \mathit{FreshFailures} \\
+&\quad \hspace{1.33em}\land \mathit{UNCHANGED} \langle \mathit{truth} , \mathit{based} , \mathit{busy} , \mathit{from} , \mathit{installed} , \mathit{produced} , \mathit{consumed} , \mathit{pending} , \\
+&\quad \hspace{6.33em}\mathit{report} , \mathit{baseline} , \mathit{wasFailing} , \mathit{outbox} , \mathit{told} , \mathit{flush} , \mathit{turn} , \mathit{toldThisTurn} , \\
+&\quad \hspace{6.33em}\mathit{promptQueued} , \mathit{knows} , \mathit{elapsed} , \mathit{edited} , \mathit{tcr} , \mathit{noticeTold} \rangle
+\end{aligned}
+```
+
+### [Overwatch - TellRevert]($heading.id('overwatch---tellrevert'))
+
+```=mathtex
+\begin{aligned}
+&\mathit{TellRevert} \triangleq \land \mathit{noticePending} \\
+&\quad \hspace{1.33em}\land \mathit{noticePending} ' = \mathit{FALSE} \land \mathit{noticeTold} ' = \mathit{noticeCause} \\
+&\quad \hspace{1.33em}\land \mathit{UNCHANGED} \langle \mathit{truth} , \mathit{head} , \mathit{based} , \mathit{busy} , \mathit{from} , \mathit{quiet} , \mathit{installed} , \mathit{produced} , \mathit{consumed} , \\
+&\quad \hspace{6.33em}\mathit{pending} , \mathit{report} , \mathit{baseline} , \mathit{wasFailing} , \mathit{outbox} , \mathit{told} , \mathit{flush} , \mathit{turn} , \\
+&\quad \hspace{6.33em}\mathit{toldThisTurn} , \mathit{promptQueued} , \mathit{knows} , \mathit{elapsed} , \mathit{edited} , \mathit{tcr} , \mathit{ck} , \mathit{person} , \\
+&\quad \hspace{6.33em}\mathit{settleDue} , \mathit{noticeCause} \rangle
 \end{aligned}
 ```
 
@@ -469,7 +619,8 @@ weak fairness for the listed progress actions; this does not impose deadlines.
 ```=mathtex
 \begin{aligned}
 &\mathit{Next} \triangleq \mathit{Edit} \lor \mathit{OutsideEdit} \lor \mathit{HeadMoves} \lor \mathit{QuietElapses} \lor \mathit{Tick} \lor \mathit{RunEnds} \lor \mathit{TimesOut} \\
-&\quad \hspace{2.67em}\lor \mathit{ReadResults} \lor \mathit{Flush} \lor \mathit{TurnStarts} \lor \mathit{TurnCompletes}
+&\quad \hspace{2.67em}\lor \mathit{ReadResults} \lor \mathit{Flush} \lor \mathit{TurnStarts} \lor \mathit{TurnCompletes} \\
+&\quad \hspace{2.67em}\lor \mathit{Observe} \lor \mathit{PersonCommits} \lor \mathit{Checkpoint} \lor \mathit{CheckpointFails} \lor \mathit{Revert} \lor \mathit{TellRevert}
 \end{aligned}
 ```
 
@@ -480,7 +631,7 @@ weak fairness for the listed progress actions; this does not impose deadlines.
 &\mathit{Spec} \triangleq \land \mathit{Init} \land \Box [ \mathit{Next} ] _ \mathit{vars} \\
 &\quad \hspace{1.33em}\land \mathit{WF\_vars} ( \mathit{QuietElapses} ) \land \mathit{WF\_vars} ( \mathit{Tick} ) \land \mathit{WF\_vars} ( \mathit{TimesOut} ) \\
 &\quad \hspace{1.33em}\land \mathit{WF\_vars} ( \mathit{ReadResults} ) \land \mathit{WF\_vars} ( \mathit{Flush} ) \\
-&\quad \hspace{1.33em}\land \mathit{WF\_vars} ( \mathit{WokenTurnStarts} ) \land \mathit{WF\_vars} ( \mathit{TurnCompletes} )
+&\quad \hspace{1.33em}\land \mathit{WF\_vars} ( \mathit{WokenTurnStarts} ) \land \mathit{WF\_vars} ( \mathit{TurnCompletes} ) \land \mathit{WF\_vars} ( \mathit{TellRevert} )
 \end{aligned}
 ```
 
@@ -576,6 +727,147 @@ These properties are model-checked within the committed configuration bounds.
 \end{aligned}
 ```
 
+## [Overwatch - TCR properties]($heading.id('overwatch---tcr-properties'))
+
+
+A revert never discards work of a person that was there at the start or that
+a tool that does not edit has seen. Work of a person that no such tool has
+seen, because it came just before the agent's edit, cannot be told from the
+agent's and a revert discards it: this is a limit, not a property. A commit settles only a green result of the
+latest edit, a revert only a result with a new failure of the latest edit, and
+neither acts on an overtaken result, a check that timed out, or while TCR is
+unavailable. A failed commit changes nothing, so no work is lost. The restore
+point is never older than the baseline, and the notice of every revert reaches
+the agent.
+
+### [Overwatch - SeenWorkPausesTcr]($heading.id('overwatch---seenworkpausestcr'))
+
+```=mathtex
+\begin{aligned}
+&\mathit{SeenWorkPausesTcr} \triangleq \mathit{person} = \texttt{"seen"} \Rightarrow \mathit{tcr} \neq \texttt{"active"}
+\end{aligned}
+```
+
+### [Overwatch - RestorePointIsNotOlderThanBaseline]($heading.id('overwatch---restorepointisnotolderthanbaseline'))
+
+```=mathtex
+\begin{aligned}
+&\mathit{RestorePointIsNotOlderThanBaseline} \triangleq \mathit{ck} \geq \mathit{based}
+\end{aligned}
+```
+
+### [Overwatch - NoticeNamesNewFailures]($heading.id('overwatch---noticenamesnewfailures'))
+
+```=mathtex
+\begin{aligned}
+&\mathit{NoticeNamesNewFailures} \triangleq \mathit{noticePending} \Rightarrow \mathit{noticeCause} \neq \{ \} \land \mathit{TimedOut} \notin \mathit{noticeCause}
+\end{aligned}
+```
+
+### [Overwatch - HeadOnlyGrows]($heading.id('overwatch---headonlygrows'))
+
+```=mathtex
+\begin{aligned}
+&\mathit{HeadOnlyGrows} \triangleq \Box [ \mathit{head} ' \geq \mathit{head} ] _ \mathit{vars}
+\end{aligned}
+```
+
+### [Overwatch - RevertNeverDiscardsSeenWork]($heading.id('overwatch---revertneverdiscardsseenwork'))
+
+```=mathtex
+\begin{aligned}
+&\mathit{RevertNeverDiscardsSeenWork} \triangleq \Box [ \mathit{Revert} \Rightarrow \mathit{person} \neq \texttt{"seen"} ] _ \mathit{vars}
+\end{aligned}
+```
+
+### [Overwatch - RevertRestoresCheckpointContent]($heading.id('overwatch---revertrestorescheckpointcontent'))
+
+```=mathtex
+\begin{aligned}
+&\mathit{RevertRestoresCheckpointContent} \triangleq \Box [ \mathit{Revert} \Rightarrow \mathit{truth} [ \mathit{head} ' ] = \mathit{truth} [ \mathit{ck} ] ] _ \mathit{vars}
+\end{aligned}
+```
+
+### [Overwatch - RevertFollowsNewFailure]($heading.id('overwatch---revertfollowsnewfailure'))
+
+```=mathtex
+\begin{aligned}
+&\mathit{RevertFollowsNewFailure} \triangleq \Box [ \mathit{Revert} \Rightarrow \mathit{NewFailure} ( \mathit{report} . \mathit{failures} , \mathit{baseline} . \mathit{failures} ) ] _ \mathit{vars}
+\end{aligned}
+```
+
+### [Overwatch - CheckpointFollowsGreenResult]($heading.id('overwatch---checkpointfollowsgreenresult'))
+
+```=mathtex
+\begin{aligned}
+&\mathit{CheckpointFollowsGreenResult} \triangleq \Box [ \mathit{Checkpoint} \Rightarrow \mathit{report} . \mathit{known} \land \neg \mathit{Guard} \land \mathit{TimedOut} \notin \mathit{report} . \mathit{failures} ] _ \mathit{vars}
+\end{aligned}
+```
+
+### [Overwatch - OvertakenResultsNeverSettle]($heading.id('overwatch---overtakenresultsneversettle'))
+
+```=mathtex
+\begin{aligned}
+&\mathit{OvertakenResultsNeverSettle} \triangleq \Box [ ( \mathit{Checkpoint} \lor \mathit{CheckpointFails} \lor \mathit{Revert} ) \Rightarrow \mathit{report} . \mathit{at} = \mathit{head} ] _ \mathit{vars}
+\end{aligned}
+```
+
+### [Overwatch - UnavailableTcrChangesNothing]($heading.id('overwatch---unavailabletcrchangesnothing'))
+
+```=mathtex
+\begin{aligned}
+&\mathit{UnavailableTcrChangesNothing} \triangleq \Box [ \mathit{tcr} \neq \texttt{"active"} \Rightarrow \neg ( \mathit{Checkpoint} \lor \mathit{CheckpointFails} \lor \mathit{Revert} ) ] _ \mathit{vars}
+\end{aligned}
+```
+
+### [Overwatch - FailedCommitLosesNothing]($heading.id('overwatch---failedcommitlosesnothing'))
+
+```=mathtex
+\begin{aligned}
+&\mathit{FailedCommitLosesNothing} \triangleq \Box [ \mathit{CheckpointFails} \Rightarrow \mathit{head} ' = \mathit{head} \land \mathit{ck} ' = \mathit{ck} \land \mathit{person} ' = \mathit{person} \land \mathit{settleDue} ' = \mathit{settleDue} ] _ \mathit{vars}
+\end{aligned}
+```
+
+### [Overwatch - RestorePointMovesWithCommits]($heading.id('overwatch---restorepointmoveswithcommits'))
+
+```=mathtex
+\begin{aligned}
+&\mathit{RestorePointMovesWithCommits} \triangleq \Box [ \mathit{ck} ' \neq \mathit{ck} \Rightarrow ( \mathit{Checkpoint} \lor \mathit{Revert} \lor \mathit{HeadMoves} \lor \mathit{PersonCommits} ) ] _ \mathit{vars}
+\end{aligned}
+```
+
+### [Overwatch - RevertRaisesNotice]($heading.id('overwatch---revertraisesnotice'))
+
+```=mathtex
+\begin{aligned}
+&\mathit{RevertRaisesNotice} \triangleq \Box [ \mathit{Revert} \Rightarrow \mathit{noticePending} ' ] _ \mathit{vars}
+\end{aligned}
+```
+
+### [Overwatch - RevertNoticeTellsTheCause]($heading.id('overwatch---revertnoticetellsthecause'))
+
+```=mathtex
+\begin{aligned}
+&\mathit{RevertNoticeTellsTheCause} \triangleq \Box [ \mathit{TellRevert} \Rightarrow \mathit{noticeTold} ' = \mathit{noticeCause} \land \mathit{noticeTold} ' \neq \{ \} ] _ \mathit{vars}
+\end{aligned}
+```
+
+### [Overwatch - RevertNoticeIsNeverDropped]($heading.id('overwatch---revertnoticeisneverdropped'))
+
+```=mathtex
+\begin{aligned}
+&\mathit{RevertNoticeIsNeverDropped} \triangleq \Box [ ( \mathit{noticePending} \land \neg \mathit{noticePending} ' ) \Rightarrow \mathit{TellRevert} ] _ \mathit{vars}
+\end{aligned}
+```
+
+### [Overwatch - RevertNoticeReachesAgent]($heading.id('overwatch---revertnoticereachesagent'))
+
+```=mathtex
+\begin{aligned}
+&\mathit{RevertNoticeReachesAgent} \triangleq \mathit{noticePending} \leadsto \neg \mathit{noticePending}
+\end{aligned}
+```
+
 # [IntegrationContract]($heading.id('integrationcontract'))
 
 [Source](https://github.com/benomahony/overwatch/blob/main/spec/IntegrationContract.tla)
@@ -604,7 +896,7 @@ for every host. Both layers use the same FailurePolicy definitions.
 
 ```=mathtex
 \begin{aligned}
-&\mathit{CONSTANTS} \mathit{Hosts} , \mathit{Checks} , \mathit{Names} , \mathit{MaxRequests} , \mathit{MaxChanges} , \mathit{MaxSessions}
+&\mathit{CONSTANTS} \mathit{Hosts} , \mathit{Checks} , \mathit{Names} , \mathit{MaxRequests} , \mathit{MaxChanges} , \mathit{MaxSessions} , \mathit{MaxNotices}
 \end{aligned}
 ```
 
@@ -656,7 +948,8 @@ These are integration capabilities, not user-selectable enforcement modes.
 &\quad \hspace{6.67em}\Box \mathit{OTHER} \to \texttt{"event"} , \\
 &\quad \hspace{1.67em}\mathit{idleWake} \mapsto \mathit{h} \in \{ \texttt{"claude"} , \texttt{"opencode2"} \} , \\
 &\quad \hspace{1.67em}\mathit{status} \mapsto \mathit{h} \in \{ \texttt{"claude"} , \texttt{"pi"} , \texttt{"neovim"} \} , \\
-&\quad \hspace{1.67em}\mathit{noticesOutside} \mapsto \mathit{h} \in \{ \texttt{"claude"} , \texttt{"codex"} , \texttt{"opencode2"} , \texttt{"neovim"} \} ]
+&\quad \hspace{1.67em}\mathit{noticesOutside} \mapsto \mathit{h} \in \{ \texttt{"claude"} , \texttt{"codex"} , \texttt{"opencode2"} , \texttt{"neovim"} \} , \\
+&\quad \hspace{1.67em}\mathit{tcr} \mapsto \mathit{h} \in \{ \texttt{"codex"} , \texttt{"opencode1"} , \texttt{"opencode2"} , \texttt{"pi"} \} ]
 \end{aligned}
 ```
 
@@ -707,7 +1000,8 @@ idle wakeups are separate observations.
 &\quad \hspace{3.33em}\mathit{request} , \mathit{reply} , \mathit{requests} , \mathit{changes} , \mathit{session} , \\
 &\quad \hspace{3.33em}\mathit{visible} , \mathit{contextPending} , \mathit{contextSent} , \mathit{correctionQueued} , \\
 &\quad \hspace{3.33em}\mathit{contexts} , \mathit{warnings} , \mathit{corrections} , \mathit{inTurn} , \mathit{wakes} , \mathit{work} , \\
-&\quad \hspace{3.33em}\mathit{correctionPending} , \mathit{correctionTurn} , \mathit{outside} , \mathit{outsides}
+&\quad \hspace{3.33em}\mathit{correctionPending} , \mathit{correctionTurn} , \mathit{outside} , \mathit{outsides} , \\
+&\quad \hspace{3.33em}\mathit{noticePending} , \mathit{noticesRaised} , \mathit{noticesTold}
 \end{aligned}
 ```
 
@@ -719,7 +1013,16 @@ idle wakeups are separate observations.
 &\quad \hspace{3.33em}\mathit{request} , \mathit{reply} , \mathit{requests} , \mathit{changes} , \mathit{session} , \mathit{visible} , \\
 &\quad \hspace{3.33em}\mathit{contextPending} , \mathit{contextSent} , \mathit{correctionQueued} , \mathit{contexts} , \\
 &\quad \hspace{3.33em}\mathit{warnings} , \mathit{corrections} , \mathit{inTurn} , \mathit{wakes} , \mathit{work} , \\
-&\quad \hspace{3.33em}\mathit{correctionPending} , \mathit{correctionTurn} , \mathit{outside} , \mathit{outsides} \rangle
+&\quad \hspace{3.33em}\mathit{correctionPending} , \mathit{correctionTurn} , \mathit{outside} , \mathit{outsides} , \\
+&\quad \hspace{3.33em}\mathit{noticePending} , \mathit{noticesRaised} , \mathit{noticesTold} \rangle
+\end{aligned}
+```
+
+### [IntegrationContract - noticeVars]($heading.id('integrationcontract---noticevars'))
+
+```=mathtex
+\begin{aligned}
+&\mathit{noticeVars} \triangleq \langle \mathit{noticePending} , \mathit{noticesRaised} , \mathit{noticesTold} \rangle
 \end{aligned}
 ```
 
@@ -788,7 +1091,9 @@ do not assert a runtime limit on requests or sessions.
 &\quad \hspace{1.33em}\land \mathit{warnings} \in 0 \mathbin{\text{..}} ( ( \mathit{MaxSessions} + 1 ) * \mathit{MaxRequests} ) \\
 &\quad \hspace{1.33em}\land \mathit{corrections} \in 0 \mathbin{\text{..}} ( ( \mathit{MaxSessions} + 1 ) * \mathit{MaxRequests} ) \\
 &\quad \hspace{1.33em}\land \mathit{correctionPending} \in \mathit{BOOLEAN} \land \mathit{correctionTurn} \in \mathit{BOOLEAN} \land \mathit{outside} \in \mathit{BOOLEAN} \\
-&\quad \hspace{1.33em}\land \mathit{outsides} \in 0 \mathbin{\text{..}} \mathit{MaxChanges}
+&\quad \hspace{1.33em}\land \mathit{outsides} \in 0 \mathbin{\text{..}} \mathit{MaxChanges} \\
+&\quad \hspace{1.33em}\land \mathit{noticePending} \in \mathit{BOOLEAN} \\
+&\quad \hspace{1.33em}\land \mathit{noticesRaised} \in 0 \mathbin{\text{..}} \mathit{MaxNotices} \land \mathit{noticesTold} \in 0 \mathbin{\text{..}} \mathit{MaxNotices}
 \end{aligned}
 ```
 
@@ -810,7 +1115,8 @@ No reply, visible report, deferred context, or correction has been produced.
 &\quad \hspace{1.33em}\land \mathit{visible} = [ \mathit{known} \mapsto \mathit{FALSE} , \mathit{failures} \mapsto \mathit{Empty} ] \\
 &\quad \hspace{1.33em}\land \mathit{contextPending} = \mathit{FALSE} \land \mathit{contextSent} = \mathit{FALSE} \land \mathit{correctionQueued} = \mathit{FALSE} \\
 &\quad \hspace{1.33em}\land \mathit{contexts} = 0 \land \mathit{warnings} = 0 \land \mathit{corrections} = 0 \land \mathit{wakes} = 0 \land \mathit{work} = 0 \land \mathit{inTurn} \in \mathit{BOOLEAN} \\
-&\quad \hspace{1.33em}\land \mathit{correctionPending} = \mathit{FALSE} \land \mathit{correctionTurn} = \mathit{FALSE} \land \mathit{outside} = \mathit{FALSE} \land \mathit{outsides} = 0
+&\quad \hspace{1.33em}\land \mathit{correctionPending} = \mathit{FALSE} \land \mathit{correctionTurn} = \mathit{FALSE} \land \mathit{outside} = \mathit{FALSE} \land \mathit{outsides} = 0 \\
+&\quad \hspace{1.33em}\land \mathit{noticePending} = \mathit{FALSE} \land \mathit{noticesRaised} = 0 \land \mathit{noticesTold} = 0
 \end{aligned}
 ```
 
@@ -831,7 +1137,7 @@ corrections, and wakeups; Acknowledge releases the request slot.
 &\quad \hspace{1.33em}\land \mathit{UNCHANGED} \langle \mathit{host} , \mathit{active} , \mathit{busy} , \mathit{reports} , \mathit{baseline} , \mathit{inherited} , \mathit{selected} , \\
 &\quad \hspace{6.33em}\mathit{changes} , \mathit{session} , \mathit{visible} , \mathit{contextPending} , \mathit{contextSent} , \\
 &\quad \hspace{6.33em}\mathit{correctionQueued} , \mathit{contexts} , \mathit{warnings} , \mathit{corrections} , \mathit{inTurn} , \mathit{wakes} , \mathit{work} , \\
-&\quad \hspace{6.33em}\mathit{correctionPending} , \mathit{correctionTurn} , \mathit{outside} , \mathit{outsides} \rangle
+&\quad \hspace{6.33em}\mathit{correctionPending} , \mathit{correctionTurn} , \mathit{outside} , \mathit{outsides} , \mathit{noticeVars} \rangle
 \end{aligned}
 ```
 
@@ -890,7 +1196,7 @@ corrections, and wakeups; Acknowledge releases the request slot.
 &\quad \hspace{8.33em}\mathit{THEN} 1 \mathit{ELSE} 0 \\
 &\quad \hspace{1.33em}\land \mathit{UNCHANGED} \langle \mathit{host} , \mathit{active} , \mathit{busy} , \mathit{reports} , \mathit{baseline} , \mathit{inherited} , \mathit{selected} , \\
 &\quad \hspace{6.33em}\mathit{request} , \mathit{requests} , \mathit{changes} , \mathit{session} , \mathit{visible} , \\
-&\quad \hspace{6.33em}\mathit{contextPending} , \mathit{contextSent} , \mathit{contexts} , \mathit{work} , \mathit{outside} , \mathit{outsides} \rangle
+&\quad \hspace{6.33em}\mathit{contextPending} , \mathit{contextSent} , \mathit{contexts} , \mathit{work} , \mathit{outside} , \mathit{outsides} , \mathit{noticeVars} \rangle
 \end{aligned}
 ```
 
@@ -904,7 +1210,7 @@ corrections, and wakeups; Acknowledge releases the request slot.
 &\quad \hspace{6.33em}\mathit{reply} , \mathit{requests} , \mathit{changes} , \mathit{session} , \mathit{visible} , \\
 &\quad \hspace{6.33em}\mathit{contextPending} , \mathit{contextSent} , \mathit{correctionQueued} , \\
 &\quad \hspace{6.33em}\mathit{contexts} , \mathit{warnings} , \mathit{corrections} , \mathit{inTurn} , \mathit{wakes} , \mathit{work} , \\
-&\quad \hspace{6.33em}\mathit{correctionPending} , \mathit{correctionTurn} , \mathit{outside} , \mathit{outsides} \rangle
+&\quad \hspace{6.33em}\mathit{correctionPending} , \mathit{correctionTurn} , \mathit{outside} , \mathit{outsides} , \mathit{noticeVars} \rangle
 \end{aligned}
 ```
 
@@ -925,7 +1231,7 @@ publishes event context or retains it for Deliver. Recovery clears stale context
 &\quad \hspace{6.33em}\mathit{request} , \mathit{reply} , \mathit{requests} , \mathit{changes} , \mathit{session} , \mathit{visible} , \\
 &\quad \hspace{6.33em}\mathit{contextPending} , \mathit{contextSent} , \mathit{correctionQueued} , \\
 &\quad \hspace{6.33em}\mathit{contexts} , \mathit{warnings} , \mathit{corrections} , \mathit{inTurn} , \mathit{wakes} , \mathit{work} , \\
-&\quad \hspace{6.33em}\mathit{correctionPending} , \mathit{correctionTurn} , \mathit{outside} , \mathit{outsides} \rangle
+&\quad \hspace{6.33em}\mathit{correctionPending} , \mathit{correctionTurn} , \mathit{outside} , \mathit{outsides} , \mathit{noticeVars} \rangle
 \end{aligned}
 ```
 
@@ -943,7 +1249,7 @@ The result-ordering and baseline rules are specified in Overwatch.tla.    This l
 &\quad \hspace{3.0em}\mathit{ELSE} \mathit{UNCHANGED} \langle \mathit{contextSent} , \mathit{correctionQueued} , \mathit{contextPending} \rangle \\
 &\quad \hspace{1.33em}\land \mathit{UNCHANGED} \langle \mathit{host} , \mathit{active} , \mathit{baseline} , \mathit{inherited} , \mathit{selected} , \mathit{request} , \\
 &\quad \hspace{6.33em}\mathit{reply} , \mathit{requests} , \mathit{session} , \mathit{visible} , \mathit{contexts} , \mathit{warnings} , \mathit{corrections} , \mathit{inTurn} , \mathit{wakes} , \mathit{work} , \\
-&\quad \hspace{6.33em}\mathit{correctionPending} , \mathit{correctionTurn} , \mathit{outsides} \rangle
+&\quad \hspace{6.33em}\mathit{correctionPending} , \mathit{correctionTurn} , \mathit{outsides} , \mathit{noticeVars} \rangle
 \end{aligned}
 ```
 
@@ -959,7 +1265,7 @@ A check that finishes on another process's change, with no session edit    since
 &\quad \hspace{1.33em}\land \mathit{UNCHANGED} \langle \mathit{host} , \mathit{active} , \mathit{baseline} , \mathit{inherited} , \mathit{selected} , \mathit{request} , \\
 &\quad \hspace{6.33em}\mathit{reply} , \mathit{requests} , \mathit{changes} , \mathit{session} , \mathit{visible} , \mathit{contextSent} , \\
 &\quad \hspace{6.33em}\mathit{correctionQueued} , \mathit{contexts} , \mathit{warnings} , \mathit{corrections} , \mathit{inTurn} , \mathit{wakes} , \mathit{work} , \\
-&\quad \hspace{6.33em}\mathit{correctionPending} , \mathit{correctionTurn} \rangle
+&\quad \hspace{6.33em}\mathit{correctionPending} , \mathit{correctionTurn} , \mathit{noticeVars} \rangle
 \end{aligned}
 ```
 
@@ -983,7 +1289,7 @@ A check that finishes on another process's change, with no session edit    since
 &\quad \hspace{1.33em}\land \mathit{UNCHANGED} \langle \mathit{host} , \mathit{active} , \mathit{busy} , \mathit{reports} , \mathit{baseline} , \mathit{inherited} , \mathit{selected} , \\
 &\quad \hspace{6.33em}\mathit{request} , \mathit{reply} , \mathit{requests} , \mathit{changes} , \mathit{session} , \\
 &\quad \hspace{6.33em}\mathit{correctionQueued} , \mathit{warnings} , \mathit{corrections} , \mathit{inTurn} , \mathit{wakes} , \mathit{work} , \\
-&\quad \hspace{6.33em}\mathit{correctionPending} , \mathit{correctionTurn} , \mathit{outside} , \mathit{outsides} \rangle
+&\quad \hspace{6.33em}\mathit{correctionPending} , \mathit{correctionTurn} , \mathit{outside} , \mathit{outsides} , \mathit{noticeVars} \rangle
 \end{aligned}
 ```
 
@@ -997,7 +1303,7 @@ A check that finishes on another process's change, with no session edit    since
 &\quad \hspace{1.33em}\land \mathit{UNCHANGED} \langle \mathit{host} , \mathit{active} , \mathit{busy} , \mathit{reports} , \mathit{baseline} , \mathit{inherited} , \mathit{selected} , \\
 &\quad \hspace{6.33em}\mathit{request} , \mathit{reply} , \mathit{requests} , \mathit{changes} , \mathit{session} , \mathit{visible} , \\
 &\quad \hspace{6.33em}\mathit{correctionQueued} , \mathit{warnings} , \mathit{corrections} , \mathit{inTurn} , \mathit{work} , \\
-&\quad \hspace{6.33em}\mathit{correctionPending} , \mathit{correctionTurn} , \mathit{outside} , \mathit{outsides} \rangle
+&\quad \hspace{6.33em}\mathit{correctionPending} , \mathit{correctionTurn} , \mathit{outside} , \mathit{outsides} , \mathit{noticeVars} \rangle
 \end{aligned}
 ```
 
@@ -1021,10 +1327,10 @@ own turn, where inspecting and repairing are its answer.
 &\quad \hspace{1.33em}\land \mathit{active} ' = \mathit{FALSE} \land \mathit{busy} ' = \mathit{FALSE} \land \mathit{request} ' = \texttt{"none"} \\
 &\quad \hspace{1.33em}\land \mathit{reply} ' = [ \mathit{ready} \mapsto \mathit{TRUE} , \mathit{decision} \mapsto \texttt{"cancelled"} ] \\
 &\quad \hspace{1.33em}\land \mathit{visible} ' = [ \mathit{known} \mapsto \mathit{FALSE} , \mathit{failures} \mapsto \mathit{Empty} ] \\
-&\quad \hspace{1.33em}\land \mathit{contextPending} ' = \mathit{FALSE} \\
+&\quad \hspace{1.33em}\land \mathit{contextPending} ' = \mathit{FALSE} \land \mathit{noticePending} ' = \mathit{FALSE} \\
 &\quad \hspace{1.33em}\land \mathit{UNCHANGED} \langle \mathit{host} , \mathit{reports} , \mathit{baseline} , \mathit{inherited} , \mathit{selected} , \mathit{requests} , \\
 &\quad \hspace{6.33em}\mathit{changes} , \mathit{session} , \mathit{contextSent} , \mathit{correctionQueued} , \\
-&\quad \hspace{6.33em}\mathit{contexts} , \mathit{warnings} , \mathit{corrections} , \mathit{wakes} , \mathit{work} , \mathit{outside} , \mathit{outsides} \rangle
+&\quad \hspace{6.33em}\mathit{contexts} , \mathit{warnings} , \mathit{corrections} , \mathit{wakes} , \mathit{work} , \mathit{outside} , \mathit{outsides} , \mathit{noticesRaised} , \mathit{noticesTold} \rangle
 \end{aligned}
 ```
 
@@ -1041,7 +1347,7 @@ own turn, where inspecting and repairing are its answer.
 &\quad \hspace{1.33em}\land \mathit{visible} ' = [ \mathit{known} \mapsto \mathit{FALSE} , \mathit{failures} \mapsto \mathit{Empty} ] \\
 &\quad \hspace{1.33em}\land \mathit{contextPending} ' = \mathit{FALSE} \land \mathit{contextSent} ' = \mathit{FALSE} \land \mathit{correctionQueued} ' = \mathit{FALSE} \land \mathit{outside} ' = \mathit{FALSE} \\
 &\quad \hspace{1.33em}\land \mathit{UNCHANGED} \langle \mathit{host} , \mathit{reports} , \mathit{inherited} , \mathit{selected} , \mathit{changes} , \mathit{contexts} , \mathit{warnings} , \mathit{corrections} , \\
-&\quad \hspace{6.33em}\mathit{wakes} , \mathit{work} , \mathit{outsides} \rangle
+&\quad \hspace{6.33em}\mathit{wakes} , \mathit{work} , \mathit{outsides} , \mathit{noticeVars} \rangle
 \end{aligned}
 ```
 
@@ -1055,7 +1361,7 @@ own turn, where inspecting and repairing are its answer.
 &\quad \hspace{1.33em}\land \mathit{UNCHANGED} \langle \mathit{host} , \mathit{active} , \mathit{busy} , \mathit{reports} , \mathit{baseline} , \mathit{inherited} , \mathit{selected} , \\
 &\quad \hspace{6.33em}\mathit{request} , \mathit{reply} , \mathit{requests} , \mathit{changes} , \mathit{session} , \mathit{visible} , \\
 &\quad \hspace{6.33em}\mathit{contextPending} , \mathit{contextSent} , \mathit{correctionQueued} , \mathit{contexts} , \\
-&\quad \hspace{6.33em}\mathit{warnings} , \mathit{corrections} , \mathit{wakes} , \mathit{work} , \mathit{correctionPending} , \mathit{outside} , \mathit{outsides} \rangle
+&\quad \hspace{6.33em}\mathit{warnings} , \mathit{corrections} , \mathit{wakes} , \mathit{work} , \mathit{correctionPending} , \mathit{outside} , \mathit{outsides} , \mathit{noticeVars} \rangle
 \end{aligned}
 ```
 
@@ -1068,7 +1374,7 @@ own turn, where inspecting and repairing are its answer.
 &\quad \hspace{1.33em}\land \mathit{UNCHANGED} \langle \mathit{host} , \mathit{active} , \mathit{busy} , \mathit{reports} , \mathit{baseline} , \mathit{inherited} , \mathit{selected} , \\
 &\quad \hspace{6.33em}\mathit{request} , \mathit{reply} , \mathit{requests} , \mathit{changes} , \mathit{session} , \mathit{visible} , \\
 &\quad \hspace{6.33em}\mathit{contextPending} , \mathit{contextSent} , \mathit{correctionQueued} , \mathit{contexts} , \\
-&\quad \hspace{6.33em}\mathit{warnings} , \mathit{corrections} , \mathit{wakes} , \mathit{work} , \mathit{outside} , \mathit{outsides} \rangle
+&\quad \hspace{6.33em}\mathit{warnings} , \mathit{corrections} , \mathit{wakes} , \mathit{work} , \mathit{outside} , \mathit{outsides} , \mathit{noticeVars} \rangle
 \end{aligned}
 ```
 
@@ -1082,7 +1388,48 @@ own turn, where inspecting and repairing are its answer.
 &\quad \hspace{1.33em}\land \mathit{UNCHANGED} \langle \mathit{host} , \mathit{active} , \mathit{busy} , \mathit{reports} , \mathit{baseline} , \mathit{inherited} , \mathit{selected} , \\
 &\quad \hspace{6.33em}\mathit{request} , \mathit{reply} , \mathit{requests} , \mathit{changes} , \mathit{session} , \mathit{visible} , \\
 &\quad \hspace{6.33em}\mathit{contextPending} , \mathit{contextSent} , \mathit{contexts} , \mathit{warnings} , \mathit{corrections} , \mathit{inTurn} , \mathit{wakes} , \\
-&\quad \hspace{6.33em}\mathit{correctionPending} , \mathit{correctionTurn} , \mathit{outside} , \mathit{outsides} \rangle
+&\quad \hspace{6.33em}\mathit{correctionPending} , \mathit{correctionTurn} , \mathit{outside} , \mathit{outsides} , \mathit{noticeVars} \rangle
+\end{aligned}
+```
+
+## [IntegrationContract - Notices of a TCR revert]($heading.id('integrationcontract---notices-of-a-tcr-revert'))
+
+
+A host that runs TCR reverts an edit that adds a failure, and the agent has to
+be told why. A host that delivers by event appends the notice to the tool
+result at once. OpenCode 2 queues it for the next model request. A notice is
+not a failure: a check that finds nothing guarded clears a queued failure, never
+a queued notice. Each notice is delivered at most once and only a shutdown
+discards one that is still queued.
+
+### [IntegrationContract - RevertNotice]($heading.id('integrationcontract---revertnotice'))
+
+```=mathtex
+\begin{aligned}
+&\mathit{RevertNotice} \triangleq \land \mathit{active} \land \mathit{Capabilities} ( \mathit{host} ) . \mathit{tcr} \land \mathit{noticesRaised} < \mathit{MaxNotices} \\
+&\quad \hspace{1.33em}\land \mathit{noticesRaised} ' = \mathit{noticesRaised} + 1 \\
+&\quad \hspace{1.33em}\land \mathit{IF} \mathit{Capabilities} ( \mathit{host} ) . \mathit{delivery} = \texttt{"context"} \\
+&\quad \hspace{3.0em}\mathit{THEN} \mathit{noticePending} ' = \mathit{TRUE} \land \mathit{UNCHANGED} \mathit{noticesTold} \\
+&\quad \hspace{3.0em}\mathit{ELSE} \mathit{noticesTold} ' = \mathit{noticesTold} + 1 \land \mathit{UNCHANGED} \mathit{noticePending} \\
+&\quad \hspace{1.33em}\land \mathit{UNCHANGED} \langle \mathit{host} , \mathit{active} , \mathit{busy} , \mathit{reports} , \mathit{baseline} , \mathit{inherited} , \mathit{selected} , \\
+&\quad \hspace{6.33em}\mathit{request} , \mathit{reply} , \mathit{requests} , \mathit{changes} , \mathit{session} , \mathit{visible} , \\
+&\quad \hspace{6.33em}\mathit{contextPending} , \mathit{contextSent} , \mathit{correctionQueued} , \mathit{contexts} , \mathit{warnings} , \\
+&\quad \hspace{6.33em}\mathit{corrections} , \mathit{inTurn} , \mathit{wakes} , \mathit{work} , \mathit{correctionPending} , \mathit{correctionTurn} , \\
+&\quad \hspace{6.33em}\mathit{outside} , \mathit{outsides} \rangle
+\end{aligned}
+```
+
+### [IntegrationContract - DeliverNotice]($heading.id('integrationcontract---delivernotice'))
+
+```=mathtex
+\begin{aligned}
+&\mathit{DeliverNotice} \triangleq \land \mathit{active} \land \mathit{noticePending} \\
+&\quad \hspace{1.33em}\land \mathit{noticePending} ' = \mathit{FALSE} \land \mathit{noticesTold} ' = \mathit{noticesTold} + 1 \\
+&\quad \hspace{1.33em}\land \mathit{UNCHANGED} \langle \mathit{host} , \mathit{active} , \mathit{busy} , \mathit{reports} , \mathit{baseline} , \mathit{inherited} , \mathit{selected} , \\
+&\quad \hspace{6.33em}\mathit{request} , \mathit{reply} , \mathit{requests} , \mathit{changes} , \mathit{session} , \mathit{visible} , \\
+&\quad \hspace{6.33em}\mathit{contextPending} , \mathit{contextSent} , \mathit{correctionQueued} , \mathit{contexts} , \mathit{warnings} , \\
+&\quad \hspace{6.33em}\mathit{corrections} , \mathit{inTurn} , \mathit{wakes} , \mathit{work} , \mathit{correctionPending} , \mathit{correctionTurn} , \\
+&\quad \hspace{6.33em}\mathit{outside} , \mathit{outsides} , \mathit{noticesRaised} \rangle
 \end{aligned}
 ```
 
@@ -1107,6 +1454,7 @@ remains enabled even while a check is held.
 \begin{aligned}
 &\mathit{Next} \triangleq ( \exists \mathit{k} \in \mathit{Kinds} : \mathit{Request} ( \mathit{k} ) ) \lor \mathit{Respond} \lor \mathit{Acknowledge} \lor \mathit{BeginCheck} \\
 &\quad \hspace{2.67em}\lor \mathit{CheckCompletes} \lor \mathit{Report} \lor \mathit{Deliver} \lor \mathit{Stop} \lor \mathit{Restart} \\
+&\quad \hspace{2.67em}\lor \mathit{RevertNotice} \lor \mathit{DeliverNotice} \\
 &\quad \hspace{2.67em}\lor \mathit{StartTurn} \lor \mathit{StartCorrectionTurn} \lor \mathit{WorkCompleted} \\
 &\quad \hspace{2.67em}\lor ( \neg \mathit{active} \land \mathit{session} = \mathit{MaxSessions} \land \mathit{UNCHANGED} \mathit{vars} )
 \end{aligned}
@@ -1119,7 +1467,7 @@ Check completion fairness is the RunsEnd guarantee of the result model.    Inspe
 ```=mathtex
 \begin{aligned}
 &\mathit{Spec} \triangleq \mathit{Init} \land \Box [ \mathit{Next} ] _ \mathit{vars} \land \mathit{WF\_vars} ( \mathit{CheckCompletes} ) \\
-&\quad \hspace{2.67em}\land \mathit{WF\_vars} ( \mathit{Respond} ) \land \mathit{WF\_vars} ( \mathit{Report} ) \land \mathit{WF\_vars} ( \mathit{Deliver} )
+&\quad \hspace{2.67em}\land \mathit{WF\_vars} ( \mathit{Respond} ) \land \mathit{WF\_vars} ( \mathit{Report} ) \land \mathit{WF\_vars} ( \mathit{Deliver} ) \land \mathit{WF\_vars} ( \mathit{DeliverNotice} )
 \end{aligned}
 ```
 
@@ -1158,7 +1506,7 @@ are deduplicated. Progress properties require the fairness stated in Spec.
 
 ```=mathtex
 \begin{aligned}
-&\mathit{StoppedSessionsStaySilent} \triangleq \neg \mathit{active} \Rightarrow \neg \mathit{contextPending} \land \neg \mathit{visible} . \mathit{known}
+&\mathit{StoppedSessionsStaySilent} \triangleq \neg \mathit{active} \Rightarrow \neg \mathit{contextPending} \land \neg \mathit{visible} . \mathit{known} \land \neg \mathit{noticePending}
 \end{aligned}
 ```
 
@@ -1203,11 +1551,43 @@ are deduplicated. Progress properties require the fairness stated in Spec.
 \end{aligned}
 ```
 
+### [IntegrationContract - NoticesAreDeliveredOnce]($heading.id('integrationcontract---noticesaredeliveredonce'))
+
+```=mathtex
+\begin{aligned}
+&\mathit{NoticesAreDeliveredOnce} \triangleq \mathit{noticesTold} + ( \mathit{IF} \mathit{noticePending} \mathit{THEN} 1 \mathit{ELSE} 0 ) \leq \mathit{noticesRaised}
+\end{aligned}
+```
+
+### [IntegrationContract - OnlyTcrHostsRaiseNotices]($heading.id('integrationcontract---onlytcrhostsraisenotices'))
+
+```=mathtex
+\begin{aligned}
+&\mathit{OnlyTcrHostsRaiseNotices} \triangleq \mathit{noticesRaised} > 0 \Rightarrow \mathit{Capabilities} ( \mathit{host} ) . \mathit{tcr}
+\end{aligned}
+```
+
+### [IntegrationContract - NoticesOutliveRecovery]($heading.id('integrationcontract---noticesoutliverecovery'))
+
+```=mathtex
+\begin{aligned}
+&\mathit{NoticesOutliveRecovery} \triangleq \Box [ ( \mathit{noticePending} \land \neg \mathit{noticePending} ' ) \Rightarrow ( \mathit{noticesTold} ' = \mathit{noticesTold} + 1 \lor \neg \mathit{active} ' ) ] _ \mathit{vars}
+\end{aligned}
+```
+
 ### [IntegrationContract - PendingReportsEventuallyResolve]($heading.id('integrationcontract---pendingreportseventuallyresolve'))
 
 ```=mathtex
 \begin{aligned}
 &\mathit{PendingReportsEventuallyResolve} \triangleq \mathit{contextPending} \leadsto \neg \mathit{contextPending}
+\end{aligned}
+```
+
+### [IntegrationContract - PendingNoticesEventuallyResolve]($heading.id('integrationcontract---pendingnoticeseventuallyresolve'))
+
+```=mathtex
+\begin{aligned}
+&\mathit{PendingNoticesEventuallyResolve} \triangleq \mathit{noticePending} \leadsto \neg \mathit{noticePending}
 \end{aligned}
 ```
 
@@ -1262,8 +1642,11 @@ The LaTeX is generated by TLATeX from the TLA+ sources. The PDFs are typeset ver
 | [IntegrationLifecycle.cfg](https://raw.githubusercontent.com/benomahony/overwatch/main/spec/IntegrationLifecycle.cfg) | cfg |
 | [IntegrationLifecycle.tex](https://raw.githubusercontent.com/benomahony/overwatch/main/spec/IntegrationLifecycle.tex) | tex |
 | [IntegrationLifecycle.tla](https://raw.githubusercontent.com/benomahony/overwatch/main/spec/IntegrationLifecycle.tla) | tla |
+| [IntegrationNotices.cfg](https://raw.githubusercontent.com/benomahony/overwatch/main/spec/IntegrationNotices.cfg) | cfg |
 | [Overwatch.cfg](https://raw.githubusercontent.com/benomahony/overwatch/main/spec/Overwatch.cfg) | cfg |
 | [Overwatch.pdf](https://raw.githubusercontent.com/benomahony/overwatch/main/spec/Overwatch.pdf) | pdf |
 | [Overwatch.tex](https://raw.githubusercontent.com/benomahony/overwatch/main/spec/Overwatch.tex) | tex |
 | [Overwatch.tla](https://raw.githubusercontent.com/benomahony/overwatch/main/spec/Overwatch.tla) | tla |
+| [OverwatchTcr.cfg](https://raw.githubusercontent.com/benomahony/overwatch/main/spec/OverwatchTcr.cfg) | cfg |
+| [OverwatchTcrReverts.cfg](https://raw.githubusercontent.com/benomahony/overwatch/main/spec/OverwatchTcrReverts.cfg) | cfg |
 | [modules.json](https://raw.githubusercontent.com/benomahony/overwatch/main/spec/modules.json) | json |

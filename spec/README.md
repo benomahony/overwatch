@@ -6,8 +6,8 @@ The package reading order is declared once in `modules.json`: shared failure pol
 
 There are two layers:
 
-- `Overwatch.tla` models workspace versions, inherited baselines, runs, buffered results, and notification ordering. A read consumes the newest completed result, preserves unfinished output, and never makes the agent's edits inherited debt.
-- `IntegrationContract.tla` models requests and responses, check contention, selected checks, inherited-finding policy, report delivery, completion feedback, shutdown, and restart. `IntegrationLifecycle.cfg` checks another bounded instance of this same contract with a restart. Both layers use `FailurePolicy.tla`; they do not maintain independent definitions of a regression.
+- `Overwatch.tla` models workspace versions, inherited baselines, runs, buffered results, and notification ordering. A read consumes the newest completed result, preserves unfinished output, and never makes the agent's edits inherited debt. With `TcrMode` it also models TCR: the restore point, a person's uncommitted work, the checkpoint and revert of a settled edit, and the notice of a revert.
+- `IntegrationContract.tla` models requests and responses, check contention, selected checks, inherited-finding policy, report delivery, completion feedback, the notice of a TCR revert, shutdown, and restart. `IntegrationLifecycle.cfg` checks another bounded instance of this same contract with a restart. Both layers use `FailurePolicy.tla`; they do not maintain independent definitions of a regression.
 
 Failure atoms represent what a runner exposes: named identities or count slots for summary-only checkers. The model cannot recover identities that the runner does not emit.
 
@@ -33,7 +33,20 @@ The interface layer checks that inspection and repair responses are enabled whil
 
 Delivery liveness assumes check completion fairness, corresponding to the result layer's `RunsEnd` guarantee, and fair host servicing of report/context callbacks. Inspection does not require that assumption: the responder remains enabled even if a check is still held. The runtime contention tests hold a real command-hook session lock until after inspection returns. The model does not specify a universal wall-clock response deadline.
 
-The committed model-checking configurations use finite bounds: two checks, a small failure alphabet, up to two requests, and up to one report change or session restart. These bounds exercise concurrency and policy combinations; passing them is not proof for every unbounded program execution or every external host version.
+The TCR properties of `Overwatch.tla` are checked with `TcrMode` on by two configurations. `OverwatchTcr.cfg` checks all of them, including the liveness of the notice of a revert, with one failure name and two workspace edits. `OverwatchTcrReverts.cfg` checks every safety property with three workspace edits, which is the least that fits the scenarios in which a revert meets a person's work: an edit of the agent, an outside edit and a revert need three versions, so `RevertNeverDiscardsSeenWork` cannot fail with two. The properties state that a revert is a new workspace version, so `head` only grows, and restores the content of the restore point; that a checkpoint follows a green result and a revert a new failure of the latest edit, never an overtaken result, a timeout, or a result read while TCR is unavailable; that a pull replaces the restore point; that a person's work seen at the start, or after a tool that does not edit, pauses TCR and is never reverted; that a failed commit changes nothing; and that the notice of every revert is kept and reaches the agent. They also state a limit: work that a person did just before the agent's edit, with no tool that does not edit between them, is unseen, and a revert discards it. A probe that asks for a revert while work of a person is unseen finds that trace with three workspace edits, after about 80,000 states, and finds none with two. `Overwatch.cfg` runs the same module with `TcrMode` off and checks exactly the states it checked before TCR existed.
+
+The notice of a revert is a separate delivery path in `IntegrationContract.tla`. A host that delivers by event tells the agent at once. OpenCode 2 queues the notice for the next model request. A check that finds nothing guarded clears a queued failure, never a queued notice, so a pending notice leaves the queue only by delivery or shutdown, and no notice is delivered twice.
+
+The model of TCR leaves out these behaviors of the hooks, each a known abstraction:
+
+- The inherited-block policy is not modelled. The code holds an edit that leaves an inherited check failing uncommitted, so the next turn start sees a dirty tree and TCR becomes unavailable, and within a turn a later revert goes back to the older checkpoint and discards the held edit.
+- A revert that cannot finish is not modelled. In the code TCR becomes unavailable when the revert raises, while the model's `Revert` always succeeds.
+- A timed-out check is not modelled as the code treats it. The model counts a timeout as a check that cannot judge an edit, while in the code the hook reports an error and saves no state.
+- Tool kinds are not modelled. The code acts only after a tool in `EDITING_TOOLS`, which has `Bash` and the editing tools of each agent but not `exec_command`, while the model has no tool kind and makes `Observe` nondeterministic.
+- When TCR is decided again is not modelled for each host. The code decides at `SessionStart` and `UserPromptSubmit`, and Pi and OpenCode 1 send no `UserPromptSubmit`, so a paused TCR never resumes in a session there, while the model resumes at every turn start for every host.
+- Parallel hooks are not modelled. The code runs the hooks of one session one at a time under a per-session lock, and the model has no hook, so an edit settles when a result for the current workspace is read.
+
+The committed model-checking configurations use finite bounds: two checks, a small failure alphabet, up to two requests, and up to one report change or session restart. The TCR configurations use one failure name, one tick of the timeout clock, and two or three workspace edits. These bounds exercise concurrency and policy combinations; passing them is not proof for every unbounded program execution or every external host version.
 
 ## Model-derived conformance tests
 
@@ -44,13 +57,15 @@ The committed model-checking configurations use finite bounds: two checks, a sma
 - OpenCode and Pi run native callbacks through the real shared checker. Held-check requests, deferred context, persistent status, and correction counts are observed at their public callbacks.
 - Neovim runs the real watcher callbacks with controlled process I/O, checking status, editor actions, and late callbacks after shutdown.
 
-CI model-checks both layers and the lifecycle instance, verifies generated expectations, and runs all six adapters. Changes should fix code against the contracts. A spec change requires an intentional behavior or capability change, not a workaround for a failing implementation.
+CI asks TLC for the expected observations and rejects a fixture that no longer matches them (`model_traces.py --check` and `integration_traces.py --check`), rejects LaTeX that is stale against the sources (`spec_latex.py --check`), and runs all six adapters against those fixtures. CI does not run TLC on every configuration. After a change to a module, run each `.cfg` that names it with TLC, for example `java -cp tla2tools.jar tlc2.TLC -config OverwatchTcr.cfg Overwatch.tla`; the large `IntegrationContract.cfg` needs about 10 minutes and a 10 GB heap. Changes should fix code against the contracts. A spec change requires an intentional behavior or capability change, not a workaround for a failing implementation.
 
 ## Reading the models
 
 TLA+ describes states and the actions allowed to change them. TLC explores all reachable states within a configuration's finite bounds, including different orders of concurrent events. A failing invariant or temporal property produces a counterexample sequence to investigate before changing the implementation.
 
 In `Overwatch.tla`, `truth` maps workspace versions to findings, `head` is the current version, and `based` identifies the inherited baseline. `pending` holds completed, unread results. `ReadResults` consumes the latest complete result; unfinished process output is outside that action. `outbox` and the turn state constrain when a report becomes visible and whether it can wake an idle agent.
+
+With `TcrMode`, `Overwatch.tla` adds `tcr` (off, active, or unavailable), `ck` (the version the latest commit holds, which a revert restores), `person` (none, unseen, or seen uncommitted work of a person), `settleDue` (an edit of the agent has no settled result yet), and `noticePending`, `noticeCause` and `noticeTold` (the notice of a revert and the failures it names). `Checkpoint` and `Revert` settle an edit once `report` is a result for the current `head`; `Observe` is the first tool that does not edit after an outside edit.
 
 In `IntegrationContract.tla`, `reports` and `baseline` contain per-check finding sets. `busy` represents an unfinished check. `request` and `reply` separate asking for an action from receiving its decision, so TLC can explore a request arriving during a check. `visible`, `contextPending`, and the delivery counters represent the host's observable channels. `active` and `session` distinguish shutdown from restart. `Capabilities` declares the host differences; it does not offer user-selectable enforcement modes.
 
