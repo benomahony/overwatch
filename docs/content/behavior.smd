@@ -18,36 +18,36 @@ Run `python3 scripts/scenarios.py` to verify the scenarios and regenerate this p
 [Claude Code]($text.attrs('agent')) [completion]($text.attrs('tag')) [retry-loop]($text.attrs('tag'))
 [View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L7)
 
-- [Given]($text.attrs('given')) [A previously passing Claude watcher now reports warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L236).
-- [When]($text.attrs('when')) [The correction turns repeatedly finish without using tools](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L251).
-- [Then]($text.attrs('then')) [Only one correction is requested while completion and publication stay guarded](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L258).
+- [Given]($text.attrs('given')) [A previously passing Claude watcher now reports warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L363).
+- [When]($text.attrs('when')) [The correction turns repeatedly finish without using tools](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L378).
+- [Then]($text.attrs('then')) [Only one correction is requested while completion and publication stay guarded](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L385).
 
 ### [Inspecting in a correction turn does not repeat the correction]($section.id('inspecting-in-a-correction-turn-does-not-repeat-the-correction').attrs('verified'))
 
 [Claude Code]($text.attrs('agent')) [completion]($text.attrs('tag')) [retry-loop]($text.attrs('tag')) [inspection]($text.attrs('tag'))
 [View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L12)
 
-- [Given]($text.attrs('given')) [A previously passing Claude watcher now reports warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L236).
-- [When]($text.attrs('when')) [Each correction turn reads files and runs the check, and the warnings do not change](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L251).
-- [Then]($text.attrs('then')) [Only one correction is requested](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L258).
+- [Given]($text.attrs('given')) [A previously passing Claude watcher now reports warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L363).
+- [When]($text.attrs('when')) [Each correction turn reads files and runs the check, and the warnings do not change](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L378).
+- [Then]($text.attrs('then')) [Only one correction is requested](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L385).
 
 ### [Another process's changes give Claude at most one correction]($section.id('another-processs-changes-give-claude-at-most-one-correction').attrs('verified'))
 
 [Claude Code]($text.attrs('agent')) [completion]($text.attrs('tag')) [retry-loop]($text.attrs('tag')) [outside-changes]($text.attrs('tag'))
 [View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L17)
 
-- [Given]($text.attrs('given')) [A Claude session whose checks are clean and which makes no edits](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L274).
-- [When]($text.attrs('when')) [Another process changes files several times, so the check fails with a different count each time](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L251).
-- [Then]($text.attrs('then')) [The session receives at most one correction, none says the failures came after its latest change, and completion stays guarded](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L258).
+- [Given]($text.attrs('given')) [A Claude session whose checks are clean and which makes no edits](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L401).
+- [When]($text.attrs('when')) [Another process changes files several times, so the check fails with a different count each time](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L378).
+- [Then]($text.attrs('then')) [The session receives at most one correction, none says the failures came after its latest change, and completion stays guarded](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L385).
 
 ### [Denied publication does not restart Claude corrections]($section.id('denied-publication-does-not-restart-claude-corrections').attrs('verified'))
 
 [Claude Code]($text.attrs('agent')) [completion]($text.attrs('tag')) [protected-actions]($text.attrs('tag'))
 [View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L22)
 
-- [Given]($text.attrs('given')) [A previously passing Claude watcher now reports warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L236).
-- [When]($text.attrs('when')) [An empty correction remains guarded and publication is repeatedly denied](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L350).
-- [Then]($text.attrs('then')) [Publication never executes and no further correction is submitted](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L258).
+- [Given]($text.attrs('given')) [A previously passing Claude watcher now reports warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L363).
+- [When]($text.attrs('when')) [An empty correction remains guarded and publication is repeatedly denied](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L477).
+- [Then]($text.attrs('then')) [Publication never executes and no further correction is submitted](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L385).
 
 ## [Claude recovery and changed findings]($section.id('claude-recovery-and-changed-findings'))
 
@@ -56,36 +56,36 @@ Run `python3 scripts/scenarios.py` to verify the scenarios and regenerate this p
 [Claude Code]($text.attrs('agent')) [completion]($text.attrs('tag')) [repair]($text.attrs('tag'))
 [View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L27)
 
-- [Given]($text.attrs('given')) [A previously passing Claude watcher now reports warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L236).
-- [When]($text.attrs('when')) [An empty correction remains guarded and the agent resumes inspection in a new turn](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L323).
-- [Then]($text.attrs('then')) [Inspection succeeds and the remaining warnings request another correction](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L258).
+- [Given]($text.attrs('given')) [A previously passing Claude watcher now reports warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L363).
+- [When]($text.attrs('when')) [An empty correction remains guarded and the agent resumes inspection in a new turn](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L450).
+- [Then]($text.attrs('then')) [Inspection succeeds and the remaining warnings request another correction](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L385).
 
 ### [Changed findings give Claude one fresh correction]($section.id('changed-findings-give-claude-one-fresh-correction').attrs('verified'))
 
 [Claude Code]($text.attrs('agent')) [completion]($text.attrs('tag')) [new-findings]($text.attrs('tag'))
 [View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L32)
 
-- [Given]($text.attrs('given')) [A previously passing Claude watcher now reports warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L236).
-- [When]($text.attrs('when')) [An empty correction remains guarded and the agent's next edit adds warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L368).
-- [Then]($text.attrs('then')) [The new warnings request one fresh correction and empty retries remain guarded](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L258).
+- [Given]($text.attrs('given')) [A previously passing Claude watcher now reports warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L363).
+- [When]($text.attrs('when')) [An empty correction remains guarded and the agent's next edit adds warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L495).
+- [Then]($text.attrs('then')) [The new warnings request one fresh correction and empty retries remain guarded](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L385).
 
 ### [Passing checks release a queued Claude correction]($section.id('passing-checks-release-a-queued-claude-correction').attrs('verified'))
 
 [Claude Code]($text.attrs('agent')) [completion]($text.attrs('tag')) [recovery]($text.attrs('tag'))
 [View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L37)
 
-- [Given]($text.attrs('given')) [A previously passing Claude watcher now reports warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L236).
-- [When]($text.attrs('when')) [The checks recover during the correction turn and the agent attempts publication](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L251).
-- [Then]($text.attrs('then')) [Publication and completion succeed without another correction](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L258).
+- [Given]($text.attrs('given')) [A previously passing Claude watcher now reports warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L363).
+- [When]($text.attrs('when')) [The checks recover during the correction turn and the agent attempts publication](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L378).
+- [Then]($text.attrs('then')) [Publication and completion succeed without another correction](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L385).
 
 ### [A recovered Claude failure can request correction again]($section.id('a-recovered-claude-failure-can-request-correction-again').attrs('verified'))
 
 [Claude Code]($text.attrs('agent')) [completion]($text.attrs('tag')) [failure-cycle]($text.attrs('tag'))
 [View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L42)
 
-- [Given]($text.attrs('given')) [A previously passing Claude watcher now reports warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L236).
-- [When]($text.attrs('when')) [The failure is corrected and the same warnings return after another change](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L251).
-- [Then]($text.attrs('then')) [The returning failure gets one fresh correction and empty retries remain guarded](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L258).
+- [Given]($text.attrs('given')) [A previously passing Claude watcher now reports warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L363).
+- [When]($text.attrs('when')) [The failure is corrected and the same warnings return after another change](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L378).
+- [Then]($text.attrs('then')) [The returning failure gets one fresh correction and empty retries remain guarded](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L385).
 
 ## [Claude interruption]($section.id('claude-interruption'))
 
@@ -94,36 +94,36 @@ Run `python3 scripts/scenarios.py` to verify the scenarios and regenerate this p
 [Claude Code]($text.attrs('agent')) [completion]($text.attrs('tag')) [interruption]($text.attrs('tag'))
 [View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L47)
 
-- [Given]($text.attrs('given')) [A previously passing Claude watcher now reports warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L236).
-- [When]($text.attrs('when')) [The agent turn is interrupted](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L251).
-- [Then]($text.attrs('then')) [The turn settles without submitting a correction prompt](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L258).
+- [Given]($text.attrs('given')) [A previously passing Claude watcher now reports warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L363).
+- [When]($text.attrs('when')) [The agent turn is interrupted](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L378).
+- [Then]($text.attrs('then')) [The turn settles without submitting a correction prompt](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L385).
 
 ### [An interrupted Claude correction stays stopped]($section.id('an-interrupted-claude-correction-stays-stopped').attrs('verified'))
 
 [Claude Code]($text.attrs('agent')) [completion]($text.attrs('tag')) [interruption]($text.attrs('tag')) [retry-loop]($text.attrs('tag'))
 [View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L52)
 
-- [Given]($text.attrs('given')) [A previously passing Claude watcher now reports warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L236).
-- [When]($text.attrs('when')) [The correction turn is interrupted and the watcher repeats the same failure](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L251).
-- [Then]($text.attrs('then')) [The interrupted turn settles without submitting another correction](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L258).
+- [Given]($text.attrs('given')) [A previously passing Claude watcher now reports warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L363).
+- [When]($text.attrs('when')) [The correction turn is interrupted and the watcher repeats the same failure](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L378).
+- [Then]($text.attrs('then')) [The interrupted turn settles without submitting another correction](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L385).
 
 ### [Claude API-error completion does not queue a correction]($section.id('claude-api-error-completion-does-not-queue-a-correction').attrs('verified'))
 
 [Claude Code]($text.attrs('agent')) [completion]($text.attrs('tag')) [api-error]($text.attrs('tag')) [rate-limit]($text.attrs('tag'))
 [View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L57)
 
-- [Given]($text.attrs('given')) [A previously passing Claude watcher now reports warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L236).
-- [When]($text.attrs('when')) [Claude completes with the runtime's API-error event and the watcher repeats its failure](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L251).
-- [Then]($text.attrs('then')) [The unsuccessful turn settles without requesting another correction](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L258).
+- [Given]($text.attrs('given')) [A previously passing Claude watcher now reports warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L363).
+- [When]($text.attrs('when')) [Claude completes with the runtime's API-error event and the watcher repeats its failure](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L378).
+- [Then]($text.attrs('then')) [The unsuccessful turn settles without requesting another correction](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L385).
 
 ### [A user turn restores Claude reporting after interruption]($section.id('a-user-turn-restores-claude-reporting-after-interruption').attrs('verified'))
 
 [Claude Code]($text.attrs('agent')) [completion]($text.attrs('tag')) [user-resume]($text.attrs('tag'))
 [View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L62)
 
-- [Given]($text.attrs('given')) [A previously passing Claude watcher now reports warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L236).
-- [When]($text.attrs('when')) [The turn is interrupted and the user starts a new investigation turn](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L251).
-- [Then]($text.attrs('then')) [Inspection succeeds and the remaining failure requests a fresh correction](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L258).
+- [Given]($text.attrs('given')) [A previously passing Claude watcher now reports warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L363).
+- [When]($text.attrs('when')) [The turn is interrupted and the user starts a new investigation turn](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L378).
+- [Then]($text.attrs('then')) [Inspection succeeds and the remaining failure requests a fresh correction](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L385).
 
 ## [Claude multiple watchers]($section.id('claude-multiple-watchers'))
 
@@ -132,9 +132,9 @@ Run `python3 scripts/scenarios.py` to verify the scenarios and regenerate this p
 [Claude Code]($text.attrs('agent')) [completion]($text.attrs('tag')) [check-scope]($text.attrs('tag')) [recovery]($text.attrs('tag'))
 [View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L67)
 
-- [Given]($text.attrs('given')) [Claude has failing Zig and Zanity watchers and publication requires only Zanity](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L462).
-- [When]($text.attrs('when')) [Zanity recovers before Zig and the agent attempts publication and completion](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L251).
-- [Then]($text.attrs('then')) [Publication follows Zanity while completion waits for both watchers to recover](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L258).
+- [Given]($text.attrs('given')) [Claude has failing Zig and Zanity watchers and publication requires only Zanity](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L589).
+- [When]($text.attrs('when')) [Zanity recovers before Zig and the agent attempts publication and completion](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L378).
+- [Then]($text.attrs('then')) [Publication follows Zanity while completion waits for both watchers to recover](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L385).
 
 ## [Claude session lifecycle]($section.id('claude-session-lifecycle'))
 
@@ -143,18 +143,18 @@ Run `python3 scripts/scenarios.py` to verify the scenarios and regenerate this p
 [Claude Code]($text.attrs('agent')) [session]($text.attrs('tag')) [restart]($text.attrs('tag'))
 [View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L72)
 
-- [Given]($text.attrs('given')) [A previously passing Claude watcher now reports warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L236).
-- [When]($text.attrs('when')) [A correction is interrupted and the session is ended and started again](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L251).
-- [Then]($text.attrs('then')) [The new session reports its new failure and requests a fresh correction](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L258).
+- [Given]($text.attrs('given')) [A previously passing Claude watcher now reports warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L363).
+- [When]($text.attrs('when')) [A correction is interrupted and the session is ended and started again](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L378).
+- [Then]($text.attrs('then')) [The new session reports its new failure and requests a fresh correction](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L385).
 
 ### [A resumed Claude session resets correction suppression]($section.id('a-resumed-claude-session-resets-correction-suppression').attrs('verified'))
 
 [Claude Code]($text.attrs('agent')) [session]($text.attrs('tag')) [resume]($text.attrs('tag'))
 [View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L77)
 
-- [Given]($text.attrs('given')) [A previously passing Claude watcher now reports warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L236).
-- [When]($text.attrs('when')) [A correction is interrupted and Claude resumes the session](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L251).
-- [Then]($text.attrs('then')) [The resumed session reports its new failure and requests a fresh correction](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L258).
+- [Given]($text.attrs('given')) [A previously passing Claude watcher now reports warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L363).
+- [When]($text.attrs('when')) [A correction is interrupted and Claude resumes the session](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L378).
+- [Then]($text.attrs('then')) [The resumed session reports its new failure and requests a fresh correction](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L385).
 
 ## [Failure gates]($section.id('failure-gates'))
 
@@ -163,56 +163,56 @@ Run `python3 scripts/scenarios.py` to verify the scenarios and regenerate this p
 [repair]($text.attrs('tag')) [warnings]($text.attrs('tag'))
 [View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L82)
 
-- [Given]($text.attrs('given')) [A previously passing check now reports 29 warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L82).
-- [When]($text.attrs('when')) [The agent lists, searches, reads, edits, and runs check commands](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L90).
-- [Then]($text.attrs('then')) [Every repair operation is allowed and the edited file can be read](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L108).
+- [Given]($text.attrs('given')) [A previously passing check now reports 29 warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L84).
+- [When]($text.attrs('when')) [The agent lists, searches, reads, edits, and runs check commands](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L92).
+- [Then]($text.attrs('then')) [Every repair operation is allowed and the edited file can be read](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L110).
 
 ### [Protected actions stay protected on every attempt]($section.id('protected-actions-stay-protected-on-every-attempt').attrs('verified'))
 
 [protected-actions]($text.attrs('tag'))
 [View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L87)
 
-- [Given]($text.attrs('given')) [A previously passing check now reports 29 warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L82).
-- [When]($text.attrs('when')) [The agent attempts configured publication actions twice](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L115).
-- [Then]($text.attrs('then')) [Every attempt is denied with the failing check's summary](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L123).
+- [Given]($text.attrs('given')) [A previously passing check now reports 29 warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L84).
+- [When]($text.attrs('when')) [The agent attempts configured publication actions twice](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L117).
+- [Then]($text.attrs('then')) [Every attempt is denied with the failing check's summary](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L125).
 
 ### [Completion stays guarded during a continuation]($section.id('completion-stays-guarded-during-a-continuation').attrs('verified'))
 
 [completion]($text.attrs('tag'))
 [View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L92)
 
-- [Given]($text.attrs('given')) [A previously passing check now reports 29 warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L82).
-- [When]($text.attrs('when')) [The agent repeatedly tries to finish, including a Stop continuation](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L131).
-- [Then]($text.attrs('then')) [Every completion attempt remains guarded](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L137).
+- [Given]($text.attrs('given')) [A previously passing check now reports 29 warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L84).
+- [When]($text.attrs('when')) [The agent repeatedly tries to finish, including a Stop continuation](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L133).
+- [Then]($text.attrs('then')) [Every completion attempt remains guarded](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L139).
 
 ### [Successful checks release the failure gate]($section.id('successful-checks-release-the-failure-gate').attrs('verified'))
 
 [recovery]($text.attrs('tag'))
 [View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L97)
 
-- [Given]($text.attrs('given')) [A previously passing check now reports 29 warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L82).
-- [When]($text.attrs('when')) [The repaired code passes its check](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L143).
-- [Then]($text.attrs('then')) [Completion and configured publication actions are allowed](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L150).
+- [Given]($text.attrs('given')) [A previously passing check now reports 29 warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L84).
+- [When]($text.attrs('when')) [The repaired code passes its check](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L145).
+- [Then]($text.attrs('then')) [Completion and configured publication actions are allowed](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L152).
 
 ### [Protected actions consult their relevant checks]($section.id('protected-actions-consult-their-relevant-checks').attrs('verified'))
 
 [check-scope]($text.attrs('tag'))
-[View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L115)
+[View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L120)
 
-- [Given]($text.attrs('given')) [Publication requires the passing Go check](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L202).
-- [And]($text.attrs('given')) [The unrelated Zanity check develops 29 warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L82).
-- [When]($text.attrs('when')) [The agent attempts publication and completion](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L176).
-- [Then]($text.attrs('then')) [Publication is allowed while overall completion remains guarded](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L212).
+- [Given]($text.attrs('given')) [Publication requires the passing Go check](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L329).
+- [And]($text.attrs('given')) [The unrelated Zanity check develops 29 warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L84).
+- [When]($text.attrs('when')) [The agent attempts publication and completion](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L178).
+- [Then]($text.attrs('then')) [Publication is allowed while overall completion remains guarded](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L339).
 
 ### [Inspection never starts a check]($section.id('inspection-never-starts-a-check').attrs('verified'))
 
 [repair]($text.attrs('tag')) [check-execution]($text.attrs('tag'))
-[View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L121)
+[View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L126)
 
-- [Given]($text.attrs('given')) [A previously passing check now reports 29 warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L82).
-- [And]($text.attrs('given')) [The checker is unavailable for a new run](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L217).
-- [When]($text.attrs('when')) [The agent lists files](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L224).
-- [Then]($text.attrs('then')) [Listing succeeds without rerunning or replacing the failed result](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L230).
+- [Given]($text.attrs('given')) [A previously passing check now reports 29 warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L84).
+- [And]($text.attrs('given')) [The checker is unavailable for a new run](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L344).
+- [When]($text.attrs('when')) [The agent lists files](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L351).
+- [Then]($text.attrs('then')) [Listing succeeds without rerunning or replacing the failed result](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L357).
 
 ## [Legacy debt]($section.id('legacy-debt'))
 
@@ -221,21 +221,142 @@ Run `python3 scripts/scenarios.py` to verify the scenarios and regenerate this p
 [baseline]($text.attrs('tag')) [regressions]($text.attrs('tag'))
 [View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L102)
 
-- [Given]($text.attrs('given')) [The session starts with 29 inherited warnings under the default policy](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L156).
-- [When]($text.attrs('when')) [The agent attempts completion and publication](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L176).
-- [Then]($text.attrs('then')) [Completion and configured publication actions are allowed](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L184).
-- [When]($text.attrs('when')) [A change increases the warning count to 30](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L189).
-- [Then]($text.attrs('then')) [The new failure guards completion](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L196).
+- [Given]($text.attrs('given')) [The session starts with 29 inherited warnings under the default policy](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L158).
+- [When]($text.attrs('when')) [The agent attempts completion and publication](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L178).
+- [Then]($text.attrs('then')) [Completion and configured publication actions are allowed](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L186).
+- [When]($text.attrs('when')) [A change increases the warning count to 30](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L283).
+- [Then]($text.attrs('then')) [The new failure guards completion](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L290).
+
+### [A commit made with a failing edit does not hide the failure]($section.id('a-commit-made-with-a-failing-edit-does-not-hide-the-failure').attrs('verified'))
+
+[baseline]($text.attrs('tag')) [regressions]($text.attrs('tag')) [commits]($text.attrs('tag'))
+[View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L109)
+
+- [Given]($text.attrs('given')) [The project's files are committed and the session starts with a passing check](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L307).
+- [When]($text.attrs('when')) [One shell step breaks the check and commits the change](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L314).
+- [Then]($text.attrs('then')) [The failure is reported as new and Stop is refused](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L322).
 
 ### [Strict inherited-finding policy still permits inspection]($section.id('strict-inherited-finding-policy-still-permits-inspection').attrs('verified'))
 
 [baseline]($text.attrs('tag')) [strict]($text.attrs('tag'))
-[View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L109)
+[View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L114)
 
-- [Given]($text.attrs('given')) [Inherited findings are configured to block](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L163).
-- [And]($text.attrs('given')) [The session starts with 29 inherited warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L156).
-- [When]($text.attrs('when')) [The agent attempts completion, publication, and inspection](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L176).
-- [Then]($text.attrs('then')) [Completion and publication are denied while inspection remains available](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L170).
+- [Given]($text.attrs('given')) [Inherited findings are configured to block](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L165).
+- [And]($text.attrs('given')) [The session starts with 29 inherited warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L158).
+- [When]($text.attrs('when')) [The agent attempts completion, publication, and inspection](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L178).
+- [Then]($text.attrs('then')) [Completion and publication are denied while inspection remains available](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L172).
+
+## [Modes and limits]($section.id('modes-and-limits'))
+
+### [TCR mode commits an edit that keeps the checks green]($section.id('tcr-mode-commits-an-edit-that-keeps-the-checks-green').attrs('verified'))
+
+[modes]($text.attrs('tag')) [tcr]($text.attrs('tag')) [checkpoint]($text.attrs('tag'))
+[View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L158)
+
+- [Given]($text.attrs('given')) [The project runs overwatch in TCR mode with green checks](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L205).
+- [When]($text.attrs('when')) [The agent makes an edit and the checks on that edit pass](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L224).
+- [Then]($text.attrs('then')) [The change is committed as a checkpoint](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L255).
+
+### [TCR mode reverts an edit that introduces a new failure]($section.id('tcr-mode-reverts-an-edit-that-introduces-a-new-failure').attrs('verified'))
+
+[modes]($text.attrs('tag')) [tcr]($text.attrs('tag')) [revert]($text.attrs('tag'))
+[View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L163)
+
+- [Given]($text.attrs('given')) [The project runs overwatch in TCR mode with green checks](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L205).
+- [When]($text.attrs('when')) [The agent makes an edit and the checks on that edit report a new failure](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L224).
+- [Then]($text.attrs('then')) [The working tree is restored to the latest checkpoint and the agent is told which failure caused the revert](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L260).
+
+### [TCR mode leaves inherited failures alone]($section.id('tcr-mode-leaves-inherited-failures-alone').attrs('verified'))
+
+[modes]($text.attrs('tag')) [tcr]($text.attrs('tag')) [inherited]($text.attrs('tag'))
+[View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L168)
+
+- [Given]($text.attrs('given')) [The project runs overwatch in TCR mode and the session baseline has inherited failures](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L205).
+- [When]($text.attrs('when')) [The checks on an edit report only those inherited failures](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L224).
+- [Then]($text.attrs('then')) [The change is committed as a checkpoint](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L255).
+
+### [TCR mode never acts on an overtaken result]($section.id('tcr-mode-never-acts-on-an-overtaken-result').attrs('verified'))
+
+[modes]($text.attrs('tag')) [tcr]($text.attrs('tag')) [overtaken]($text.attrs('tag'))
+[View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L173)
+
+- [Given]($text.attrs('given')) [The project runs overwatch in TCR mode with green checks](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L205).
+- [When]($text.attrs('when')) [The agent edits again while the checks on an earlier edit are running](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L236).
+- [Then]($text.attrs('then')) [The earlier result neither commits nor reverts](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L266).
+
+### [TCR mode does not start on a dirty working tree]($section.id('tcr-mode-does-not-start-on-a-dirty-working-tree').attrs('verified'))
+
+[modes]($text.attrs('tag')) [tcr]($text.attrs('tag')) [dirty-tree]($text.attrs('tag'))
+[View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L178)
+
+- [Given]($text.attrs('given')) [The project runs overwatch in TCR mode and the working tree has uncommitted changes when the session starts](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L205).
+- [When]($text.attrs('when')) [The agent makes an edit that adds a failure](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L224).
+- [Then]($text.attrs('then')) [Overwatch reports that TCR is unavailable and no revert discards those changes](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L271).
+
+### [TCR mode pauses when a checkpoint commit fails]($section.id('tcr-mode-pauses-when-a-checkpoint-commit-fails').attrs('verified'))
+
+[modes]($text.attrs('tag')) [tcr]($text.attrs('tag')) [commit-failure]($text.attrs('tag'))
+[View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L183)
+
+- [Given]($text.attrs('given')) [The project runs overwatch in TCR mode with green checks](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L205).
+- [And]($text.attrs('given')) [A commit hook refuses commits](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L244).
+- [When]($text.attrs('when')) [The agent makes an edit that keeps the checks green](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L224).
+- [Then]($text.attrs('then')) [Overwatch reports that TCR is unavailable and the change stays staged](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L277).
+
+### [Claude Code commits an edit that keeps the checks green]($section.id('claude-code-commits-an-edit-that-keeps-the-checks-green').attrs('verified'))
+
+[modes]($text.attrs('tag')) [tcr]($text.attrs('tag')) [checkpoint]($text.attrs('tag')) [Claude Code]($text.attrs('agent'))
+[View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L189)
+
+- [Given]($text.attrs('given')) [The project runs overwatch in TCR mode in Claude Code with green checks](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L667).
+- [When]($text.attrs('when')) [The agent makes an edit and the checks on that edit pass](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L378).
+- [Then]($text.attrs('then')) [The change is committed as a checkpoint](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L385).
+
+### [Claude Code reverts an edit that introduces a new failure]($section.id('claude-code-reverts-an-edit-that-introduces-a-new-failure').attrs('verified'))
+
+[modes]($text.attrs('tag')) [tcr]($text.attrs('tag')) [revert]($text.attrs('tag')) [Claude Code]($text.attrs('agent'))
+[View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L194)
+
+- [Given]($text.attrs('given')) [The project runs overwatch in TCR mode in Claude Code with green checks](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L667).
+- [When]($text.attrs('when')) [The agent makes an edit and the checks on that edit report a new failure](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L378).
+- [Then]($text.attrs('then')) [The working tree is restored to the latest checkpoint and the agent is told which failure caused the revert](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L385).
+
+### [Claude Code leaves inherited failures alone in TCR mode]($section.id('claude-code-leaves-inherited-failures-alone-in-tcr-mode').attrs('verified'))
+
+[modes]($text.attrs('tag')) [tcr]($text.attrs('tag')) [inherited]($text.attrs('tag')) [Claude Code]($text.attrs('agent'))
+[View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L199)
+
+- [Given]($text.attrs('given')) [The project runs overwatch in TCR mode in Claude Code and the session baseline has inherited failures](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L667).
+- [When]($text.attrs('when')) [The checks on an edit report only those inherited failures](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L378).
+- [Then]($text.attrs('then')) [The change is committed as a checkpoint](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L385).
+
+### [Claude Code never acts on an overtaken result in TCR mode]($section.id('claude-code-never-acts-on-an-overtaken-result-in-tcr-mode').attrs('verified'))
+
+[modes]($text.attrs('tag')) [tcr]($text.attrs('tag')) [overtaken]($text.attrs('tag')) [Claude Code]($text.attrs('agent'))
+[View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L204)
+
+- [Given]($text.attrs('given')) [The project runs overwatch in TCR mode in Claude Code with green checks](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L667).
+- [When]($text.attrs('when')) [The files change again before the checks on an earlier edit report](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L378).
+- [Then]($text.attrs('then')) [The earlier result neither commits nor reverts](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L385).
+
+### [Claude Code does not start TCR on a dirty working tree]($section.id('claude-code-does-not-start-tcr-on-a-dirty-working-tree').attrs('verified'))
+
+[modes]($text.attrs('tag')) [tcr]($text.attrs('tag')) [dirty-tree]($text.attrs('tag')) [Claude Code]($text.attrs('agent'))
+[View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L209)
+
+- [Given]($text.attrs('given')) [The project runs overwatch in TCR mode in Claude Code and the working tree has uncommitted changes when the session starts](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L667).
+- [When]($text.attrs('when')) [The agent makes an edit that adds a failure](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L378).
+- [Then]($text.attrs('then')) [Overwatch reports that TCR is unavailable and no revert discards those changes](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L385).
+
+### [Claude Code pauses TCR when a checkpoint commit fails]($section.id('claude-code-pauses-tcr-when-a-checkpoint-commit-fails').attrs('verified'))
+
+[modes]($text.attrs('tag')) [tcr]($text.attrs('tag')) [commit-failure]($text.attrs('tag')) [Claude Code]($text.attrs('agent'))
+[View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L214)
+
+- [Given]($text.attrs('given')) [The project runs overwatch in TCR mode in Claude Code with green checks](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L667).
+- [And]($text.attrs('given')) [A commit hook refuses commits](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L707).
+- [When]($text.attrs('when')) [The agent makes an edit that keeps the checks green](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L378).
+- [Then]($text.attrs('then')) [Overwatch reports that TCR is unavailable and the change is not committed](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L385).
 
 # [Model-derived integration contracts]($section.id('model-derived-integration-contracts'))
 
@@ -2856,7 +2977,7 @@ These 134 cases are generated from the same TLC expectations replayed against al
 ### [Editing a function activates its inherited findings]($section.id('editing-a-function-activates-its-inherited-findings').attrs('proposed'))
 
 [changed-code]($text.attrs('tag'))
-[View proposal](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L127)
+[View proposal](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L132)
 
 - [Given]($text.attrs('given')) A function has three inherited warnings and another function has twelve.
 - [When]($text.attrs('when')) The agent changes the first function.
@@ -2866,7 +2987,7 @@ These 134 cases are generated from the same TLC expectations replayed against al
 ### [Changed code activates the cross-file findings it participates in]($section.id('changed-code-activates-the-cross-file-findings-it-participates-in').attrs('proposed'))
 
 [changed-code]($text.attrs('tag')) [cross-file]($text.attrs('tag'))
-[View proposal](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L138)
+[View proposal](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L143)
 
 - [Given]($text.attrs('given')) An inherited finding involves functions in two files.
 - [When]($text.attrs('when')) The agent changes one of those participating functions.
@@ -2875,7 +2996,7 @@ These 134 cases are generated from the same TLC expectations replayed against al
 ### [Disabling a rule is not a resolution]($section.id('disabling-a-rule-is-not-a-resolution').attrs('proposed'))
 
 [rules]($text.attrs('tag')) [resolution]($text.attrs('tag'))
-[View proposal](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L148)
+[View proposal](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L153)
 
 - [Given]($text.attrs('given')) A finding requires cleanup in changed code.
 - [When]($text.attrs('when')) Its rule is disabled or its source path is excluded.
@@ -2886,7 +3007,7 @@ These 134 cases are generated from the same TLC expectations replayed against al
 ### [Moving a finding preserves its identity and age]($section.id('moving-a-finding-preserves-its-identity-and-age').attrs('proposed'))
 
 [identity]($text.attrs('tag')) [age]($text.attrs('tag'))
-[View proposal](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L133)
+[View proposal](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L138)
 
 - [Given]($text.attrs('given')) An inherited finding has a recorded identity and first-seen date.
 - [When]($text.attrs('when')) Unrelated lines are inserted above it or the agent session restarts.
@@ -2895,7 +3016,7 @@ These 134 cases are generated from the same TLC expectations replayed against al
 ### [Untouched debt escalates at its configured deadline]($section.id('untouched-debt-escalates-at-its-configured-deadline').attrs('proposed'))
 
 [age]($text.attrs('tag')) [deadlines]($text.attrs('tag'))
-[View proposal](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L143)
+[View proposal](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L148)
 
 - [Given]($text.attrs('given')) An inherited finding has a project-configured deadline.
 - [When]($text.attrs('when')) A check runs after that deadline.
@@ -2906,7 +3027,7 @@ These 134 cases are generated from the same TLC expectations replayed against al
 ### [Advisory mode reports failures without guarding]($section.id('advisory-mode-reports-failures-without-guarding').attrs('proposed'))
 
 [modes]($text.attrs('tag')) [advisory]($text.attrs('tag'))
-[View proposal](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L153)
+[View proposal](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L220)
 
 - [Given]($text.attrs('given')) The project runs overwatch in advisory mode.
 - [And]($text.attrs('given')) A change introduces a new failure.
@@ -2917,7 +3038,7 @@ These 134 cases are generated from the same TLC expectations replayed against al
 ### [Strict mode waits for a result of the latest edit]($section.id('strict-mode-waits-for-a-result-of-the-latest-edit').attrs('proposed'))
 
 [modes]($text.attrs('tag')) [strict]($text.attrs('tag'))
-[View proposal](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L160)
+[View proposal](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L227)
 
 - [Given]($text.attrs('given')) The project runs overwatch in strict mode.
 - [When]($text.attrs('when')) The agent edits and tries to finish before the checks have run on that edit.
@@ -2926,7 +3047,7 @@ These 134 cases are generated from the same TLC expectations replayed against al
 ### [Edits wait while the agent is too far ahead of its checks]($section.id('edits-wait-while-the-agent-is-too-far-ahead-of-its-checks').attrs('proposed'))
 
 [limits]($text.attrs('tag')) [max-ahead]($text.attrs('tag'))
-[View proposal](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L165)
+[View proposal](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L232)
 
 - [Given]($text.attrs('given')) The project allows the agent three edits ahead of its latest result.
 - [And]($text.attrs('given')) Checks are still running on an earlier edit.
@@ -2937,7 +3058,7 @@ These 134 cases are generated from the same TLC expectations replayed against al
 ### [Strict mode hands a lingering failure to a person]($section.id('strict-mode-hands-a-lingering-failure-to-a-person').attrs('proposed'))
 
 [limits]($text.attrs('tag')) [red-budget]($text.attrs('tag'))
-[View proposal](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L172)
+[View proposal](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L239)
 
 - [Given]($text.attrs('given')) The project runs overwatch in strict mode with a budget of edits while red.
 - [And]($text.attrs('given')) A new failure has been reported.
@@ -2947,7 +3068,7 @@ These 134 cases are generated from the same TLC expectations replayed against al
 ### [A check that exceeds its time limit fails]($section.id('a-check-that-exceeds-its-time-limit-fails').attrs('proposed'))
 
 [limits]($text.attrs('tag')) [timeout]($text.attrs('tag'))
-[View proposal](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L178)
+[View proposal](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L245)
 
 - [Given]($text.attrs('given')) The project sets a time limit on checks.
 - [When]($text.attrs('when')) A run exceeds it.

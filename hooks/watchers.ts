@@ -56,6 +56,7 @@ export type WatcherSettings = {
 /** The project's own `.overwatch.json`, shared with the Neovim plugin, every field optional. */
 export type Override = {
   gate?: GatePolicy
+  mode?: string
   enabled?: boolean
   name?: string
   argv?: string[]
@@ -394,6 +395,26 @@ export function failureMessage(watcher: Watcher, report: Report, { known, log, o
     ...logLine(log),
   ].join('\n')
   assert(fresh.length + old === report.failures.length, `${watcher.name} split ${report.failures.length} failures into ${fresh.length} new and ${old} old`)
+  return message
+}
+
+/** One failing watcher's part of a revert: what it reported, what the session had already, and where its full output is. */
+export type Reverted = { watcher: Watcher; report: Report; known: readonly string[]; log: string | undefined }
+
+/** Tells the agent TCR reverted its latest change: which new failures caused it, where the full output is, and which files came back. */
+export function revertMessage(causes: readonly Reverted[], restored: readonly string[]): string {
+  assert(causes.length > 0 && restored.length > 0, `a revert of ${restored.length} files for ${causes.length} failures cannot be told; give both`)
+  const parts = causes.map(({ watcher, report, known, log }) => {
+    const knownNames = new Set(known)
+    return [
+      `overwatch: TCR reverted the latest change because ${command(watcher)} failed: ${report.summary}`,
+      ...failingLine(report.failures.filter(name => !knownNames.has(name))),
+      ...logLine(log),
+    ].join('\n')
+  })
+  const message = `${parts.join('\n\n')}\nRestored: ${restored.map(name => `\`${name}\``).join(', ')}. Try a smaller step.`
+  assert(message.split('TCR reverted').length === causes.length + 1, `message names ${message.split('TCR reverted').length - 1} reverts for ${causes.length} failures`)
+  assert(restored.every(name => message.includes(`\`${name}\``)), `message leaves out one of the restored files ${restored}`)
   return message
 }
 

@@ -1,6 +1,7 @@
 import type { EngineInterface, FsEntry, Register, Timer } from 'claude-code'
 import { assert } from './assert'
-import { protectedChecks, type GatePolicy } from './gating'
+import { bringsInFiles, commandOf, protectedChecks, type GatePolicy } from './gating'
+import { CommandError, OUTSIDE_CHANGE, TCR_ACTIVE, UPSTREAM_LANGUAGE, ask, fingerprintOf, initialTcr, isJudging, isNewFailure, isToldByTcr, notice, readMode, runCheck, shortCommit, stateOf, tcrMessage, type Tcr } from './tcr'
 import {
   CHECKERS,
   LANGUAGES,
@@ -23,6 +24,7 @@ import {
   overrideWatcher,
   readReport,
   recoveryMessage,
+  revertMessage,
   statusLine,
   type Override,
   type Report,
@@ -73,7 +75,7 @@ type Slot = {
 }
 
 /** A message for the agent, waiting to go with the others that arrive with it; each slot has at most one of each kind waiting. */
-type Message = { text: string; isWaking: boolean; kind: 'report' | 'exit' | 'environment' | 'baseline' }
+type Message = { text: string; isWaking: boolean; kind: 'report' | 'exit' | 'environment' | 'baseline' | 'tcr' }
 
 type State = {
   /** The interactive session's directory; undefined before it starts and once it ends. */
@@ -105,6 +107,14 @@ type State = {
   onWatcherEnded: (() => void) | undefined
   /** One for each watcher found so far, in the order found, which is the status line's order. */
   slots: Slot[]
+  /** Whether TCR runs in this project, and what it waits to settle; see tcr.ts. */
+  tcr: Tcr
+  /** The decision about TCR in flight, which an edit's fingerprint waits for. */
+  tcrDeciding: Promise<void> | undefined
+  /** The judgement of the agent's latest edit: when it starts, which one it is, and how to stop the checks it runs. */
+  tcrTimer: Timer | undefined
+  tcrTicket: number
+  tcrKills: Set<() => Promise<unknown>>
 }
 
 /** One watcher running in its slot: what each step of a run needs. */
@@ -130,7 +140,8 @@ function setStatus($: EngineInterface, state: State, slot: Slot, text: string | 
 async function send($: EngineInterface, state: State) {
   const messages = [...state.outbox.values()]
   if (messages.length === 0) return
-  const isHeld = state.isTurnRunning ? state.isToldThisTurn : state.isPromptQueued || !messages.some(({ isWaking }) => isWaking)
+  const isTcrNotice = messages.some(({ kind }) => kind === 'tcr')
+  const isHeld = state.isTurnRunning ? state.isToldThisTurn && !isTcrNotice : state.isPromptQueued || !messages.some(({ isWaking }) => isWaking)
   if (isHeld) return
   state.outbox.clear()
   const reports = messages.flatMap(({ text, kind }) => (kind === 'environment' ? [] : [text]))
@@ -139,7 +150,7 @@ async function send($: EngineInterface, state: State) {
   assert(reports.length + environment.length === messages.length, `sent ${reports.length + environment.length} of ${messages.length} waiting messages; send each`)
   assert(text !== '', `${messages.length} waiting messages joined to nothing; each message needs text`)
   if (state.isTurnRunning) {
-    state.isToldThisTurn = true
+    state.isToldThisTurn = state.isToldThisTurn || messages.some(({ kind }) => kind !== 'tcr')
     await $.session.append({ message: { type: 'user', content: [{ type: 'text', text }] } })
     return
   }
@@ -256,6 +267,7 @@ async function deliver($: EngineInterface, run: Run, report: Report) {
   const isRegression = hasRegression(report, slot.baseline)
   const wasFailing = slot.wasFailing
   slot.wasFailing = isRegression
+  if (isToldByTcr(state.tcr)) return
   if (isRegression) {
     await tellRegression($, run, report)
     return
@@ -450,6 +462,12 @@ async function repositoryOf($: EngineInterface, dir: string): Promise<string | u
 
 /** A commit id as git writes it in .git: forty hex digits, or sixty-four in a SHA-256 repository. */
 const COMMIT = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/
+
+/** How many of the newest HEAD reflog entries are read to find what moved HEAD. */
+const REFLOG_DEPTH = 100
+
+/** The reflog subject of a commit made here, or an amended one, as git writes it. */
+const COMMIT_ENTRY = /^commit(?: \(amend\))?: /
 
 /**
  * The commit checked out in the repository at root, read from its .git directory: HEAD itself when detached, else
@@ -723,6 +741,8 @@ async function stop($: EngineInterface, state: State) {
   state.flushing?.cancel()
   state.outbox.clear()
   state.environment.clear()
+  state.tcr = initialTcr()
+  void cancelJudgement(state)
   const slots = state.slots.map(each => {
     each.isWatching = false
     each.retryAt = 0
@@ -766,6 +786,213 @@ const slot = (key: string, dir: string): Slot => {
   }
   assert(made.key === key && made.dir === dir, `slot for ${key} was made with key ${made.key} and dir ${made.dir}`)
   return made
+}
+
+/** Holds a message about TCR for the agent, in place of one with the same key; a revert wakes the agent. */
+function queueTcr($: EngineInterface, state: State, key: string, message: Message) {
+  assert(message.kind === 'tcr' && message.text.startsWith('overwatch: TCR '), `${JSON.stringify(message)} is no TCR message; say overwatch: TCR and give it the tcr kind`)
+  state.outbox.set(`tcr:${key}`, message)
+  schedule($, state)
+  assert(state.outbox.get(`tcr:${key}`) === message, `the TCR message ${key} is not waiting after queueing it`)
+}
+
+/** Stops judging the edit that waits, whether its checks have started or not, and makes any judgement in flight stale. */
+async function cancelJudgement(state: State) {
+  state.tcrTimer?.cancel()
+  state.tcrTimer = undefined
+  state.tcrTicket += 1
+  assert(state.tcrTimer === undefined, 'a cancelled judgement still has a timer that will start it')
+  const kills = [...state.tcrKills]
+  state.tcrKills.clear()
+  await Promise.all(kills.map(kill => kill().catch(() => undefined)))
+  assert(state.tcrKills.size === 0 || kills.length > 0, `${state.tcrKills.size} checks of a cancelled judgement still run`)
+  assert(kills.every(kill => !state.tcrKills.has(kill)), `${kills.length} stopped checks are still among the ${state.tcrKills.size} that wait to be stopped`)
+}
+
+/** Stops TCR committing and reverting, for `reason`, until it is decided again at the start of a turn. */
+function pauseTcr($: EngineInterface, state: State, reason: string) {
+  assert(reason !== '' && reason !== TCR_ACTIVE, `TCR was paused for ${JSON.stringify(reason)}; give the reason it cannot run`)
+  const text = notice(state.tcr.status, reason)
+  state.tcr = { status: reason, settled: undefined, seen: undefined, unjudged: false }
+  void cancelJudgement(state)
+  if (text !== undefined) queueTcr($, state, 'state', tcrMessage(text, false))
+  assert(state.tcr.status === reason && !state.tcr.unjudged, `TCR paused for ${reason} but is ${state.tcr.status}, judging ${state.tcr.unjudged}`)
+}
+
+/**
+ * Decides whether TCR runs in the session's repository: the project's mode must be tcr and nothing may stand in the
+ * way of a revert, such as uncommitted changes. Decided at the session's start and again at each turn's start.
+ */
+function decideTcr($: EngineInterface, state: State): Promise<void> {
+  const deciding = decideNow($, state).finally(() => {
+    if (state.tcrDeciding === deciding) state.tcrDeciding = undefined
+  })
+  state.tcrDeciding = deciding
+  assert(state.tcrDeciding === deciding, 'the decision about TCR is not the one in flight; record it before it ends')
+  assert(deciding instanceof Promise, `the decision about TCR is ${typeof deciding}, not something to wait for`)
+  return deciding
+}
+
+async function decideNow($: EngineInterface, state: State) {
+  const { cwd, epoch } = state
+  assert(cwd === undefined || cwd.startsWith('/'), `the session's directory ${cwd} is not an absolute path`)
+  const root = cwd === undefined ? undefined : await repositoryOf($, cwd)
+  if (root === undefined) return
+  let mode: ReturnType<typeof readMode>
+  try {
+    mode = readMode(await readOverride($, root))
+  } catch (error) {
+    $.ui.toast(`overwatch: ${(error as Error).message}`)
+    return
+  }
+  if (mode === undefined) {
+    state.tcr = initialTcr()
+    void cancelJudgement(state)
+    return
+  }
+  const files = await fingerprintOf($, root).catch(() => undefined)
+  const next = await stateOf($, root)
+  const settled = next === TCR_ACTIVE ? files : undefined
+  if (state.epoch !== epoch) return
+  const text = notice(state.tcr.status, next)
+  state.tcr = { status: settled === undefined && next === TCR_ACTIVE ? 'the files could not be fingerprinted' : next, settled, seen: settled, unjudged: false }
+  void cancelJudgement(state)
+  if (text !== undefined) queueTcr($, state, 'state', tcrMessage(text, false))
+  assert(!state.tcr.unjudged, 'a fresh decision left an edit waiting to be judged')
+}
+
+/**
+ * After a tool ran. An edit that changed the files waits to be judged by the project's checks. Files that differ at a
+ * tool that does not edit, from what the agent's last edit left, are someone else's, so TCR waits for the next turn.
+ */
+async function noteFiles($: EngineInterface, state: State, tool: string) {
+  assert(tool !== '', `a tool call named the tool ${JSON.stringify(tool)}; pass the name of the tool the agent called`)
+  await state.tcrDeciding
+  const { cwd, epoch, tcr } = state
+  const root = cwd === undefined || tcr.status !== TCR_ACTIVE ? undefined : await repositoryOf($, cwd)
+  if (root === undefined) return
+  const files = await fingerprintOf($, root).catch(() => undefined)
+  if (state.epoch !== epoch || state.tcr !== tcr || files === undefined) return
+  if (!EDITING_TOOLS.has(tool)) {
+    if (files !== tcr.seen) pauseTcr($, state, OUTSIDE_CHANGE)
+  } else if (files !== tcr.seen) {
+    tcr.seen = files
+    tcr.unjudged = files !== tcr.settled
+    if (tcr.unjudged) scheduleJudgement($, state)
+    else void cancelJudgement(state)
+  }
+  assert(state.tcr.status === TCR_ACTIVE || !state.tcr.unjudged, `TCR is ${state.tcr.status} but waits to judge an edit`)
+}
+
+/** Judges the agent's latest edit once the files have been quiet for a while; a newer edit starts the wait again. */
+function scheduleJudgement($: EngineInterface, state: State) {
+  void cancelJudgement(state)
+  const ticket = state.tcrTicket
+  state.tcrTimer = $.clock.after(QUIET_MS, () => void judgeTcr($, state, ticket))
+  assert(state.tcrTimer !== undefined && state.tcrTicket === ticket, `the judgement ${ticket} was not scheduled as the one that counts`)
+  assert(state.tcr.unjudged, `a judgement was scheduled for ${state.tcr.seen} with no edit waiting to be judged`)
+}
+
+/** The slot's watcher and what its one-shot run printed, or undefined when it could not be read. */
+type Judged = { slot: Slot; report: Report | undefined }
+
+/**
+ * Judges the agent's latest edit by running every check once, unless a newer edit, a change of the files or the end
+ * of the session came first: then it acts on nothing. The upstream check is not judged.
+ */
+async function judgeTcr($: EngineInterface, state: State, ticket: number) {
+  await state.tcrDeciding
+  const { cwd, epoch, tcr } = state
+  const slots = state.slots.filter(({ watcher }) => watcher !== undefined && languageOf(watcher) !== UPSTREAM_LANGUAGE)
+  if (cwd === undefined || tcr.status !== TCR_ACTIVE || !tcr.unjudged || slots.length === 0 || !isJudging(state, { epoch, tcr, ticket })) return
+  const root = await repositoryOf($, cwd)
+  assert(root === undefined || root.startsWith('/'), `the repository of ${cwd} is ${root}, not an absolute path`)
+  if (root === undefined) return
+  assert(slots.every(each => each.dir.startsWith('/')), `a check of ${slots.map(each => each.key)} would run in a relative directory`)
+  const reports = await Promise.all(slots.map(({ watcher, dir }) => runCheck($, watcher as Watcher, { cwd: dir, ...envOf(watcher as Watcher) }, state.tcrKills)))
+  assert(reports.length === slots.length, `${reports.length} results for ${slots.length} checks; judge each check once`)
+  try {
+    const files = await fingerprintOf($, root)
+    if (!isJudging(state, { epoch, tcr, ticket })) return
+    if (files === tcr.seen) await actOnJudgement($, state, { root, files }, slots.map((slot, index) => ({ slot, report: reports[index] })))
+    else pauseTcr($, state, OUTSIDE_CHANGE)
+  } catch (error) {
+    if (!(error instanceof CommandError)) throw error
+    pauseTcr($, state, error.message)
+  }
+}
+
+/** Leaves the latest edit uncommitted and unreverted, and tells the agent why. */
+function holdTcr($: EngineInterface, state: State, reason: string) {
+  assert(reason !== '' && reason !== TCR_ACTIVE, `TCR holds an edit for ${JSON.stringify(reason)}, which tells the agent nothing`)
+  state.tcr.unjudged = false
+  queueTcr($, state, 'hold', tcrMessage(`overwatch: TCR left the latest change uncommitted and unreverted: ${reason}.`, false))
+  assert(!state.tcr.unjudged && state.outbox.has('tcr:hold'), `holding the edit for ${reason} did not leave it unjudged and told`)
+}
+
+/** The repository and the fingerprint of the files the edit left, which a checkpoint or a revert is made for. */
+type Edit = { root: string; files: string }
+
+/**
+ * Reverts when a check has a new failure, commits when none has, and does neither when a check cannot run, has no
+ * baseline to tell a new failure by, or inherited findings block.
+ */
+async function actOnJudgement($: EngineInterface, state: State, edit: Edit, judged: readonly Judged[]) {
+  assert(judged.length > 0, `TCR judges the edit ${edit.files} with no check; hold it when the project has none`)
+  const unread = judged.filter(({ report }) => report === undefined)
+  if (unread.length > 0) return holdTcr($, state, `${unread.map(({ slot }) => slot.watcher?.name).join(', ')} gave no result to judge by`)
+  const offline = judged.filter(({ report }) => report?.environment !== undefined)
+  for (const { slot, report } of offline) queueEnvironment($, { state, slot, watcher: slot.watcher as Watcher }, report?.environment ?? '')
+  if (offline.length > 0) return holdTcr($, state, 'a check cannot run in this environment')
+  const causes = judged.filter(each => isNewFailure(each.slot.baseline, each.report as Report) === true)
+  if (causes.length > 0) return await revertTcr($, state, edit, causes)
+  const unknown = judged.filter(each => isNewFailure(each.slot.baseline, each.report as Report) === undefined)
+  if (unknown.length > 0) return holdTcr($, state, `${unknown.map(({ slot }) => slot.watcher?.name).join(', ')} failed and has no earlier result to tell a new failure from an old one`)
+  const isHeld = (await projectPolicy($, state)).inherited === 'block' && judged.some(({ report }) => report?.isFailed)
+  if (isHeld) state.tcr.unjudged = false
+  else await checkpointTcr($, state, edit)
+  assert(!state.tcr.unjudged, `the edit ${edit.files} was judged green but is still waiting`)
+}
+
+/** Commits the edit that `files` fingerprints as a checkpoint, and notes the commit HEAD is at. */
+async function checkpointTcr($: EngineInterface, state: State, { root, files }: Edit) {
+  assert(files !== '', `a checkpoint of the files ${JSON.stringify(files)} needs their fingerprint`)
+  const { commit } = await ask($, root, 'checkpoint')
+  state.tcr = { status: TCR_ACTIVE, settled: files, seen: files, unjudged: false }
+  if (typeof commit !== 'string') return
+  state.head = (await commitOf($, root)) ?? state.head
+  $.ui.toast(`overwatch: TCR checkpoint ${shortCommit(commit)}`)
+  assert(state.tcr.settled === files, `the checkpoint left ${state.tcr.settled} settled, not ${files}`)
+}
+
+/**
+ * Restores the latest checkpoint and tells the agent the failures that caused it and the files that came back; the
+ * checks then run again on the restored files. When no file differs from the checkpoint, nothing is reverted, and the
+ * agent is told of the failure instead.
+ */
+async function revertTcr($: EngineInterface, state: State, { root }: Edit, causes: readonly Judged[]) {
+  assert(causes.length > 0 && causes.every(({ report }) => report?.isFailed), `reverting for ${causes.map(({ slot }) => slot.key)}, some of which do not fail`)
+  const { restored } = await ask($, root, 'revert')
+  if (!Array.isArray(restored) || !restored.every(name => typeof name === 'string')) throw new CommandError(`the checkpoint command gave the restored files ${JSON.stringify(restored)}; they must be a list of names`)
+  if (restored.length === 0) return holdTcr($, state, `${causes.map(({ slot, report }) => `${slot.watcher?.name} reported ${report?.summary}`).join('; ')}, but no file differs from the latest checkpoint, so there is nothing to revert`)
+  const told = await Promise.all(causes.map(async ({ slot, report }) => ({
+    watcher: slot.watcher as Watcher,
+    report: report as Report,
+    known: slot.baseline?.isFailed ? slot.baseline.failures : [],
+    log: await writeLog($, slot, (report as Report).text),
+  })))
+  const files = await fingerprintOf($, root)
+  state.tcr = { status: TCR_ACTIVE, settled: files, seen: files, unjudged: false }
+  for (const each of state.slots) {
+    state.outbox.delete(`${each.key}:report`)
+    each.report = undefined
+    each.wasFailing = false
+    each.told = undefined
+    each.isEditedSinceResult = true
+    each.changed?.()
+  }
+  queueTcr($, state, 'revert', tcrMessage(revertMessage(told, restored), true))
+  assert(state.slots.every(each => each.report === undefined && each.isEditedSinceResult), `a slot kept its result after the revert of ${restored}`)
 }
 
 /** Policy is read afresh, but ordinary tool calls never rerun a check. */
@@ -842,20 +1069,39 @@ async function completeTurn($: EngineInterface, state: State, isAnswered: boolea
 }
 
 /**
+ * Whether HEAD went from `before` to `after` only by commits made here. A commit records the files the workspace
+ * already holds and brings in none, so what it leaves failing was the session's own. False when any other operation
+ * moved it, or when the repository's HEAD reflog is unreadable or does not reach `before` within REFLOG_DEPTH entries.
+ */
+async function movedByCommits($: EngineInterface, root: string, before: string, after: string): Promise<boolean> {
+  assert(COMMIT.test(before) && COMMIT.test(after) && before !== after, `${before} to ${after} is not a move between two commits; ask only after HEAD moved`)
+  const log = await $.fs.read(`${root}/.git/logs/HEAD`).catch(() => '')
+  const entries = log.split('\n').filter(line => line !== '').slice(-REFLOG_DEPTH).reverse()
+  for (const entry of entries) {
+    const [fields = '', subject = ''] = entry.split('\t')
+    if (fields.split(' ')[1] === before) return true
+    if (!COMMIT_ENTRY.test(subject)) return false
+  }
+  assert(entries.length <= REFLOG_DEPTH, `read ${entries.length} reflog entries, over the ${REFLOG_DEPTH} allowed; slice the log`)
+  return false
+}
+
+/**
  * Notes the commit the session's baselines belong to, and takes fresh ones once it moves under the session, as a
  * pull or checkout brings in failures the agent did not make. Each check reruns, stopping a run still reading the
- * old commit, and its next result is its baseline unless the agent edits first.
+ * old commit, and its next result is its baseline unless the agent edits first. A move made only by commits keeps the
+ * baselines, since commits bring in no files, unless `command`, the step that moved it, ran a git operation that can.
  */
-async function rebaselineOnMove($: EngineInterface, state: State) {
+async function rebaselineOnMove($: EngineInterface, state: State, command = '') {
   const { cwd, epoch } = state
   assert(state.head === undefined || COMMIT.test(state.head), `the session's HEAD ${state.head} is not a commit id; note only what commitOf returns`)
   if (cwd === undefined) return
   const root = await repositoryOf($, cwd)
   const head = root === undefined ? undefined : await commitOf($, root)
   if (state.epoch !== epoch || head === undefined || head === state.head) return
-  const isMoved = state.head !== undefined
+  const previous = state.head
   state.head = head
-  if (!isMoved) return
+  if (previous === undefined || (root !== undefined && !bringsInFiles(command) && await movedByCommits($, root, previous, head))) return
   for (const each of state.slots) {
     each.baseline = undefined
     each.isEdited = false
@@ -869,10 +1115,11 @@ async function rebaselineOnMove($: EngineInterface, state: State) {
  * A tool that ran is work, so the same correction may be told again, except in the correction's own turn, where
  * inspecting it is the answer to it. An editing tool also reruns each check and may have moved HEAD.
  */
-async function afterTool($: EngineInterface, state: State, tool: string) {
+async function afterTool($: EngineInterface, state: State, tool: string, command = '') {
   assert(tool !== '', `a tool call named the tool ${JSON.stringify(tool)}; pass the name of the tool the agent called`)
   if (!state.isCorrectionTurn) state.completionCorrection = undefined
   assert(!state.isCorrectionTurn || state.completionCorrection !== undefined, `the correction turn lost its correction after ${tool}; keep it while the turn answers it`)
+  await noteFiles($, state, tool)
   if (!EDITING_TOOLS.has(tool)) return
   state.isEditedSinceCorrection = true
   for (const each of state.slots) {
@@ -880,7 +1127,7 @@ async function afterTool($: EngineInterface, state: State, tool: string) {
     each.isEditedSinceResult = true
     each.changed?.()
   }
-  await rebaselineOnMove($, state)
+  await rebaselineOnMove($, state, command)
   assert(state.slots.every(each => each.isEdited || each.baseline === undefined), `a slot was not marked edited after ${tool}; mark each so its next result is read against the edit`)
 }
 
@@ -911,6 +1158,11 @@ const initialState = (): State => {
     isFindDue: false,
     onWatcherEnded: undefined,
     slots: [],
+    tcr: initialTcr(),
+    tcrDeciding: undefined,
+    tcrTimer: undefined,
+    tcrTicket: 0,
+    tcrKills: new Set(),
   }
   assert(state.slots.length === 0 && state.outbox.size === 0, `a new session starts with ${state.slots.length} slots and ${state.outbox.size} messages`)
   assert(!state.isTurnRunning && !state.isFinding, 'a new session starts with a turn or search running')
@@ -929,6 +1181,7 @@ export const register: Register = on => {
     state.onWatcherEnded = () => void ensureAll($, state)
     void ensureAll($, state)
     void rebaselineOnMove($, state)
+    void decideTcr($, state)
     return started
   })
 
@@ -940,7 +1193,7 @@ export const register: Register = on => {
       if (reason !== undefined) return { deny: reason }
     }
     const result = await next(e)
-    await afterTool($, state, e.tool)
+    await afterTool($, state, e.tool, commandOf(e))
     return result
   })
 
@@ -952,6 +1205,7 @@ export const register: Register = on => {
     schedule($, state)
     void ensureAll($, state)
     void rebaselineOnMove($, state)
+    void decideTcr($, state)
     return next(e)
   })
 

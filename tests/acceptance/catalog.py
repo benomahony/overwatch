@@ -106,6 +106,11 @@ SCENARIOS = (
     .when("A change increases the warning count to 30", World.warnings_increase)
     .then("The new failure guards completion", World.new_findings_guarded),
 
+    Scenario("A commit made with a failing edit does not hide the failure", "Legacy debt", ("baseline", "regressions", "commits"))
+    .given("The project's files are committed and the session starts with a passing check", World.committed_clean_session)
+    .when("One shell step breaks the check and commits the change", World.break_and_commit_in_one_step)
+    .then("The failure is reported as new and Stop is refused", World.commit_does_not_hide_failure),
+
     Scenario("Strict inherited-finding policy still permits inspection", "Legacy debt", ("baseline", "strict"))
     .given("Inherited findings are configured to block", World.strict_inherited_policy)
     .and_("The session starts with 29 inherited warnings", World.inherited_warnings)
@@ -149,6 +154,68 @@ SCENARIOS = (
     .given("A finding requires cleanup in changed code")
     .when("Its rule is disabled or its source path is excluded")
     .then("The finding is not recorded as fixed"),
+
+    Scenario("TCR mode commits an edit that keeps the checks green", "Modes and limits", ("modes", "tcr", "checkpoint"))
+    .given("The project runs overwatch in TCR mode with green checks", World.tcr_project)
+    .when("The agent makes an edit and the checks on that edit pass", World.edit_keeping_checks_green)
+    .then("The change is committed as a checkpoint", World.change_is_committed_as_a_checkpoint),
+
+    Scenario("TCR mode reverts an edit that introduces a new failure", "Modes and limits", ("modes", "tcr", "revert"))
+    .given("The project runs overwatch in TCR mode with green checks", World.tcr_project)
+    .when("The agent makes an edit and the checks on that edit report a new failure", World.edit_adding_warnings)
+    .then("The working tree is restored to the latest checkpoint and the agent is told which failure caused the revert", World.edit_is_reverted_and_told),
+
+    Scenario("TCR mode leaves inherited failures alone", "Modes and limits", ("modes", "tcr", "inherited"))
+    .given("The project runs overwatch in TCR mode and the session baseline has inherited failures", World.tcr_inherited_project)
+    .when("The checks on an edit report only those inherited failures", World.edit_keeping_checks_green)
+    .then("The change is committed as a checkpoint", World.change_is_committed_as_a_checkpoint),
+
+    Scenario("TCR mode never acts on an overtaken result", "Modes and limits", ("modes", "tcr", "overtaken"))
+    .given("The project runs overwatch in TCR mode with green checks", World.tcr_project)
+    .when("The agent edits again while the checks on an earlier edit are running", World.edit_while_checks_run)
+    .then("The earlier result neither commits nor reverts", World.edit_is_neither_committed_nor_reverted),
+
+    Scenario("TCR mode does not start on a dirty working tree", "Modes and limits", ("modes", "tcr", "dirty-tree"))
+    .given("The project runs overwatch in TCR mode and the working tree has uncommitted changes when the session starts", World.tcr_dirty_project)
+    .when("The agent makes an edit that adds a failure", World.edit_adding_warnings)
+    .then("Overwatch reports that TCR is unavailable and no revert discards those changes", World.tcr_is_reported_unavailable),
+
+    Scenario("TCR mode pauses when a checkpoint commit fails", "Modes and limits", ("modes", "tcr", "commit-failure"))
+    .given("The project runs overwatch in TCR mode with green checks", World.tcr_project)
+    .and_("A commit hook refuses commits", World.a_commit_hook_refuses)
+    .when("The agent makes an edit that keeps the checks green", World.edit_keeping_checks_green)
+    .then("Overwatch reports that TCR is unavailable and the change stays staged", World.commit_failure_pauses_tcr),
+
+    Scenario("Claude Code commits an edit that keeps the checks green", "Modes and limits", ("modes", "tcr", "checkpoint", "claude"))
+    .given("The project runs overwatch in TCR mode in Claude Code with green checks", World.claude_tcr_project)
+    .when("The agent makes an edit and the checks on that edit pass", World.claude_tcr_edit_keeping_checks_green)
+    .then("The change is committed as a checkpoint", World.claude_tcr_commits),
+
+    Scenario("Claude Code reverts an edit that introduces a new failure", "Modes and limits", ("modes", "tcr", "revert", "claude"))
+    .given("The project runs overwatch in TCR mode in Claude Code with green checks", World.claude_tcr_project)
+    .when("The agent makes an edit and the checks on that edit report a new failure", World.claude_tcr_edit_adding_warnings)
+    .then("The working tree is restored to the latest checkpoint and the agent is told which failure caused the revert", World.claude_tcr_reverts_and_tells),
+
+    Scenario("Claude Code leaves inherited failures alone in TCR mode", "Modes and limits", ("modes", "tcr", "inherited", "claude"))
+    .given("The project runs overwatch in TCR mode in Claude Code and the session baseline has inherited failures", World.claude_tcr_inherited_project)
+    .when("The checks on an edit report only those inherited failures", World.claude_tcr_edit_keeping_checks_green)
+    .then("The change is committed as a checkpoint", World.claude_tcr_commits),
+
+    Scenario("Claude Code never acts on an overtaken result in TCR mode", "Modes and limits", ("modes", "tcr", "overtaken", "claude"))
+    .given("The project runs overwatch in TCR mode in Claude Code with green checks", World.claude_tcr_project)
+    .when("The files change again before the checks on an earlier edit report", World.claude_tcr_files_change_again)
+    .then("The earlier result neither commits nor reverts", World.claude_tcr_neither_commits_nor_reverts),
+
+    Scenario("Claude Code does not start TCR on a dirty working tree", "Modes and limits", ("modes", "tcr", "dirty-tree", "claude"))
+    .given("The project runs overwatch in TCR mode in Claude Code and the working tree has uncommitted changes when the session starts", World.claude_tcr_dirty_project)
+    .when("The agent makes an edit that adds a failure", World.claude_tcr_edit_adding_warnings)
+    .then("Overwatch reports that TCR is unavailable and no revert discards those changes", World.claude_tcr_is_unavailable),
+
+    Scenario("Claude Code pauses TCR when a checkpoint commit fails", "Modes and limits", ("modes", "tcr", "commit-failure", "claude"))
+    .given("The project runs overwatch in TCR mode in Claude Code with green checks", World.claude_tcr_project)
+    .and_("A commit hook refuses commits", World.claude_tcr_commit_refused)
+    .when("The agent makes an edit that keeps the checks green", World.claude_tcr_edit_keeping_checks_green)
+    .then("Overwatch reports that TCR is unavailable and the change is not committed", World.claude_tcr_pauses),
 
     Scenario("Advisory mode reports failures without guarding", "Modes and limits", ("modes", "advisory"), status="proposed")
     .given("The project runs overwatch in advisory mode")
