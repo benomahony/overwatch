@@ -25,9 +25,9 @@ from collections.abc import Iterator, Mapping
 from dataclasses import asdict, replace
 from typing import Any
 
-from gating import PolicyError, protected_checks, read_gate, tool_command
+from gating import PolicyError, brings_in_files, protected_checks, read_gate, tool_command
 from triage import InventoryError, parse_check, parse_inventory
-from records import TIMED_OUT, Event, Read, First, Report, Session, State, digest_of
+from records import TIMED_OUT, Event, Read, First, Report, Session, State, Step, digest_of
 from sessions import data_root, in_data, load_state, locked, save_state, state_path, touched_path, write_log
 from running import run_persistent_checks
 from messages import SUMMARY_DECORATION, context_output, environment_message, failing_suffix, failure_message, failure_status, gate_reason, is_regression, known_failures, recovery_message, report_key
@@ -231,7 +231,8 @@ def process_event(event: Event, root: Path) -> dict[str, Any]:
         if event.hook_event_name == "PreToolUse":
             return protected_output(event, cwd, session)
         edit = event.hook_event_name == "PostToolUse" and event.tool_name in EDITING_TOOLS
-        read = checked_state(session, cwd, edit)
+        command = tool_command(event.tool_input) if event.hook_event_name == "PostToolUse" else ""
+        read = checked_state(session, cwd, Step(edit, command))
         current = read.current
         output = report_output(event, read, session)
         save_state(session, current)
@@ -240,18 +241,32 @@ def process_event(event: Event, root: Path) -> dict[str, Any]:
     return output
 
 
-def checked_state(session: Session, cwd: Path, edit: bool = False, followed: list[Report] | None = None) -> Read:
+def is_moved(cwd: Path, old: str | None, new: str | None, command: str) -> bool:
+    """Whether HEAD went from old to new in a way that can bring in failures the agent did not make: by anything but
+    commits alone, as the reflog shows, or in a step whose command ran a git operation that can bring in files, as a
+    squash merge committed in the same step does. False when HEAD did not move or either end is unknown."""
+    assert cwd.is_absolute(), f"is_moved was given {cwd}; pass the repository's absolute path"
+    if old is None or new is None or old == new:
+        return False
+    moved = brings_in_files(command) or not is_committed(cwd, old, new)
+    assert moved or not brings_in_files(command), f"{command!r} brings in files but {old}..{new} kept the baseline"
+    return moved
+
+
+def checked_state(session: Session, cwd: Path, step: Step = Step(), followed: list[Report] | None = None) -> Read:
     """The state before and after this read, and whether the read follows the session's own edit: the model's
     edited, which only such a read may wake the agent for. Recheck changed workspaces and rebaseline moved commits;
     followed, the settled reports a follower got from the daemon, replaces those checks, keeping the last report of
     each watcher the daemon does not run. Keep the starting fingerprint so edits during a
-    run demand another check instead of marking their newer workspace as already verified. edit says this hook
+    run demand another check instead of marking their newer workspace as already verified. step.edit says this hook
     follows the session's own edit, which keeps its later first results from the baseline, as does the touched
     marker an editing tool's PreToolUse leaves, found when the result is read; a commit move starts the baseline afresh and wins over
-    an edit in the same hook, since a pull is not the agent's change."""
+    an edit in the same hook, since a pull is not the agent's change. A move made by commits alone keeps the
+    baseline, unless step.command, the step's shell command, ran a git operation that can bring in files, as a squash
+    merge committed in the same step does."""
     old = load_state(session)
     head = commit_of(cwd)
-    moved = old.head is not None and head is not None and old.head != head and not is_committed(cwd, old.head, head)
+    moved = is_moved(cwd, old.head, head, step.command)
     if moved:
         old = replace(old, baseline={}, fingerprint=None, told=None, failed=False, signatures=())
     gate = read_gate(read_override(cwd))
@@ -262,7 +277,7 @@ def checked_state(session: Session, cwd: Path, edit: bool = False, followed: lis
     # Read once the checks have run, as the session may have started editing while they did. Every read clears
     # edited, as in the model's ReadResults, so the marker goes once read.
     marker = touched_path(session.state)
-    edited = edit or marker.exists()
+    edited = step.edit or marker.exists()
     touched = not moved and (old.touched or edited)
     marker.unlink(missing_ok=True)
     told = old.environment

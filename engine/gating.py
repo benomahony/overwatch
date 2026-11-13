@@ -80,6 +80,134 @@ def tool_command(arguments: object) -> str:
     return text
 
 
+# One shell token: an operator (&&, ||, ;, &, |, parentheses, a new line or a backtick), or a word made of plain
+# characters and quoted parts. A quote that never closes matches nothing and is skipped.
+SHELL_TOKEN = re.compile(r"""[ \t\r]*(?:(&&|\|\||[;&|()\n`])|((?:'[^']*'|"(?:\\.|[^"\\])*"|\\.|[^ \t\r\n;&|()`'"\\])+))""")
+QUOTED_PART = re.compile(r"""'([^']*)'|"((?:\\.|[^"\\])*)"|\\(.)""")
+ESCAPED_CHARACTER = re.compile(r"\\(.)")
+ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
+SHELLS = frozenset({"bash", "dash", "ksh", "sh", "zsh"})
+# Words that run the command after them, so the command after them is the one that matters.
+WRAPPERS = frozenset({"command", "env", "exec", "nohup", "sudo", "time"})
+# Shell control words, which can stand before a command: if git merge x; then git commit; fi
+CONTROL_WORDS = frozenset({"!", "{", "}", "case", "do", "done", "elif", "else", "esac", "fi", "for", "if", "in", "then", "until", "while"})
+# Git subcommands that can bring files into the workspace from somewhere other than the agent's own edits.
+FILE_BRINGING = frozenset({"am", "apply", "checkout", "cherry-pick", "merge", "pull", "read-tree", "rebase", "reset",
+                           "restore", "revert", "stash", "submodule", "switch"})
+# The same for the GitHub CLI, whose subcommands come in pairs.
+GH_FILE_BRINGING = frozenset({"pr checkout", "pr merge", "repo sync"})
+# Git options that take the next word as their value, so it is not the subcommand.
+GIT_VALUE_OPTIONS = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace"})
+# How many levels of shell -c scripts, as in sh -c 'sh -c "git merge x"', are read for a git command.
+QUOTE_DEPTH = 3
+
+
+def unquoted(word: str) -> str:
+    """word as the shell passes it on: its quotes removed and its backslashes dropped."""
+    result = QUOTED_PART.sub(lambda found: found.group(1) if found.group(1) is not None
+                             else ESCAPED_CHARACTER.sub(r"\1", found.group(2)) if found.group(2) is not None else found.group(3), word)
+    assert "'" not in word or len(result) < len(word), f"{word!r} has quotes but unquoted left {result!r}; remove them"
+    assert result == word or "\\" in word or "'" in word or '"' in word, f"{word!r} changed to {result!r} with nothing to unquote"
+    return result
+
+
+def shell_commands(text: str) -> list[list[str]]:
+    """The simple commands in text, each as its words, split at the operators &&, ||, ;, &, |, parentheses, new
+    lines and backticks, which are shell syntax only outside quotes. A quoted string stays one word."""
+    commands: list[list[str]] = [[]]
+    for found in SHELL_TOKEN.finditer(text):
+        if found.group(1) is not None:
+            commands.append([])
+        else:
+            commands[-1].append(unquoted(found.group(2)))
+    kept = [words for words in commands if words]
+    assert all(words for words in kept), f"commands {kept} include an empty one; drop empty commands"
+    assert len(kept) <= len(text) + 1, f"{len(kept)} commands from {len(text)} characters; split each operator once"
+    return kept
+
+
+def is_prefix(word: str) -> bool:
+    """Whether word stands before the command that runs: a VAR=value assignment, a wrapper such as env or sudo, or a
+    shell control word such as if, then, do or !."""
+    prefix = bool(ASSIGNMENT.match(word)) or word in WRAPPERS or word in CONTROL_WORDS
+    assert not prefix or word != "", f"the empty word {word!r} counted as a prefix ({prefix}); skip empty words before asking"
+    assert not prefix or bool(ASSIGNMENT.match(word)) or word in WRAPPERS | CONTROL_WORDS, f"{word!r} counted as a prefix of no kind"
+    return prefix
+
+
+def command_start(words: list[str]) -> int:
+    """The index in words of the command that runs: past leading VAR=value assignments, wrappers such as env or sudo,
+    and shell control words such as if, then, do or !."""
+    index = 0
+    while index < len(words) and is_prefix(words[index]):
+        index += 1
+    rest = words[index:]
+    assert 0 <= index <= len(words), f"index {index} is outside the {len(words)} words; stop at the end"
+    assert not rest or not is_prefix(rest[0]), f"{rest[:1]} is a prefix, not the command"
+    return index
+
+
+def shell_script(words: list[str]) -> str | None:
+    """The script a shell command runs with -c, as in bash -lc 'git merge x'; None when words are no shell with -c."""
+    script: str | None = None
+    if words and words[0].rsplit("/", 1)[-1] in SHELLS:
+        flagged = next((index for index, word in enumerate(words[1:], 1)
+                        if word.startswith("-") and not word.startswith("--") and "c" in word), None)
+        if flagged is not None and flagged + 1 < len(words):
+            script = words[flagged + 1]
+    assert script is None or words[0].rsplit("/", 1)[-1] in SHELLS, f"{words} gave script {script!r} without a shell"
+    assert script is None or script in words, f"script {script!r} is not among the words {words}"
+    return script
+
+
+def git_subcommand(words: list[str]) -> str | None:
+    """The git subcommand of the command words run: the first word after git that is no option and no option's
+    value. None when they do not run git, or run it with no subcommand."""
+    found: str | None = None
+    if words and words[0].rsplit("/", 1)[-1] == "git":
+        rest = iter(words[1:])
+        for word in rest:
+            if word in GIT_VALUE_OPTIONS:
+                next(rest, None)
+            elif word and not word.startswith("-"):
+                found = word
+                break
+    assert found is None or words[0].rsplit("/", 1)[-1] == "git", f"found {found!r} in {words}, which do not run git"
+    assert found is None or not found.startswith("-"), f"{found!r} is an option, not a subcommand; skip options"
+    return found
+
+
+def gh_subcommand(words: list[str]) -> str | None:
+    """The first two non-option words after gh, as pr merge; None when words do not run gh."""
+    found: str | None = None
+    if words and words[0].rsplit("/", 1)[-1] == "gh":
+        found = " ".join([word for word in words[1:] if not word.startswith("-")][:2])
+    assert found is None or words[0].rsplit("/", 1)[-1] == "gh", f"found {found!r} in {words}, which do not run gh"
+    assert found is None or len(found.split()) <= 2, f"{found!r} names more than two words"
+    return found
+
+
+def brings_in_files(command: str) -> bool:
+    """Whether command runs a git or gh operation that can bring in files the agent did not write, as a merge, pull
+    or cherry-pick can. Such a command may leave a plain commit in the reflog while the workspace holds another's
+    changes. Only commands that run git or gh count, so a commit message that names a merge does not."""
+    scripts = [command]
+    found = False
+    for _ in range(QUOTE_DEPTH):
+        nested: list[str] = []
+        for script in scripts:
+            for words in shell_commands(script):
+                words = words[command_start(words):]
+                inner = shell_script(words)
+                if inner is not None:
+                    nested.append(inner)
+                found = found or git_subcommand(words) in FILE_BRINGING or gh_subcommand(words) in GH_FILE_BRINGING
+        scripts = nested
+    assert isinstance(found, bool), f"{found!r} is not a yes or no; combine the checks with or"
+    assert not found or command.strip() != "", f"the empty command {command!r} brought in files ({found}); read the commands first"
+    return found
+
+
 def protected_checks(tool: str, command: str, gate: Gate) -> list[str] | None:
     """The checks guarding a call of tool running command: None when no action protects it, an empty list when a
     protecting action names no checks and so means all of them. gate is a Gate, which only read_gate builds, so the

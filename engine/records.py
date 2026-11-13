@@ -32,6 +32,14 @@ class Read:
 
 
 @dataclass(frozen=True)
+class Step:
+    """The tool step a hook follows: whether it was the session's own edit, the result model's edited, and the shell
+    command it ran, which tells a HEAD move that can bring in files from one made by commits alone."""
+    edit: bool = False
+    command: str = ""
+
+
+@dataclass(frozen=True)
 class Event:
     """One hook event as read_event checked it: the fields overwatch reads, each a string, and the tool's input."""
     hook_event_name: str

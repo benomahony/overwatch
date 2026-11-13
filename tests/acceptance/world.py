@@ -202,6 +202,39 @@ class AcceptanceWorld(ClaudeSteps, unittest.TestCase):
         assert stopped.get("decision") == "block", f"Stop went through with new findings: {stopped}"
         assert "30 warnings" in stopped.get("reason", ""), f"the refusal does not name the 30 warnings: {stopped}"
 
+    def commit_everything(self, message: str) -> None:
+        """Commits the project's files as the agent's shell tool would, ignoring the machine's git configuration."""
+        git = ["git", "-C", str(self.project), "-c", "user.name=test", "-c", "user.email=test@example.com",
+               "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"]
+        subprocess.run([*git, "add", "-A"], check=True, capture_output=True)
+        subprocess.run([*git, "commit", "-q", "-m", message], check=True, capture_output=True)
+        listed = subprocess.run([*git, "log", "--format=%s", "-1"], check=True, capture_output=True, text=True).stdout.strip()
+        left = subprocess.run([*git, "status", "--porcelain"], check=True, capture_output=True, text=True).stdout.strip()
+        assert listed == message, f"the last commit says {listed!r}, not {message!r}; commit something new"
+        assert left == "", f"committing {message!r} left {left!r} uncommitted; commit every file"
+
+    def committed_clean_session(self) -> None:
+        """The project's files are committed and the session starts with a passing check."""
+        self.commit_everything("start clean")
+        started = self.hook("SessionStart")
+        assert "decision" not in started, f"a clean session start was refused: {started}"
+        assert "inherited backlog" not in json.dumps(started), f"a clean session start reported backlog: {started}"
+
+    def break_and_commit_in_one_step(self) -> None:
+        """One shell step brings 29 warnings and commits them."""
+        self.fixture_write(self.result, "zanity: 0 errors and 29 warnings in 1 of 1 files\n")
+        self.commit_everything("break the check")
+        assert "29 warnings" in self.fixture_read(self.result), f"{self.result} lost the 29 warnings the step brings"
+        self.responses = [self.hook("PostToolUse", tool_name="Bash"), self.hook("Stop")]
+        assert len(self.responses) == 2, f"{len(self.responses)} answers for the step and the Stop attempt"
+
+    def commit_does_not_hide_failure(self) -> None:
+        """The warnings were reported as new, not as inherited backlog, and Stop is refused."""
+        reported, stopped = self.responses
+        assert "29 warnings" in json.dumps(reported), f"the step that brought 29 warnings was not reported: {reported}"
+        assert "inherited backlog" not in json.dumps(reported), f"the new warnings were taken as inherited backlog: {reported}"
+        assert stopped.get("decision") == "block", f"Stop went through with new warnings: {stopped}"
+
     def passing_go_required(self) -> None:
         """Publish is guarded by a passing Go project instead of zanity."""
         self.configure(protected_actions=[{"tool": "Publish", "checks": ["go"]}])

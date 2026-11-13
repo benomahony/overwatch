@@ -106,6 +106,11 @@ SCENARIOS = (
     .when("A change increases the warning count to 30", World.warnings_increase)
     .then("The new failure guards completion", World.new_findings_guarded),
 
+    Scenario("A commit made with a failing edit does not hide the failure", "Legacy debt", ("baseline", "regressions", "commits"))
+    .given("The project's files are committed and the session starts with a passing check", World.committed_clean_session)
+    .when("One shell step breaks the check and commits the change", World.break_and_commit_in_one_step)
+    .then("The failure is reported as new and Stop is refused", World.commit_does_not_hide_failure),
+
     Scenario("Strict inherited-finding policy still permits inspection", "Legacy debt", ("baseline", "strict"))
     .given("Inherited findings are configured to block", World.strict_inherited_policy)
     .and_("The session starts with 29 inherited warnings", World.inherited_warnings)
