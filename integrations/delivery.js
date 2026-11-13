@@ -1,4 +1,7 @@
-/** Per-session context and correction delivery required by IntegrationContract.tla. */
+/**
+ * Per-session context and correction delivery required by IntegrationContract.tla. A notice, such as a TCR revert, is
+ * told once and kept until taken: a check that finds nothing guarded clears a queued correction, not a notice.
+ */
 import assert from 'node:assert/strict'
 import { contextOf } from './check.js'
 
@@ -11,7 +14,7 @@ export class SessionDelivery {
 
   stateOf(id) {
     assert(typeof id === 'string' && id !== '', `delivery session ${id} must have an ID`)
-    if (!this.sessions.has(id)) this.sessions.set(id, { pending: undefined, correction: undefined, isCorrectionPass: false, isEditedSinceCorrection: false, closed: false })
+    if (!this.sessions.has(id)) this.sessions.set(id, { pending: undefined, notices: [], correction: undefined, isCorrectionPass: false, isEditedSinceCorrection: false, closed: false })
     const state = this.sessions.get(id)
     assert(state !== undefined, `delivery session ${id} was not initialized`)
     return state
@@ -23,15 +26,20 @@ export class SessionDelivery {
     if (output.overwatch?.guarded === false) { state.pending = undefined; state.correction = undefined }
     const message = contextOf(output)
     if (message) state.pending = message
+    const told = output.overwatch?.notices
+    if (Array.isArray(told)) state.notices.push(...told.filter(notice => typeof notice === 'string' && notice !== ''))
     assert(state.pending === undefined || typeof state.pending === 'string', `delivery pending context for ${id} must be text`)
+    assert(state.notices.every(notice => typeof notice === 'string'), `delivery notices for ${id} must be text`)
   }
 
   take(id) {
     const state = this.stateOf(id)
-    const text = state.pending
+    const unseen = state.notices.filter(notice => !(state.pending ?? '').includes(notice))
+    const text = [...unseen, state.pending].filter(part => part !== undefined).join('\n\n') || undefined
     assert(text === undefined || typeof text === 'string', `pending delivery for ${id} is ${typeof text}`)
     state.pending = undefined
-    assert(state.pending === undefined, `delivery for ${id} was not consumed`)
+    state.notices = []
+    assert(state.pending === undefined && state.notices.length === 0, `delivery for ${id} was not consumed`)
     return text
   }
 

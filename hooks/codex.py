@@ -30,30 +30,22 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, replace
 from typing import Any, Required, TypedDict
 
-from gating import PolicyError, protected_checks, read_gate, tool_command
+import tcr
+from gating import PolicyError, brings_in_files, protected_checks, read_gate, tool_command
 from triage import InventoryError, parse_check, parse_inventory
-from records import REBUILT, Event, First, Report, Session, State, StateError, digest_of, state_from, state_json
+from records import EDITING_TOOLS, OVERRIDE_PATH, REBUILT, ConfigurationError, Event, First, Report, Session, State, StateError, digest_of, state_from, state_json
+from reports import SUMMARY_DECORATION, failing_line, failing_suffix, failure_status, is_regression, key_of, known_failures, report_key, where, write_log
+from workspace import GIT_TIMEOUT, commit_of, fingerprint, repository_of
 from unix import exclusive, is_private, on_path, output_selector, read_available
 
 
-OVERRIDE_PATH = ".overwatch.json"
-# Tools that can change the workspace, by the names Codex, OpenCode and Pi give them. A change first seen at any other
-# event came from another process, since each of these is followed by its own PostToolUse.
-EDITING_TOOLS = frozenset({"apply_patch", "Bash", "bash", "Edit", "edit", "MultiEdit", "powershell", "shell", "Write", "write"})
 COMMAND_TIMEOUT = 540
 # How long a stopped command has to exit before it is killed, in seconds.
 TERMINATE_GRACE = 3
-# How long a git query may take, in seconds, before overwatch gives up on it.
-GIT_TIMEOUT = 5
-# The size, in bytes, of a workspace fingerprint's digest.
-FINGERPRINT_BYTES = 20
-FAILURE_LIMIT = 10
+REFLOG_DEPTH = 100
+COMMIT_ENTRY = re.compile(r"commit(?: \(amend\))?: ")
 # Colour codes, which some tools (deno) print even into a pipe.
 ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
-# The decoration each tool puts around its summary, which the status line leaves out.
-SUMMARY_DECORATION = re.compile(
-    r"^Build Summary:\s*|^zanity:\s*|^=+\s*|\s*=+$|^Test Files\s+|^Test Suites:\s*|^DONE\s+|^(?:ok|FAILED) \| "
-)
 
 # The table every runtime reads; patterns are JavaScript regexes that Python reads the same way.
 # Alternatives of one language are tried in order: the first whose marker, and tool if it needs one, are present runs.
@@ -86,10 +78,6 @@ SEARCH_DEPTH: int = TABLE["search"]["depth"]
 SEARCH_SKIP: frozenset[str] = frozenset(TABLE["search"]["skip"])
 # Lines that mean a command could not run where it is, which no change to the code fixes.
 ENVIRONMENT: tuple[re.Pattern[str], ...] = tuple(re.compile(pattern) for pattern in TABLE["environment"])
-
-
-class ConfigurationError(Exception):
-    """The project, its .overwatch.json or the hook event cannot be used; the message says what to change."""
 
 
 EVENT_FIELDS = ("hook_event_name", "session_id", "cwd", "tool_name", "integration")
@@ -554,80 +542,6 @@ def run_checks(cwd: Path, watchers: list[Watcher]) -> list[Report]:
     return ran
 
 
-def workspace_files(cwd: Path) -> list[Path]:
-    """Every file git would track in cwd, a repository repository_of found, or ConfigurationError saying why git
-    could not list them."""
-    try:
-        result = subprocess.run(
-            ["git", "ls-files", "-co", "--exclude-standard", "-z"],
-            cwd=cwd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            timeout=GIT_TIMEOUT,
-            check=True,
-        )
-        paths = [cwd / os.fsdecode(part) for part in result.stdout.split(b"\0") if part]
-    except (OSError, subprocess.SubprocessError) as error:
-        raise ConfigurationError(f"git could not list the files of {cwd}: {error}; check that git is installed and can read the repository") from error
-    assert all(path.is_relative_to(cwd) for path in paths), f"listed {[path for path in paths if not path.is_relative_to(cwd)]} outside {cwd}; list only the workspace"
-    assert len(set(paths)) == len(paths), f"listed {len(paths) - len(set(paths))} files of {cwd} twice; list each once"
-    return paths
-
-
-def commit_of(cwd: Path) -> str | None:
-    """The checked-out commit, including linked worktrees; None before the first commit."""
-    try:
-        result = subprocess.run(['git', 'rev-parse', '--verify', 'HEAD'], cwd=cwd,
-                                capture_output=True, text=True, timeout=GIT_TIMEOUT, check=True)
-    except (OSError, subprocess.SubprocessError):
-        return None
-    head = result.stdout.strip()
-    if re.fullmatch(r'(?:[0-9a-f]{40}|[0-9a-f]{64})', head) is None:
-        return None
-    assert head == head.strip(), f'Commit {head!r} keeps whitespace'
-    assert len(head) in (40, 64), f'Commit {head!r} is neither a SHA-1 nor SHA-256 object ID'
-    return head
-
-
-def fingerprint(cwd: Path) -> str:
-    """A digest of the path, size and modification time of each of workspace_files(cwd). A file that goes missing
-    while it is read is digested as missing, which is itself a change the next fingerprint sees."""
-    digest = hashlib.blake2b(digest_size=FINGERPRINT_BYTES)
-    paths = workspace_files(cwd)
-    for path in sorted(paths):
-        digest.update(os.fsencode(os.path.relpath(path, cwd)))
-        try:
-            stat = path.stat()
-        except OSError:
-            digest.update(b"\0missing")
-        else:
-            digest.update(f"\0{stat.st_size}:{stat.st_mtime_ns}".encode())
-    value = digest.hexdigest()
-    assert len(value) == FINGERPRINT_BYTES * 2, f"fingerprint {value} is not {FINGERPRINT_BYTES} bytes; keep digest_size=FINGERPRINT_BYTES"
-    assert all(character in "0123456789abcdef" for character in value), f"fingerprint {value} is not hexadecimal; use hexdigest"
-    return value
-
-
-def repository_of(cwd: Path) -> Path | None:
-    """The root of the git repository holding cwd; None outside one."""
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            cwd=cwd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            text=True,
-            timeout=GIT_TIMEOUT,
-            check=True,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    root = Path(result.stdout.strip()).resolve()
-    assert root.is_absolute(), f"repository root {root} is relative; resolve it"
-    assert cwd.resolve().is_relative_to(root), f"repository root {root} does not hold {cwd}; ask git from cwd"
-    return root
-
-
 def data_root(given: str | None) -> Path:
     """The directory overwatch keeps session state in, resolved and made when missing: given, the PLUGIN_DATA the
     agent host passes the hook, else ~/.cache/overwatch. A directory another user owns or can write is refused, so no
@@ -701,102 +615,6 @@ def save_state(session: Session, state: State) -> None:
     assert not temporary.exists(), f"{temporary} was left behind; replace the state file with it"
 
 
-def failing_line(failures: list[str]) -> str:
-    """Names the failing tests, the first FAILURE_LIMIT of them, for the agent; nothing when there are none."""
-    shown = failures[:FAILURE_LIMIT]
-    hidden = len(failures) - len(shown)
-    more = f", and {hidden} more" if hidden else ""
-    line = f"Failing: {', '.join(f'`{name}`' for name in shown)}{more}.\n" if shown else ""
-    assert not shown or line.startswith(f"Failing: `{shown[0]}`"), f"line {line} does not name {shown} first; quote the first {FAILURE_LIMIT} in order"
-    assert (hidden > 0) == line.endswith(" more.\n"), f"line {line} for {len(failures)} failures miscounts the {hidden} not shown"
-    return line
-
-
-def where(report: Report) -> str:
-    """The sub-project a report's command ran in, for the agent."""
-    text = f" in `{report.dir}`" if report.dir else ""
-    assert bool(text) == bool(report.dir), f"where gave {text} for dir {report.dir}; name the dir only when there is one"
-    assert not text or text.endswith(f"`{report.dir}`"), f"where gave {text}; quote the dir {report.dir}"
-    return text
-
-
-def key_of(name: str, directory: str | None) -> str:
-    """What identifies a check across runs: its name and the sub-project it ran in, joined by a NUL neither can hold."""
-    if "\0" in name or "\0" in (directory or ""):
-        raise ConfigurationError(f"check {name!r} in {directory!r} holds a NUL character; remove it from its name in .overwatch.json")
-    key = f"{name}\0{directory or ''}"
-    assert key.split("\0") == [name, directory or ""], f"key {key!r} does not split back into {name!r} and {directory!r}"
-    assert key.count("\0") == 1, f"key {key!r} holds {key.count(chr(0))} separators; join exactly two fields"
-    return key
-
-
-def report_key(report: Report) -> str:
-    """The key of the check report came from."""
-    key = key_of(report.name, report.dir)
-    assert key.startswith(report.name), f"key {key!r} does not start with {report.name}; build it with key_of(name, dir)"
-    assert key.endswith(report.dir or ""), f"key {key!r} does not end with {report.dir}; build it with key_of(name, dir)"
-    return key
-
-
-def known_failures(report: Report, baseline: Mapping[str, First]) -> list[str]:
-    """The failures this check already had when the session started: none when its first result passed."""
-    first = baseline.get(report_key(report))
-    known = list(first.failures) if first is not None and first.failed else []
-    assert first is None or first.failed or not known, f"{report.name} knows failures {known} from a passing baseline"
-    assert first is None or not first.failed or len(known) == len(first.failures), f"{report.name} kept {len(known)} known failures; keep all of them"
-    return known
-
-
-def is_regression(report: Report, baseline: Mapping[str, First]) -> bool:
-    """Whether a report fails in a way its baseline, the session's first result, did not."""
-    if not report.failed or report.environment:
-        return False
-    first = baseline.get(report_key(report))
-    known = set(known_failures(report, baseline))
-    if first is None or not first.failed or any(name not in known for name in report.failures):
-        return True
-    previous, counts = failure_counts(first.summary), failure_counts(report.summary)
-    grew = [kind for kind, count in counts.items() if count > previous.get(kind, 0)]
-    assert first.failed and report.failed, f"{report.name} compared counts without two failing results; compare only failing ones"
-    assert set(grew) <= set(counts), f"{report.name} grew in {grew}, which its summary does not count"
-    return bool(grew)
-
-
-def failure_counts(summary: str) -> dict[str, int]:
-    """Each count a summary gives, keyed by its kind (error, warning or failure) and its place among the counts of
-    that kind, so a summary with two failure counts, such as zig's failed steps and failed tests, compares each with
-    its own."""
-    counts: dict[str, int] = {}
-    seen = {"error": 0, "warning": 0, "failure": 0}
-    for number, label in re.findall(r"(\d+)\s+(errors?|warnings?|failures?|failed|fail)\b", summary):
-        kind = "error" if label.startswith("error") else "warning" if label.startswith("warning") else "failure"
-        counts[f"{kind} {seen[kind]}"] = int(number)
-        seen[kind] += 1
-    assert len(counts) == sum(seen.values()), f"summary {summary} gave {len(counts)} counts from {seen}; key each by its kind and place"
-    assert all(str(count) in summary for count in counts.values()), f"counts {counts} are not in summary {summary}; take each from it"
-    return counts
-
-
-def log_path(session: Session, report: Report, prefix: str = "") -> Path:
-    """Where report's full output is kept in session.logs: named by prefix and a digest of the report's key, so each
-    check has one log for each prefix."""
-    log = session.logs / f"{prefix}{hashlib.sha256(report_key(report).encode()).hexdigest()[:16]}.log"
-    assert log.parent == session.logs, f"log {log} is outside {session.logs}; name it by digest alone"
-    assert log.name.startswith(prefix) and log.suffix == ".log", f"log {log} is not named {prefix}<digest>.log"
-    return log
-
-
-def write_log(session: Session, report: Report, prefix: str = "") -> Path:
-    """Writes report's full output to its log_path in session.logs, keeping the output out of the conversation. Logs
-    are overwatch's own cache of output a rerun reproduces, so replacing that check's earlier log loses nothing the
-    user made. session comes from locked(), so this process holds its lock and no other is writing there."""
-    log = log_path(session, report, prefix)
-    log.write_text(report.text)
-    assert log.read_text() == report.text, f"{log} does not hold {report.name}'s output as given; write it whole"
-    assert log.parent == session.logs, f"wrote {report.name}'s output to {log}, outside {session.logs}"
-    return log
-
-
 def failure_message(reports: list[Report], baseline: Mapping[str, First], logs: dict[str, Path], outside: bool = False) -> str:
     """Tells the agent which checks newly fail, what fails in each and where the full output is; outside when the
     failure was first seen after another process's change rather than the session's own edit."""
@@ -830,28 +648,6 @@ def environment_message(reports: list[Report]) -> str:
         "overwatch: these checks cannot run in this environment, so they are not reporting. "
         f"This is not caused by your changes and needs no code change:\n{lines}"
     )
-
-
-def failing_suffix(failures: tuple[str, ...]) -> str:
-    """The first failure and how many more, for the status line."""
-    if not failures:
-        return ""
-    more = f" +{len(failures) - 1} more" if len(failures) > 1 else ""
-    suffix = f": {failures[0]}{more}"
-    assert suffix.startswith(f": {failures[0]}"), f"suffix {suffix} does not name {failures[0]} first"
-    assert (len(failures) > 1) == suffix.endswith(" more"), f"suffix {suffix} for {len(failures)} failures miscounts the rest"
-    return suffix
-
-
-def failure_status(reports: list[Report]) -> str:
-    """The status line for failing checks, one part each."""
-    assert reports, "failure_status was given no reports; pass the checks that newly fail"
-    summaries = " · ".join(
-        f"{report.name} ✗ {SUMMARY_DECORATION.sub('', report.summary)}{failing_suffix(report.failures)}"
-        for report in reports
-    )
-    assert summaries.count(" ✗ ") >= len(reports), f"status {summaries} marks fewer than {len(reports)} checks; give each one part"
-    return f"Overwatch: {summaries}"
 
 
 def recovery_message(reports: tuple[Report, ...]) -> str:
@@ -1045,20 +841,45 @@ def process_event(event: Event, root: Path) -> dict[str, Any]:
     with locked(state_path(event, cwd, root), root) as session:
         if event.hook_event_name == "PreToolUse":
             return protected_output(event, cwd, session)
-        old, current = checked_state(session, cwd)
-        output = report_output(event, old, current, session)
+        command = tool_command(event.tool_input) if event.hook_event_name == "PostToolUse" else ""
+        old, current = checked_state(session, cwd, command)
+        taken = tcr.settle(tcr.Turn(event, cwd, session, read_override(cwd)), old, current)
+        current = taken.state
+        output = tcr.told(report_output(event, old, current, session), event.hook_event_name, taken)
         save_state(session, current)
     assert current.fingerprint is not None, f"state for {cwd} has no fingerprint; checked_state must record one"
     assert session.state.exists(), f"no state was saved for {cwd} at {session.state}; save_state must write it"
     return output
 
 
-def checked_state(session: Session, cwd: Path) -> tuple[State, State]:
-    """Recheck changed workspaces and rebaseline moved commits. Keep the starting fingerprint so edits during a
-    run demand another check instead of marking their newer workspace as already verified."""
+def moved_by_commits(cwd: Path, before: str, after: str) -> bool:
+    """Whether HEAD went from before to after only by commits made here. A commit records the files the workspace
+    already holds and brings in none, so what it leaves failing was the session's own. False when any other
+    operation moved it, or when the reflog does not reach before within REFLOG_DEPTH entries."""
+    assert before != after, f"HEAD is still {after}; ask only after it moved"
+    try:
+        result = subprocess.run(["git", "reflog", "show", "HEAD", f"--max-count={REFLOG_DEPTH}", "--format=%H %gs"],
+                                cwd=cwd, capture_output=True, text=True, timeout=GIT_TIMEOUT, check=True)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    for line in result.stdout.splitlines():
+        commit, _, subject = line.partition(" ")
+        if commit == before:
+            return True
+        if not COMMIT_ENTRY.match(subject):
+            return False
+    assert len(result.stdout.splitlines()) <= REFLOG_DEPTH, f"git listed more than {REFLOG_DEPTH} reflog entries; pass --max-count"
+    return False
+
+
+def checked_state(session: Session, cwd: Path, command: str = "") -> tuple[State, State]:
+    """Recheck changed workspaces and rebaseline moved commits, except those moved only by commits in a step that ran
+    no git operation bringing in files, as command, the step's shell command, tells. Keep the starting fingerprint so
+    edits during a run demand another check instead of marking their newer workspace as already verified."""
     old = load_state(session)
     head = commit_of(cwd)
-    if old.head is not None and head is not None and old.head != head:
+    own_commits = old.head is not None and head is not None and old.head != head and not brings_in_files(command) and moved_by_commits(cwd, old.head, head)
+    if old.head is not None and head is not None and old.head != head and not own_commits:
         old = replace(old, baseline={}, fingerprint=None, told=None, failed=False, signatures=())
     gate = read_gate(read_override(cwd))
     before = fingerprint(cwd)

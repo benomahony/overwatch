@@ -89,6 +89,28 @@ test("OpenCode V2 checks edits and adds a cached failure to model context", asyn
   assert.equal(event.system.at(-1).text, "fix the test")
 })
 
+test("OpenCode V2 delivers a notice that the next check clears no failure for, and not a failure that later passes", async () => {
+  const notice = "overwatch: TCR reverted the latest change"
+  const nothingGuarded = { overwatch: { guarded: false } }
+  const hooks = await v2Hooks(async event => (event.hook_event_name === "PostToolUse"
+    ? { hookSpecificOutput: { additionalContext: notice }, overwatch: { guarded: false, notices: [notice] } }
+    : nothingGuarded))
+  await hooks["tool:execute.after"]({ tool: "write", sessionID: "session-1", id: "call-1", input: {} })
+  const delivered = { sessionID: "session-1", system: [] }
+  await hooks["session:context"](delivered)
+  assert.deepEqual(delivered.system.map(part => part.text), [notice])
+
+  const again = { sessionID: "session-1", system: [] }
+  await hooks["session:context"](again)
+  assert.deepEqual(again.system, [])
+
+  const failing = await v2Hooks(async event => (event.hook_event_name === "PostToolUse" ? output("fix the test") : nothingGuarded))
+  await failing["tool:execute.after"]({ tool: "write", sessionID: "session-2", id: "call-2", input: {} })
+  const stale = { sessionID: "session-2", system: [] }
+  await failing["session:context"](stale)
+  assert.deepEqual(stale.system, [])
+})
+
 test("Pi appends failures and guards settlement until the check passes", async () => {
   const handlers = {}
   const pi = { on: (name, handler) => { handlers[name] = handler } }

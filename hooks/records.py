@@ -16,6 +16,16 @@ from pathlib import Path
 REBUILT = "; the session starts afresh and reruns its checks, and if this repeats, delete the state files under PLUGIN_DATA"
 
 
+OVERRIDE_PATH = ".overwatch.json"
+# Tools that can change the workspace, by the names Codex, OpenCode and Pi give them. A change first seen at any other
+# event came from another process, since each of these is followed by its own PostToolUse.
+EDITING_TOOLS = frozenset({"apply_patch", "Bash", "bash", "Edit", "edit", "MultiEdit", "powershell", "shell", "Write", "write"})
+
+
+class ConfigurationError(Exception):
+    """The project, its .overwatch.json or the hook event cannot be used; the message says what to change."""
+
+
 class StateError(ValueError):
     """The saved state does not have the shape save_state writes, so the session starts afresh."""
 
@@ -77,6 +87,7 @@ class State:
     # The commit whose results established the current baselines; None in an unborn repository or older state.
     head: str | None = None
     environment: tuple[str, ...] = ()
+    tcr: str | None = None
 
 
 def string_tuple(value: object, where: str) -> tuple[str, ...]:
@@ -135,11 +146,11 @@ def state_from(value: object) -> State:
     if not isinstance(value, dict):
         raise StateError(f"the saved state is a JSON {type(value).__name__}, not an object{REBUILT}")
     reports, baseline, gate = value.get("reports", []), value.get("baseline", {}), value.get("gate", {})
-    told, fingerprint, head = value.get("told"), value.get("fingerprint"), value.get("head")
+    told, fingerprint, head, tcr = value.get("told"), value.get("fingerprint"), value.get("head"), value.get("tcr")
     if not isinstance(reports, list) or not isinstance(baseline, dict) or not isinstance(gate, dict):
         raise StateError(f"the saved state's reports, baseline or gate is not a list, object and object{REBUILT}")
-    if not isinstance(value.get("failed", False), bool) or not all(item is None or isinstance(item, str) for item in (told, fingerprint, head)):
-        raise StateError(f"the saved state's failed, told, fingerprint or head has the wrong type{REBUILT}")
+    if not isinstance(value.get("failed", False), bool) or not all(item is None or isinstance(item, str) for item in (told, fingerprint, head, tcr)):
+        raise StateError(f"the saved state's failed, told, fingerprint, head or tcr has the wrong type{REBUILT}")
     if gate.get("inherited", "allow") not in ("allow", "block"):
         raise StateError(f"the saved state's gate.inherited is {gate.get('inherited')}, not allow or block{REBUILT}")
     state = State(
@@ -152,6 +163,7 @@ def state_from(value: object) -> State:
         fingerprint=fingerprint,
         head=head,
         environment=string_tuple(value.get("environment", []), "the saved state's environment"),
+        tcr=tcr,
     )
     assert len(state.reports) == len(reports) and set(state.baseline) == set(baseline), f"state kept {len(state.reports)} of {len(reports)} reports or lost baseline entries; read every saved entry"
     assert state.fingerprint == fingerprint, f"state changed its fingerprint {fingerprint} while read; copy it as saved"
@@ -179,6 +191,7 @@ def state_json(state: State) -> dict[str, object]:
         "fingerprint": state.fingerprint,
         "head": state.head,
         "environment": list(state.environment),
+        "tcr": state.tcr,
     }
     assert len(value["reports"]) == len(state.reports), f"state JSON holds {len(value['reports'])} of {len(state.reports)} reports; write every report"
     assert value["gate"] == {"inherited": state.inherited}, f"state JSON gate {value['gate']} does not hold {state.inherited}; write the gate as state_from reads it"
