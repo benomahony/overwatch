@@ -240,6 +240,19 @@ test('a failure names only what is new since the session started, and where its 
   ])
 })
 
+test('a timing failure under testmon says testmon slows it, and how to keep it out of the watcher', () => {
+  const python = WATCHERS.find(watcher => watcher.name === 'python' && watcher.requires === 'uv')!
+  const timing = 'FAILED tests/test_web.py::test_responds_within_limit_ms - AssertionError: / took 87ms (limit: 50ms)\n=== 1 failed, 4 passed in 0.31s ===\n'
+  const lines = failureMessage(python, readReport(python, timing)!, { known: [], log: '/tmp/python.log' }).split('\n')
+  expect(lines.at(-2)).toBe(
+    'This looks like a timing test, and `--testmon` traces every call in watch mode, so it runs slower than it would alone. If the code is no slower, mark timing tests and keep them out of the watcher with `-m "not performance"` in `watchers.python.argv` in .overwatch.json.',
+  )
+  const plain = { ...python, argv: python.argv!.filter(word => word !== '--testmon') }
+  expect(failureMessage(plain, readReport(plain, timing)!, { known: [], log: '/tmp/python.log' })).not.toContain('timing test')
+  const untimed = timing.replace('took 87ms (limit: 50ms)', 'assert 3 == 4')
+  expect(failureMessage(python, readReport(python, untimed)!, { known: [], log: '/tmp/python.log' })).not.toContain('timing test')
+})
+
 test('a failure for want of a network, interpreter, wheel or key is an environment error', () => {
   expect(environmentIn('error: Failed to fetch: `https://pypi.internal/simple/acme/`\n  Caused by: dns error')).toBe(
     'error: Failed to fetch: `https://pypi.internal/simple/acme/`',

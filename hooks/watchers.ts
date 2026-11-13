@@ -364,6 +364,22 @@ function failingLine(failures: readonly string[]): string[] {
 }
 
 /** Where the full output is, which the agent reads only when the summary is not enough. */
+/** A timing assertion in a test's output, as "took 87ms (limit: 50ms)" or a test reading elapsed time. */
+const TIMING = /\btook \d+(?:\.\d+)? ?m?s\b|\belapsed\b|\bperf_counter\b/
+
+/**
+ * A line for a failure that looks like a timing test run under pytest-testmon, whose tracing slows every call so
+ * timings in watch mode measure the instrumentation; none for any other failure. The failure still holds completion.
+ */
+function timingLine(watcher: Watcher, report: Report): string[] {
+  const lines = watcher.argv?.includes('--testmon') && TIMING.test(report.text)
+    ? [`This looks like a timing test, and \`--testmon\` traces every call in watch mode, so it runs slower than it would alone. If the code is no slower, mark timing tests and keep them out of the watcher with \`-m "not performance"\` in \`watchers.${watcher.name}.argv\` in .overwatch.json.`]
+    : []
+  assert(lines.length <= 1, `timingLine gave ${lines.length} lines; give at most one`)
+  assert(lines.length === 0 || watcher.argv!.includes('--testmon'), `timing hint given for ${watcher.name}, which runs no testmon`)
+  return lines
+}
+
 function logLine(log: string | undefined): string[] {
   const lines = log === undefined ? [] : [`Full output: \`${log}\``]
   assert(lines.length === (log === undefined ? 0 : 1), `log line for ${log} gave ${lines.length} lines; give one when there is a log`)
@@ -392,6 +408,7 @@ export function failureMessage(watcher: Watcher, report: Report, { known, log, o
     origin === 'session'
       ? 'Fix these new failures before finishing. Tools remain available while you investigate.'
       : 'This session made no edit since the previous result, so another process may be changing these files; check before overwriting its work.',
+    ...timingLine(watcher, report),
     ...logLine(log),
   ].join('\n')
   assert(fresh.length + old === report.failures.length, `${watcher.name} split ${report.failures.length} failures into ${fresh.length} new and ${old} old`)

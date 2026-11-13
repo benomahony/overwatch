@@ -16,6 +16,8 @@ from discovery import key_of
 
 
 FAILURE_LIMIT = 10
+# A timing assertion in a test's output, as "took 87ms (limit: 50ms)" or a test reading elapsed time.
+TIMING = re.compile(r"\btook \d+(?:\.\d+)? ?m?s\b|\belapsed\b|\bperf_counter\b")
 
 
 # The decoration each tool puts around its summary, which the status line leaves out.
@@ -90,6 +92,19 @@ def failure_counts(summary: str) -> dict[str, int]:
     return counts
 
 
+def timing_hint(report: Report) -> str:
+    """A line for a failure that looks like a timing test run under pytest-testmon, whose tracing slows every call so
+    timings in watch mode measure the instrumentation; empty for any other failure. The failure still holds completion."""
+    hint = ""
+    if "--testmon" in report.command.split() and TIMING.search(report.text):
+        hint = (f"This looks like a timing test, and `--testmon` traces every call in watch mode, so it runs slower than it "
+                f"would alone. If the code is no slower, mark timing tests and keep them out of the watcher with "
+                f"`-m \"not performance\"` in `watchers.{report.name}.argv` in .overwatch.json.\n")
+    assert hint == "" or hint.endswith("\n"), f"timing hint {hint!r} must end its line"
+    assert hint == "" or "--testmon" in report.command, f"timing hint given for {report.command!r}, which runs no testmon"
+    return hint
+
+
 def failure_message(reports: list[Report], baseline: Mapping[str, First], logs: dict[str, Path], outside: bool = False) -> str:
     """Tells the agent which checks newly fail, what fails in each and where the full output is; outside when the
     failure was first seen after another process's change rather than the session's own edit."""
@@ -107,6 +122,7 @@ def failure_message(reports: list[Report], baseline: Mapping[str, First], logs: 
             + ("This session made no edit since the previous result, so another process may be changing these files; "
                "check before overwriting its work.\n" if outside else
                "Fix these new failures before finishing. Tools remain available while you investigate.\n") +
+            timing_hint(report) +
             f"Full output: `{logs[report_key(report)]}`"
         )
     text = "\n\n".join(messages)
