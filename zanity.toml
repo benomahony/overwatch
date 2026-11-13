@@ -4,7 +4,7 @@
 exclude = ["docs/assets/vendor/katex.min.js"]
 
 [rules]
-select = ["strict"]
+select = ["all"]
 
 # The project's words, the result model's (spec/Overwatch.tla) wherever it has one. A watcher is a watchers.json entry
 # and, in every host, its live instance; a report is what one of its runs says; an outside change is another process's.
