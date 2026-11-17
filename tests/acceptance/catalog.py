@@ -155,6 +155,52 @@ SCENARIOS = (
     .when("Its rule is disabled or its source path is excluded")
     .then("The finding is not recorded as fixed"),
 
+    Scenario("TCR mode commits an edit that keeps the checks green", "TCR mode", ("modes", "tcr", "checkpoint"))
+    .given("The project runs overwatch in TCR mode with green checks", World.tcr_project)
+    .when("The agent makes an edit and the checks on that edit pass", World.edit_keeping_checks_green)
+    .then("The change is committed as a checkpoint", World.change_is_committed_as_a_checkpoint),
+
+    Scenario("TCR mode reverts an edit that introduces a new failure", "TCR mode", ("modes", "tcr", "revert"))
+    .given("The project runs overwatch in TCR mode with green checks", World.tcr_project)
+    .when("The agent makes an edit and the checks on that edit report a new failure", World.edit_adding_warnings)
+    .then("The working tree is restored to the latest checkpoint and the agent is told which failure caused the revert", World.edit_is_reverted_and_told),
+
+    Scenario("TCR mode leaves inherited failures alone", "TCR mode", ("modes", "tcr", "inherited"))
+    .given("The project runs overwatch in TCR mode and the session baseline has inherited failures", World.tcr_inherited_project)
+    .when("The checks on an edit report only those inherited failures", World.edit_keeping_checks_green)
+    .then("The change is committed as a checkpoint", World.change_is_committed_as_a_checkpoint),
+
+    Scenario("TCR mode never acts on an overtaken result", "TCR mode", ("modes", "tcr", "overtaken"))
+    .given("The project runs overwatch in TCR mode with green checks", World.tcr_project)
+    .when("The agent edits again while the checks on an earlier edit are running", World.edit_while_checks_run)
+    .then("The earlier result neither commits nor reverts", World.edit_is_neither_committed_nor_reverted),
+
+    Scenario("TCR mode does not start on a dirty working tree", "TCR mode", ("modes", "tcr", "dirty-tree"))
+    .given("The project runs overwatch in TCR mode and the working tree has uncommitted changes when the session starts", World.tcr_dirty_project)
+    .when("The agent makes an edit that adds a failure", World.edit_adding_warnings)
+    .then("Overwatch reports that TCR is unavailable and no revert discards those changes", World.tcr_is_reported_unavailable),
+
+    Scenario("TCR mode pauses when a checkpoint commit fails", "TCR mode", ("modes", "tcr", "commit-failure"))
+    .given("The project runs overwatch in TCR mode with green checks", World.tcr_project)
+    .and_("A commit hook refuses commits", World.a_commit_hook_refuses)
+    .when("The agent makes an edit that keeps the checks green", World.edit_keeping_checks_green)
+    .then("Overwatch reports that TCR is unavailable and the change stays staged", World.commit_failure_pauses_tcr),
+
+    Scenario("TCR mode keeps the work a revert discards in a git ref", "TCR mode", ("modes", "tcr", "revert", "recovery"))
+    .given("The project runs overwatch in TCR mode with green checks", World.tcr_project)
+    .when("The agent makes an edit and the checks on that edit report a new failure", World.edit_adding_warnings)
+    .then("The discarded edit is saved in a ref that the agent is told", World.reverted_work_is_saved_in_a_ref),
+
+    Scenario("TCR mode holds an edit when a failing check has no earlier result", "TCR mode", ("modes", "tcr", "held"))
+    .given("The project runs overwatch in TCR mode with green checks", World.tcr_project)
+    .when("The agent's edit makes a check appear that fails, and that has no earlier result in the session", World.edit_adding_a_failing_check)
+    .then("The edit is neither committed nor reverted and the agent is told which check held it", World.failing_check_holds_the_edit),
+
+    Scenario("TCR mode refuses to commit a file named like a secret", "TCR mode", ("modes", "tcr", "secrets"))
+    .given("The project runs overwatch in TCR mode with green checks", World.tcr_project)
+    .when("The agent's edit keeps the checks green and writes a .env file", World.edit_writing_a_secret_file)
+    .then("Nothing is committed, the file stays unstaged and the agent is told the file and the rule", World.secret_file_is_refused),
+
     Scenario("Advisory mode reports failures without guarding", "Modes and limits", ("modes", "advisory"), status="proposed")
     .given("The project runs overwatch in advisory mode")
     .and_("A change introduces a new failure")
