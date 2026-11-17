@@ -9,8 +9,8 @@ Section headings and explanations live in ordinary TLA+ comments in the modules;
 
 There are two layers:
 
-- `Overwatch.tla` models workspace versions, inherited baselines, runs, buffered results, and notification ordering. A read consumes the newest completed result, preserves unfinished output, and never makes the agent's edits inherited debt.
-- `IntegrationContract.tla` models requests and responses, check contention, selected checks, inherited-finding policy, report delivery, completion feedback, shutdown, and restart. `IntegrationLifecycle.cfg` checks another bounded instance of this same contract with a restart. Both layers use `FailurePolicy.tla`; they do not maintain independent definitions of a regression.
+- `Overwatch.tla` models workspace versions, inherited baselines, runs, buffered results, and notification ordering. A read consumes the newest completed result, preserves unfinished output, and never makes the agent's edits inherited debt. With `TcrMode` it also models TCR: the restore point, a person's uncommitted work, the checkpoint and revert of a settled edit, and the notice of a revert.
+- `IntegrationContract.tla` models requests and responses, check contention, selected checks, inherited-finding policy, report delivery, completion feedback, the notice of a TCR revert, shutdown, and restart. `IntegrationLifecycle.cfg` checks another bounded instance of this same contract with a restart. Both layers use `FailurePolicy.tla`; they do not maintain independent definitions of a regression.
 
 Failure atoms represent what a runner exposes: named identities or count slots for summary-only checkers.
 The model cannot recover identities that the runner does not emit.
@@ -54,7 +54,100 @@ Inspection does not require that assumption: the responder remains enabled even 
 The runtime contention tests hold a real command-hook session lock until after inspection returns.
 The model does not specify a universal wall-clock response deadline.
 
+The TCR properties of `Overwatch.tla` are checked with `TcrMode` on by five configurations, each at the smallest bounds that fit what it checks.
+`OverwatchTcr.cfg`, with one failure name and two workspace edits, checks all of them, liveness included.
+`OverwatchTcrReverts.cfg`, with three edits, checks every safety property except `BaselineNeverAbsorbsEdits`, which its view leaves out and the other two configurations that read the session's edits check, with the three versions that a revert meeting a person's work needs: an edit of the agent, an outside edit and a revert, so `RevertNeverDiscardsSeenWork` cannot fail with two.
+`OverwatchTcrQueues.cfg`, with two edits, starts with one revert notice and one hold notice already queued, which `RevertKeepsEveryNotice` and `HoldKeepsEveryHold` need to catch a notice that overwrites one that still waits, and which is cheap enough for CI.
+`OverwatchTcrNotices.cfg`, with four edits, only the agent's work and at most four builds, reaches the same overwrite by two reverts or two holds in a row, and runs only with `--full`.
+The properties state that a revert is a new workspace version, so `head` only grows, with the content of the restore point; that a checkpoint follows a green result and moves the restore point, a revert follows a new failure, both of the latest edit, and each clears the edit's due settlement; that neither acts on an overtaken result, on a timeout, on a failing result of a check that has no earlier result, or while TCR is unavailable; that such a failing result is held, which changes nothing, leaves TCR on and tells the agent, that the held edit is committed by the next edit whose result passes, that a held failing check is only held again and never reverted, that a held edit survives a turn start when the files are as the hold left them (`HeldEditSurvivesATurnStart`), and that a turn start with other files, when the person has not committed them, makes TCR unavailable (`ChangedTreeStopsTcrAtTheTurnStart`, `HeldEditDoesNotSurviveAChangedTree`); that a checkpoint and a revert each leave a clean tree, the restore point at the head and no person's work pending (`CheckpointAndRevertLeaveACleanTree`); that a revert saves the content it discards apart from the workspace when `SaveReverted` is set, and that the workspace it leaves is the restore point's either way; that a pull needs a clean tree and replaces the restore point; that a person's work seen at the start, or after a tool that does not edit, pauses TCR and is never reverted; that a commit that fails, or that the guard against secrets and large files refuses, changes nothing and makes TCR unavailable; and that every notice is queued, kept while it waits, delivered as the queue that waited, and never dropped.
+`EditsAreSettled` states that every edit is settled unless TCR becomes unavailable, its check times out, or its revert needs a version beyond the bound.
+It needs the fairness of `Settle`, which is the hook running after every edit, and an edit whose check times out stays unsettled in the model, where the code retries at the next event.
+They also state a limit: work that a person did just before the agent's edit, with no tool that does not edit between them, is unseen, and a revert discards it.
+`probes/Probes.tla` asks TLC for that trace, `NoRevertOfUnseenWork`, and `scripts/check_models.py` expects a violation with three workspace edits and none with two.
+
+Two directories hold checks that are not properties of the model.
+`refinement/` holds `OldOverwatch.tla`, a frozen copy of `Overwatch.tla` from before TCR, and two modules that check, in each direction, that the two have the same behaviors when `TcrMode` is off: `NewImplementsOld` maps `Overwatch` to the old module under the identity mapping, fairness included, and `OldImplementsNew` maps the old module to `Overwatch` with the TCR variables at the values they have while TCR is off.
+This replaces comparing state counts.
+A third module, `TcrImplementsBase`, checks the safety of that old module for `Overwatch` with TCR on: a Checkpoint, a failed Checkpoint, a Hold, an Observe, a PersonCommits, a RevertAborts and a Tell step change only variables that the old module lacks, and a Revert is for it a change of the workspace by another process.
+A Revert writes the content of the restore point into the version it creates, which the old module keeps fixed from its first state, so a prophecy variable guesses that content in the first state and only the behaviors whose guess is right are kept, as every behavior has one.
+TLC found one step the old module has no match for, and the check names it as `HeldCompletes`: a turn may end while a held failure is new, where the old module keeps it guarded.
+Fairness is not checked through the old module, since a turn that ends only because of a hold is not a step its fairness takes.
+A mutant in which a Checkpoint also restarts the quiet timer breaks the check.
+A commit and a revert are each atomic in the sense of a transaction that commits or aborts: `CheckpointIsAllOrNothing` and `RevertIsAllOrNothing` say that the restore point, the person's work and the workspace are either all as the step makes them or all as they were, whether the commit failed or was refused, or the revert was given up.
+A mutant in which a failed commit moves the restore point, and one in which an aborted revert does, break them, and two probes show that the aborting branches are reached with work pending.
+A mutant that judges a timed-out check like any other breaks `ATimedOutCheckOnlyHolds`, and one in which a pull keeps the hold breaks `APullClearsTheHold`.
+`probes/` holds `Probes.tla`, whose probes each say that something never happens, so that a violation is a trace of it: every new action and state of TCR is reachable, and a property of TCR is not true only because its scenario cannot occur.
+`python3 scripts/check_models.py --jar /path/to/tla2tools.jar` runs these, the TCR and notice configurations, and the lifecycle instance, and compares each verdict with what it must be.
+
+The notice of a revert is a separate delivery path in `IntegrationContract.tla`.
+A host that delivers by event tells the agent at once.
+OpenCode 2 queues the notice for the next model request.
+A check that finds nothing guarded clears a queued failure, never a queued notice.
+The model counts the notices raised, queued, told and discarded at shutdown, and requires that they add up, so a notice dropped anywhere else, a queue of two of which a delivery tells one, or a notice told twice is a violation.
+
+The model of TCR leaves out these behaviors of the hooks, each a known abstraction:
+
+- The inherited-block policy is not modelled. The code holds an edit that leaves an inherited check failing uncommitted, so the next turn start sees a dirty tree and TCR becomes unavailable, and within a turn a later revert goes back to the older checkpoint and discards the held edit.
+- A revert that cannot finish is modelled in one way. `RevertAborts` is a revert whose files keep changing while it saves them: the code saves again up to three times, then deletes the ref and deletes nothing, and TCR becomes unavailable; the model deletes nothing and TCR becomes unavailable, which `RevertNeverLosesUnsavedWork` states. Any other failure of a revert, a git error or files left behind, raises in the code and is not modelled, and a file that is written after the last listing of the untracked files survives the revert, which then raises that the tree still differs from the commit: the file is in the saved ref, TCR becomes unavailable, and the tracked files are already restored, so this is not `RevertAborts`, which deletes nothing, and is not modelled.
+- The time that a revert or a commit needs is not modelled. The code holds the edit with a message when less than the time for a revert (a save, three more saves and a delete, each with the git timeout) or for a commit is left, while the model has no budget beyond the timeout of a check.
+- The code compares a held edit with the files by a fingerprint of their size, their time and a digest of the content of the changed files, so files that changed content with the same size and time count as changed. The model compares workspace versions, which is the same comparison with exact content.
+- A timed-out check is held, never reverted: its report names no file, so it says nothing about the edit. The engine reports a timeout as a failing result named `timeout` that never becomes a baseline, and TCR holds the edit like a failing check that has no earlier result. The model has `Hold` accept `TimedOut` among the failures of the report, and `NeverHoldsATimeout` shows that this is reachable.
+- A pull ends a hold. The baseline the edit was held against is gone, so `HeadMoves` clears `held`, as the code clears the held checks and `held_fingerprint` when something other than TCR's own checkpoint moves HEAD; `APullClearsTheHold` states it and `NeverPullsWhileHeld` shows that a pull can meet a hold. The code also never judges the read that took the fresh baseline for the moved HEAD: it neither commits, holds nor reverts, because the pull's failures are already in that baseline as inherited. A pull needs a clean tree in the model, so an agent edit made in the same step as the pull, which the code leaves uncommitted until the next edit or turn, is not modelled; `tests/test_tcr_hardening.py` states that case.
+- The hold follows the code. `engine/tcr.py` keeps the held checks in the saved state; a held check has no baseline until it passes, so a failing result that is worse holds again and never reverts. It keeps the fingerprint of the files it left, `held_fingerprint`, and a turn start keeps TCR on when a check is held and the files still have that fingerprint, so the next edit that passes commits the held edit; otherwise the dirty tree makes TCR unavailable. The model has one check, so a check that appears in the middle of a session is modelled only as a first result that follows an edit, which the replay builds with a second tool on `PATH`. Under the model's baseline rule a failing first result is always new, so the part of the hold rule that forbids committing it is a conjunct that no state of the model reaches; a mutant that makes the first result its own baseline, which is the code's rule for a check that appears mid-session, and also drops that conjunct from `Checkpoint` is caught by `UnprovenResultsNeverCommitOrRevert`, and either change alone is not.
+- Other behaviors of the hook that the model leaves out: TCR is unavailable when no checks are configured; the files that make a tree dirty are named in the reason; the agent is told when the branch is `main` or `master`, when the mode is removed from `.overwatch.json`, and when the checks used the time that the host gives a hook, in which case the edit stays unsettled.
+- A revert beats a hold in the code when one check regresses and another has no earlier result, since the code looks for regressions first; the model has one check, so the two never meet.
+- Nothing to restore, nothing to commit and nothing changed are not modelled. When no file differs from the commit the code does not revert and the edit stays unsettled, with nothing to commit it makes no checkpoint, and an edit whose files have the same fingerprint as before is not settled at all.
+- Only a timed-out check is modelled as one that cannot judge an edit. The code leaves the edit unsettled for any check that could not run in the environment too.
+- A commit hook that changes files after the commit makes the code raise: TCR becomes unavailable with the checkpoint already made, while the model's `CheckpointFails` says that nothing changed.
+- After a revert the code clears the reports, whether the run failed, what the agent was told, the signatures and the fingerprint, so the next event runs the checks again; the model keeps `report`, `wasFailing` and `told`.
+- The saved ref holds the paths that `uncommitted()` lists: changed tracked files and untracked files, not ignored files, the files of submodules or untracked nested repositories, which a revert leaves where they are. A version that only the index held is saved in the second parent of the saved commit. The model keeps the whole content that the revert discards, the staged version included.
+- A revert has a window in which work is lost that the model does not have. The code lists the files, saves them, and resets and removes them as separate git steps, and a tracked file, or a file of the last list, that someone writes after that list and before the reset is discarded without being saved, which can take tens of milliseconds because git has no way to reset and list in one step; a new file written after the list stays and is reported (`revert` in `engine/checkpoint.py`). The model discards and saves the content at one step, so `RevertNeverLosesUnsavedWork` holds in it for work that the code can lose in that window.
+- Notices with identical text coalesce in `engine/delivery.js` when the hook output carries the notice in its context, which every real output does: `observe` overwrites the pending context with the same text and `take` drops a notice that the pending context already contains, so two identical notices in a row are told once. Two different notices are both told, and a notice survives a recovery output. The model counts each notice, as told with the failure text that contains it, so identical-text coalescing is an abstraction: it counts two notices where the host tells one. `tests/test_integrations.mjs` states the three cases.
+- Tool kinds are not modelled. The code acts only after a tool in `EDITING_TOOLS`, which has `Bash` and the editing tools of each agent but not `exec_command`, while the model has no tool kind and makes `Observe` nondeterministic.
+- When TCR is decided again is not modelled for each host. The code decides at `SessionStart` and `UserPromptSubmit`. OpenCode 1 sends `UserPromptSubmit` from its `chat.message` hook, which runs after the session-start check ends and before the agent's first edit, so it decides again at each message. Pi sends no `UserPromptSubmit`, so a paused TCR never resumes in a Pi session, while the model resumes at every turn start for every host.
+- Parallel hooks are not modelled. The code runs the hooks of one session one at a time under a per-session lock, and the model has no hook, so an edit settles when a result for the current workspace is read.
+
+Which progress claim needs which fairness is checked, not assumed.
+`probes/Fairness.tla` has one variant of `Spec` for each of the ten actions that `Spec` makes weakly fair, each without that action's fairness, and `python3 scripts/check_models.py --fairness` runs each variant against each of the six progress claims, 66 runs of about a minute at the bounds of `OverwatchTcr.cfg` with one failure name, one tick and two edits, and compares each verdict with this table.
+A claim marked fails is violated without that action's fairness, and TLC's trace is the proof that the fairness is needed; a claim not marked holds without it at these bounds, which shows no need at them and is no proof that it is never needed.
+
+| Without the fairness of | RunsEnd | EveryEditIsChecked | RegressionsReachAgent | RevertNoticeReachesAgent | HoldNoticeReachesAgent | EditsAreSettled |
+| --- | --- | --- | --- | --- | --- | --- |
+| nothing (`Spec`) | holds | holds | holds | holds | holds | holds |
+| `QuietElapses` | holds | fails | fails | holds | holds | fails |
+| `Tick` | fails | fails | fails | holds | holds | fails |
+| `TimesOut` | fails | fails | fails | holds | holds | fails |
+| `ReadResults` | holds | fails | fails | holds | holds | fails |
+| `Flush` | holds | holds | fails | holds | holds | holds |
+| `WokenTurnStarts` | holds | holds | holds | holds | holds | holds |
+| `TurnCompletes` | holds | holds | fails | holds | holds | holds |
+| `TellRevert` | holds | holds | holds | fails | holds | holds |
+| `TellHold` | holds | holds | holds | holds | fails | holds |
+| `Settle` | holds | holds | holds | holds | holds | fails |
+
+No claim needs the fairness of `WokenTurnStarts` at these bounds: a woken turn is not needed for any of the six claims to hold.
+`RunsEnd` rests on `Tick` and `TimesOut` alone, since a check that hangs ends only when its clock runs out; `EveryEditIsChecked` adds `QuietElapses` and `ReadResults`; `RegressionsReachAgent` adds `Flush` and `TurnCompletes`; and the three TCR actions `Settle`, `TellRevert` and `TellHold` are each needed by exactly the claim about their own progress.
+Weak fairness suffices for all six claims, since `Spec` uses it and they hold, so strong fairness is not needed by any of them, and no run substitutes it.
+
+Whether a verdict depends on the bounds is checked at the bounds that fit, with every property of `OverwatchTcr.cfg`, liveness included.
+At two edits a revert uses up the budget, so no edit follows a revert and `EditsAreSettled`, `EveryEditIsChecked` and `RegressionsReachAgent` never see one: the probe `NeverCheckpointsAfterARevert` holds with two edits and is violated with three, 24,389,509 states generated and 7,864,279 distinct.
+`python3 scripts/check_models.py --bounds` therefore runs all properties with three edits, with only the agent's own work and at most four builds, once without a tick and once with one, and with two failure names and two edits; each passes with the same verdicts as the base bounds.
+
+| Bounds | States generated | Distinct | Verdicts |
+| --- | --- | --- | --- |
+| one edit, one name, one tick | 68,292 | 20,106 | all hold |
+| two edits, one name, one tick (`OverwatchTcr.cfg`) | 5,633,023 | 1,411,606 | all hold |
+| two edits, two names, one tick | 51,715,267 | 12,801,532 | all hold |
+| three edits, one name, no tick, agent only | 32,901,892 | 7,656,256 | all hold |
+| three edits, one name, one tick, agent only | 55,315,723 | 12,669,979 | all hold |
+
+Four edits were not finished: the same properties at four edits, agent only and no tick, had found 24 million distinct states with 8 million still waiting when the run was stopped after an hour, without an error found in what it had explored, so no verdict is claimed at four edits.
+`OverwatchTcrNotices.cfg` checks its safety and notice properties at four edits, and the bounds above are no proof for more edits, more names or more ticks.
+The escape of `EditsAreSettled` for an edit at the last version, `head = MaxEdits /\ Guard`, stays, since a revert there needs a version beyond the bound; it applies only to that last version, and with three edits a settled edit after a revert is reached, as the probe shows.
+The two-name run with a tick of two was not run.
+
 The committed model-checking configurations use finite bounds: two checks, a small failure alphabet, up to two requests, and up to one report change or session restart.
+The TCR configurations use one failure name, one tick of the timeout clock (none in the notices configuration), and two, three or four workspace edits; `OverwatchTcrNames.cfg` uses two failure names, with no tick and only the agent's own work, so that a notice can be told apart from the baseline: `RevertNoticeNamesNewFailures` says that a revert's notice names exactly the failures of the result that the baseline does not hold, and a mutant that names the inherited ones too breaks it, which one failure name could not show.
 These bounds exercise concurrency and policy combinations; passing them is not proof for every unbounded program execution or every external host version.
 
 ## Model-derived conformance tests
@@ -70,7 +163,18 @@ Both scripts contain input programs; TLC computes the expected observations.
 - OpenCode and Pi run native callbacks through the real shared checker. Held-check requests, deferred context, persistent status, and correction counts are observed at their public callbacks.
 - Neovim runs the real watcher callbacks with controlled process I/O, checking status, editor actions, and late callbacks after shutdown.
 
-CI model-checks both layers and the lifecycle instance, verifies generated expectations, and runs all six adapters.
+`model_traces.py` also generates `tests/fixtures/tcr-traces.json`: twenty-one schedules of the TCR actions, nineteen replayed through the hook, one with an overtaken result and one with a revert that aborts, each with the state that TLC computes after every action.
+`tests/test_tcr_conformance.py` replays them through the real hook in real git repositories.
+An edit of the agent writes the check's result file, the checks, the checkpoint, the hold and the revert happen in the hook that follows, the work of a person is a file written outside the hook, a second check with no earlier result is a tool that appears on `PATH` with the edit, and a checkpoint that the guard refuses is a file that holds a private key.
+After a revert the replay reads the ref that the message names and requires it to hold the discarded work.
+The schedule with an overtaken result has no replay, because the hook settles each edit before the next.
+The schedule of the revert that aborts is replayed at the level of `checkpoint.revert`, whose `after_save` seam writes the files while they are saved: the test requires the error, the work still in the files, no saved ref and no new commit, which is what the model's `RevertAborts` step says.
+
+CI asks TLC for the expected observations and rejects a fixture that no longer matches them (`model_traces.py --check` and `integration_traces.py --check`), typesets every module (`spec_latex.py --check`), and runs all six adapters against those fixtures.
+CI also runs `scripts/check_models.py`, which runs TLC on every configuration but `IntegrationContract.cfg`, `OverwatchTcrNotices.cfg` and `OverwatchTcrReverts.cfg`, on the three refinement checks, the mutants of the model and the probes, in one CI job, and `OverwatchTcrReverts.cfg` in a job of its own with `--reverts`, since the first job took about 15 minutes on 14 cores and the runner has fewer, and each job has a time limit above the 40 minutes that one run may take; how long they take on the runner is not measured.
+`--fairness` adds the 66 runs of the fairness table, about an hour.
+`--full` adds `IntegrationContract.cfg` and `OverwatchTcrNotices.cfg`, which are `IntegrationContract.cfg`, about 9 minutes and a 10 GB heap, and `OverwatchTcrNotices.cfg`, 478,500,725 states generated and 97,317,370 distinct, about 8 minutes on 14 cores under load.
+After a change to a module, run the configurations that name it, for example `java -cp tla2tools.jar tlc2.TLC -config OverwatchTcr.cfg Overwatch.tla`.
 Changes should fix code against the contracts.
 A spec change requires an intentional behavior or capability change, not a workaround for a failing implementation.
 
@@ -84,6 +188,10 @@ In `Overwatch.tla`, `truth` maps workspace versions to findings, `head` is the c
 `pending` holds completed, unread results.
 `ReadResults` consumes the latest complete result; unfinished process output is outside that action.
 `outbox` and the turn state constrain when a report becomes visible and whether it can wake an idle agent.
+
+With `TcrMode`, `Overwatch.tla` adds `tcr` (off, active, or unavailable), `ck` (the version the latest commit holds, which a revert restores), `person` (none, unseen, or seen uncommitted work of a person), `settleDue` (an edit of the agent has no settled result yet), `firstResult` (the result just read is the first of its check), `held` and `heldAt` (an edit is held, and the version that was held, which a turn start compares with the tree), `saved` (the content that reverts discarded and saved apart from the workspace), and the queues `notices` and `holds` with the lists `noticeTold` and `holdTold` that were delivered from them, each queue holding the failures that every revert or hold named.
+`Checkpoint`, `Revert`, `RevertAborts` and `Hold` settle an edit once `report` is a result for the current `head`; `Observe` is the first tool that does not edit after an outside edit.
+The constants `TcrMode`, `SaveReverted` and `StartQueued` switch TCR on, the saving of reverted work, and one notice and one hold already queued at the start, which lets a configuration of two edits catch a revert that overwrites the queue.
 
 In `IntegrationContract.tla`, `reports` and `baseline` contain per-check finding sets.
 `busy` represents an unfinished check.

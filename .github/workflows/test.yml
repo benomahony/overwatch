@@ -33,6 +33,7 @@ jobs:
 
   model:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
@@ -51,6 +52,8 @@ jobs:
       - name: Model check the timing spec
         if: steps.spec.outputs.changed == 'true'
         uses: benomahony/tla-check@7dab51c86bc6223aa2f62e7acb98050bb429f71f # v0.1.0
+        with:
+          configs: spec/Overwatch.cfg spec/IntegrationLifecycle.cfg spec/IntegrationContract.cfg
 
       - name: Verify implementation traces come from the current model
         if: steps.spec.outputs.changed == 'true'
@@ -63,6 +66,21 @@ jobs:
       - name: Validate traces of the real engine against the model
         if: steps.spec.outputs.changed == 'true'
         run: python3 tests/trace_validation.py --jar "$RUNNER_TEMP/tla2tools.jar"
+
+      - name: Model check TCR, the notices, the refinements, and the probes
+        run: python3 scripts/check_models.py --jar "$RUNNER_TEMP/tla2tools.jar"
+
+  model-reverts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Model check the reverts configuration, which needs three workspace edits
+        run: |
+          curl -fsSL https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar -o "$RUNNER_TEMP/tla2tools.jar"
+          echo "936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88  $RUNNER_TEMP/tla2tools.jar" | sha256sum --check
+          python3 scripts/check_models.py --jar "$RUNNER_TEMP/tla2tools.jar" --reverts --only "configuration OverwatchTcrReverts"
 
   agents:
     runs-on: ubuntu-latest

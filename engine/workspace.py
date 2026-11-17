@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+from typing import BinaryIO
 
 from discovery import ConfigurationError
 
@@ -20,6 +21,10 @@ GIT_TIMEOUT = 5
 
 # The size, in bytes, of a workspace fingerprint's digest.
 FINGERPRINT_BYTES = 20
+# The most bytes of one file that content_fingerprint reads; a larger file is digested by its size alone.
+CONTENT_READ_LIMIT = 50 * 1024 * 1024
+# How many bytes of a file are read at a time.
+READ_CHUNK = 1024 * 1024
 
 
 def workspace_files(cwd: Path) -> list[Path]:
@@ -35,6 +40,9 @@ def workspace_files(cwd: Path) -> list[Path]:
             check=True,
         )
         paths = [cwd / os.fsdecode(part) for part in result.stdout.split(b"\0") if part]
+    except subprocess.TimeoutExpired as error:
+        raise ConfigurationError(f"listing the files of {cwd} took more than {GIT_TIMEOUT} seconds, so overwatch cannot tell what changed and "
+                                 "does nothing, TCR included, until git lists them faster; ignore the large directories or keep fewer files") from error
     except (OSError, subprocess.SubprocessError) as error:
         raise ConfigurationError(f"git could not list the files of {cwd}: {error}; check that git is installed and can read the repository") from error
     assert all(path.is_relative_to(cwd) for path in paths), f"listed {[path for path in paths if not path.is_relative_to(cwd)]} outside {cwd}; list only the workspace"
@@ -102,6 +110,37 @@ def fingerprint(cwd: Path) -> str:
     value = digest.hexdigest()
     assert len(value) == FINGERPRINT_BYTES * 2, f"fingerprint {value} is not {FINGERPRINT_BYTES} bytes; keep digest_size=FINGERPRINT_BYTES"
     assert all(character in "0123456789abcdef" for character in value), f"fingerprint {value} is not hexadecimal; use hexdigest"
+    return value
+
+
+def digest_file(handle: BinaryIO, digest: "hashlib._Hash") -> None:
+    """Adds the size of the open file and its first CONTENT_READ_LIMIT bytes to digest."""
+    assert handle.readable() and handle.tell() == 0, f"{handle.name} is not an open file at its start"
+    size = os.fstat(handle.fileno()).st_size
+    digest.update(f"\0{size}\0".encode())
+    read = 0
+    for chunk in iter(lambda: handle.read(READ_CHUNK), b""):
+        digest.update(chunk)
+        read += len(chunk)
+        if read >= CONTENT_READ_LIMIT:
+            break
+    assert read <= CONTENT_READ_LIMIT + READ_CHUNK, f"{handle.name} was read to {read} bytes, past the limit of {CONTENT_READ_LIMIT}"
+
+
+def content_fingerprint(cwd: Path, names: list[str]) -> str:
+    """A digest of the names and the contents of the files in names, relative to cwd, each read up to
+    CONTENT_READ_LIMIT bytes. A file that cannot be read is digested as missing."""
+    assert cwd.is_dir(), f"{cwd} is no directory to read the files {names[:3]} in"
+    digest = hashlib.blake2b(digest_size=FINGERPRINT_BYTES)
+    for name in sorted(names):
+        digest.update(os.fsencode(name))
+        try:
+            with open(cwd / name, "rb") as handle:
+                digest_file(handle, digest)
+        except OSError:
+            digest.update(b"\0missing")
+    value = digest.hexdigest()
+    assert len(value) == FINGERPRINT_BYTES * 2, f"content fingerprint {value} is not {FINGERPRINT_BYTES} bytes; keep digest_size=FINGERPRINT_BYTES"
     return value
 
 

@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import json
+from functools import partialmethod
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -13,6 +15,9 @@ from daemons import stop_daemons
 from paths import ROOT
 
 from .claude_steps import ClaudeSteps
+
+CLEAN = "zanity: checked 1 file, no issues found.\n"
+WARNINGS = "zanity: 0 errors and 29 warnings in 1 of 1 files\n"
 
 
 class AcceptanceWorld(ClaudeSteps, unittest.TestCase):
@@ -188,6 +193,133 @@ class AcceptanceWorld(ClaudeSteps, unittest.TestCase):
         """Inherited findings leave Stop and Publish open."""
         assert "decision" not in self.stop_response, f"Stop was refused on inherited findings: {self.stop_response}"
         assert self.publish_response == {}, f"Publish was refused on inherited findings: {self.publish_response}"
+
+    def git(self, *argv: str) -> str:
+        """Runs git in the project and returns what it printed."""
+        completed = subprocess.run(["git", "-C", str(self.project), *argv], capture_output=True, text=True, check=True)
+        assert completed.returncode == 0, f"git {argv} exited {completed.returncode}: {completed.stderr}"
+        assert isinstance(completed.stdout, str), f"git {argv} printed {type(completed.stdout)}, not text"
+        return completed.stdout.strip()
+
+    def subjects(self) -> list[str]:
+        """The subjects of the project's commits, newest first."""
+        subjects = self.git("log", "--format=%s").splitlines()
+        assert subjects, f"the project {self.project} has no commit"
+        assert all(subjects), f"a commit of {self.project} has no subject: {subjects}"
+        return subjects
+
+    def tcr_project(self, result: str = CLEAN, dirty: bool = False) -> None:
+        """The project in TCR mode, committed with the check result, and its session started; when dirty, with a file
+        nobody committed at the start."""
+        for name, value in (("user.name", "test"), ("user.email", "test@example.com"), ("commit.gpgsign", "false"), ("core.hooksPath", "/dev/null")):
+            self.git("config", name, value)
+        settings = self.project / ".overwatch.json"
+        self.fixture_write(settings, json.dumps({**json.loads(self.fixture_read(settings)), "mode": "tcr"}))
+        self.fixture_write(self.result, result)
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "start")
+        if dirty:
+            self.fixture_write(self.project / "notes.txt", "mine\n")
+        self.started = self.hook("SessionStart")
+        assert self.subjects() == ["start"], f"the project has commits {self.subjects()}, not only start"
+        assert self.git("status", "--porcelain") == ("?? notes.txt" if dirty else ""), f"the project starts with {self.git('status', '--porcelain')!r}"
+
+    tcr_inherited_project = partialmethod(tcr_project, result=WARNINGS)
+    tcr_dirty_project = partialmethod(tcr_project, dirty=True)
+
+    def edit(self, result: str | None = None) -> None:
+        """The agent edits the source, and then the checks report result when one is given."""
+        self.fixture_write(self.source, "value = 2\n")
+        if result is not None:
+            self.fixture_write(self.result, result)
+        self.answer = self.hook("PostToolUse", tool_name="Edit")
+        assert self.fixture_read(self.result) in (result, CLEAN, WARNINGS), f"the check result is {self.fixture_read(self.result)!r}, not one the edit set"
+        assert type(self.answer) is dict, f"the edit was answered {self.answer}"
+
+    edit_keeping_checks_green = partialmethod(edit)
+    edit_adding_warnings = partialmethod(edit, result=WARNINGS)
+
+    def edit_while_checks_run(self) -> None:
+        """The checks take so long that the agent edits again: the check itself writes the later file, once."""
+        later = self.project / "later.txt"
+        self.fixture_write(self.bin / "zanity", f"#!/bin/sh\n[ -e '{later}' ] || echo later > '{later}'\ncat '{self.result}'\n")
+        self.edit(result=WARNINGS)
+        assert later.exists(), f"the checks did not write {later}, so the edit was not overtaken"
+        assert self.fixture_read(self.source) == "value = 2\n", f"the source reads {self.fixture_read(self.source)!r}, not the edit"
+
+    def a_commit_hook_refuses(self) -> None:
+        """The repository's commit hook refuses every commit."""
+        hooks = self.fixture_root / "hooks"
+        hooks.mkdir()
+        refusing = hooks / "pre-commit"
+        self.fixture_write(refusing, "#!/bin/sh\necho refused >&2\nexit 1\n")
+        refusing.chmod(0o755)
+        self.git("config", "core.hooksPath", str(hooks))
+        assert os.access(refusing, os.X_OK), f"the hook {refusing} is not executable"
+        assert self.git("config", "core.hooksPath") == str(hooks), "git does not run the refusing hook"
+
+    def change_is_committed_as_a_checkpoint(self) -> None:
+        """The edit is the newest commit and nothing is left uncommitted."""
+        assert self.subjects()[0] == "tcr: example.py", f"the commits are {self.subjects()}, not a checkpoint of example.py first"
+        assert self.git("status", "--porcelain") == "", f"the project still has {self.git('status', '--porcelain')!r} uncommitted"
+
+    def edit_is_reverted_and_told(self) -> None:
+        """The source is back at the checkpoint, no commit was made, and the agent is told the new warnings."""
+        assert self.fixture_read(self.source) == "value = 1\n", f"the source reads {self.fixture_read(self.source)!r}, not the checkpoint's"
+        assert self.subjects() == ["start"], f"the commits are {self.subjects()}, not only start"
+        assert "29 warnings" in json.dumps(self.answer), f"the agent was not told the warnings: {self.answer}"
+
+    def edit_is_neither_committed_nor_reverted(self) -> None:
+        """The edit stays in the working tree, uncommitted."""
+        assert self.fixture_read(self.source) == "value = 2\n", f"the source reads {self.fixture_read(self.source)!r}, not the edit"
+        assert self.subjects() == ["start"], f"the commits are {self.subjects()}, not only start"
+
+    def tcr_is_reported_unavailable(self) -> None:
+        """The session start told the agent that TCR is unavailable, and no revert discarded the edit or the file."""
+        assert "TCR is unavailable" in json.dumps(self.started), f"the session start did not report it: {self.started}"
+        assert self.fixture_read(self.project / "notes.txt") == "mine\n", "the uncommitted file was changed"
+        self.edit_is_neither_committed_nor_reverted()
+
+    def commit_failure_pauses_tcr(self) -> None:
+        """The agent is told TCR is unavailable, the change stays staged, and no commit was made."""
+        assert "TCR is unavailable" in json.dumps(self.answer), f"the agent was not told: {self.answer}"
+        assert self.git("diff", "--cached", "--name-only") == "example.py", "the change is not staged"
+        assert self.subjects() == ["start"], f"the commits are {self.subjects()}, not only start"
+
+    def reverted_work_is_saved_in_a_ref(self) -> None:
+        """The discarded edit is in one ref that the agent was told, and the checkout it names restores the source."""
+        refs = self.git("for-each-ref", "--format=%(refname)", "refs/overwatch/reverted").split()
+        assert len(refs) == 1, f"the project has the refs {refs}, not one for the revert"
+        assert refs[0] in json.dumps(self.answer), f"the agent was not told the ref {refs[0]}: {self.answer}"
+        assert self.git("show", f"{refs[0]}:example.py") == "value = 2", f"the ref {refs[0]} does not hold the discarded edit"
+
+    def edit_adding_a_failing_check(self) -> None:
+        """The agent's edit creates go.mod, so a go check that has no earlier result runs, and fails."""
+        self.fixture_write(self.bin / "gotestsum", "#!/bin/sh\necho '=== FAIL: . TestAdd (0.00s)'\necho 'DONE 2 tests, 1 failure in 0.184s'\nexit 1\n")
+        (self.bin / "gotestsum").chmod(0o755)
+        self.fixture_write(self.project / "go.mod", "module example\n")
+        self.answer = self.hook("PostToolUse", tool_name="Edit")
+        assert os.access(self.bin / "gotestsum", os.X_OK), f"the fake {self.bin / 'gotestsum'} is not executable"
+        assert type(self.answer) is dict, f"the edit was answered {self.answer}"
+
+    def failing_check_holds_the_edit(self) -> None:
+        """Nothing was committed or reverted, the file stays, and the agent is told which check held the edit."""
+        assert self.subjects() == ["start"], f"the commits are {self.subjects()}, not only start"
+        assert self.fixture_read(self.project / "go.mod") == "module example\n", "the new file did not stay in the project"
+        assert "TCR held the edit: go failed and has no earlier result to compare with" in json.dumps(self.answer), f"the agent was not told: {self.answer}"
+
+    def edit_writing_a_secret_file(self) -> None:
+        """The agent's edit leaves the checks green and writes a .env file that no ignore rule covers."""
+        self.fixture_write(self.project / ".env", "TOKEN=1\n")
+        self.answer = self.hook("PostToolUse", tool_name="Edit")
+        assert self.fixture_read(self.project / ".env") == "TOKEN=1\n", "the secret file was changed by the hook"
+        assert type(self.answer) is dict, f"the edit was answered {self.answer}"
+
+    def secret_file_is_refused(self) -> None:
+        """No checkpoint was made, the file stays in the tree and is not staged, and the agent is told the rule."""
+        assert self.subjects() == ["start"], f"the commits are {self.subjects()}, not only start"
+        assert self.git("diff", "--cached", "--name-only") == "", "something is staged after the refusal"
+        assert ".env (name pattern)" in json.dumps(self.answer), f"the agent was not told the file and the rule: {self.answer}"
 
     def warnings_increase(self) -> None:
         """An edit takes the warnings from 29 to 30."""

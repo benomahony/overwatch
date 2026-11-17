@@ -238,6 +238,100 @@ Protected tools remain guarded.
 OpenCode and Pi use their before-tool hooks for protected actions.
 Reload the plugin after updating hook definitions; Codex may require renewed hook trust.
 
+### TCR mode
+
+Set `"mode": "tcr"` in `.overwatch.json` to run test && commit || revert.
+After each edit of the agent that changes files, Overwatch reads the check results and does one of four things.
+A checker that is installed on your `PATH`, such as `zanity`, counts as a check, like a test runner the project configures.
+
+- **Commit.** If no check has a new failure against the session baseline, it commits every file that `.gitignore` does not ignore, on the current branch, as `tcr: <files>`. Inherited failures never count, and neither does the `git` upstream check, whose failure is another person's push.
+- **Revert.** If a check has a new failure, it restores the files to the latest commit, removes the files the agent added, and tells the agent which failure caused the revert and which files came back. Before it deletes anything it saves the work it discards in a git ref, `refs/overwatch/reverted/<UTC time>`, without moving HEAD or changing the index. The agent is told the ref and the command that gets the work back: `git checkout <ref> -- .`. A version that only the index held, because a file was staged and then changed again, is the second parent of the saved commit, and the agent is told `git checkout <ref>^2 -- .` for it. Set `tcr.saveReverted` to `false` to keep nothing; the revert message then says the work is gone.
+- **Hold.** A failing check that has no earlier result in the session, because the edit made it appear, cannot tell a new failure from an old one. The edit stays uncommitted and unreverted, the agent is told which check held it, and the edit is committed together with the next edit once the check passes. A check that had a passing or inherited result before still reverts. A check that outlives its deadline is held too, since a timeout says nothing of what the edit broke. A held check holds the edit again, however much worse it fails, until it passes. If any check is held when the next turn starts and nobody changed the files since the edit was held, TCR stays on and the hold stays; Overwatch tells that by the size and time of every file and by the contents of the files that differ from the latest commit. If someone changed them, TCR is unavailable until the tree is clean.
+- **Leave alone.** A check that cannot run in the environment, a result that another edit overtook, or a failing inherited check while `gate.inherited` is `"block"` makes Overwatch neither commit nor revert. Results that `engine.py follow` reads between hooks, for a session that watches while idle, are told but never judged: only the result a hook reads after the agent's own edit commits or reverts.
+
+```json
+{
+  "mode": "tcr",
+  "tcr": {
+    "saveReverted": true,
+    "allow": ["fixtures/.env.test", "**/*.pem.example"],
+    "hostLimitSeconds": 550
+  }
+}
+```
+
+`tcr.saveReverted` defaults to `true`.
+`tcr.allow` lists paths and globs that a checkpoint may commit although their name or content looks like a secret.
+`tcr.hostLimitSeconds` is how long your host lets one hook run; it defaults to 550 seconds, the shortest limit among Codex (600), Pi and OpenCode (550).
+An unknown field under `tcr`, or an `allow` entry that is empty or only wildcards, is an error that names the field.
+
+**The saved refs.** Overwatch never prunes `refs/overwatch/reverted/`.
+List them with `git for-each-ref refs/overwatch/reverted` and delete them with `git for-each-ref --format='%(refname)' refs/overwatch/reverted | xargs -n1 git update-ref -d`.
+A ref holds every file the revert discarded, including a person's untracked files, so a `.env` that was in the tree is in the ref, and `git push --mirror` would publish it.
+If a git command takes more than 30 seconds, as it can in a very large repository, the revert stops before it deletes anything and TCR is unavailable.
+Overwatch saves again while it finds new files, and gives up without deleting when the files keep changing.
+It then removes only the untracked files of its last look, so a new file written after that look stays and the agent is told it was left.
+A file of that look, or a tracked file, that changes in the tens of milliseconds between the last look and the reset is lost, because git cannot reset and look in one step.
+A revert does not go into submodules: the files inside one stay as they are, and the message to the agent names each submodule that still holds changes.
+
+**A checkpoint never commits secrets or very large files.** It refuses a file named `.env` or `.env.*` (except `.env.example`, `.env.sample` and `.env.template`), `*.pem`, `*.key`, `*.p12`, `*.pfx`, `id_rsa`, `id_ed25519`, `id_ecdsa` or `id_dsa` (also with a suffix, as in `id_rsa.bak`, but not `.pub`), `*.keystore`, `.npmrc`, `.netrc`, `.pgpass`, `.git-credentials`, `kubeconfig`, `terraform.tfstate`, `secrets.yml`, `secrets.yaml`, or `credentials`, `credentials.json`, `credentials.yml` or `credentials.yaml`.
+It reads a file that replaces a symlink, or the other way round, like any other file.
+It also refuses a line that the edit adds, in a text, UTF-16 or binary file, and that holds an AWS access key id, a private key header (also an encrypted one), a GitHub token, a Slack token, a Stripe live key, an Anthropic key or a Google API key.
+A file over 50 MiB, new or changed, is refused too, from its size on disk and before git reads it.
+When the diff of the staged files is not in a form the guard reads, it refuses each file it could not screen, with the rule `its added lines could not be read, so they were not screened for secrets`; an entry of `tcr.allow` skips that screening for the file it names.
+When it refuses, Overwatch commits nothing, reverts nothing, leaves the files in the working tree unstaged, and tells the agent each file and the rule, as `.env (name pattern)` or `src/a.py:12 (AWS access key)`, and that TCR stays unavailable until you commit the pending edit yourself.
+
+`tcr.allow` entries are paths from the repository's root.
+A star matches within one directory or file name and never crosses a `/`, a name without a directory matches only that name at the root, and `**/` before a name matches it in any directory: `".env"` allows `.env` but not `deploy/prod/.env`, which `"**/.env"` also allows.
+An entry skips the name and content rules for the files it names and never the size limit.
+Add what is safe to commit to `tcr.allow`, or what is not to `.gitignore`, then commit the pending edit: TCR starts again at the start of the next turn once the tree is clean.
+
+The guard is not a secret scanner.
+It does not see a secret that is split across lines, a bare secret, a JWT or a base64-encoded one, a file in an encoding other than UTF-8 or UTF-16, a password in a URL such as `postgres://user:pass@host`, an OpenAI `sk-proj-` key, or a password in a plain assignment, and it flags any text that holds one of its keys, such as a README that quotes `sk_live_`.
+There is no generic `key = "..."` rule, because that rule flagged ordinary code.
+Screening 1000 staged files is one `git diff`, and a test fails if it takes more than two seconds.
+
+TCR starts only on a clean tree, on a branch that has a commit, with no merge, rebase, cherry-pick, revert or bisect in progress, no untracked nested repository, no tracked file that is marked `assume-unchanged` or `skip-worktree` and differs from the latest commit in content, in mode or in being a file or a link, and at least one check configured.
+A checkpoint and a revert refuse for the same reason, so that neither commits nor overwrites an edit that git does not show.
+Otherwise Overwatch tells the agent that TCR is unavailable, and why, and changes nothing.
+When the tree is dirty it names the files, and when a check wrote them, such as `report.xml`, it says that the checks changed the files while they ran and to add what a check writes to `.gitignore`.
+When the branch is `main` or `master` it tells the agent once that checkpoints land on it.
+Overwatch checks again at the start of each turn in Codex, OpenCode 1 and OpenCode 2; Pi reports only the start of a session, so there TCR does not start again after it became unavailable.
+OpenCode 1 holds a message until the check that its session start began has ended, so the agent's first edit cannot land while that check decides.
+It checks each message only in a session whose start announced TCR, as on or as unavailable; a session that started without TCR needs a new session after TCR is turned on.
+
+To turn TCR off, remove `mode` from `.overwatch.json`: the next event tells the agent that TCR is off, and nothing is committed or reverted.
+Setting `"enabled": false` stops every check, so TCR does nothing either.
+
+TCR assumes the agent is the only writer.
+A revert discards every change that is not committed, so with `tcr.saveReverted` set to `false` a person's work in the working tree, or a second agent's in the same checkout, is gone.
+When Overwatch sees files change at an event that no editing tool announced, it makes TCR unavailable until the next turn start, so a revert cannot discard those files.
+A shell command counts as an editing tool, so what it writes is judged as the agent's edit: committed when the checks are green, and saved to a ref and reverted when they are not.
+It cannot tell a person's edit from the agent's when both come before the same edit tool, so do not edit the working tree, or run a second agent in it, while TCR runs.
+
+The baseline is the first result of each check in the session and never moves.
+A check that failed at the start, and that an edit made pass, is committed; when a later edit makes it fail again, that failure is not new against the baseline, so TCR commits it.
+Fixing an inherited failure and breaking it again is not reverted.
+
+The repository's commit hooks and signing run.
+If a checkpoint commit fails, the changes stay staged, nothing is reverted, and TCR is unavailable until it can start again.
+A check that fails while no file differs from the latest commit holds the edit, and the agent is told that there is nothing to revert.
+When a check writes files that git does not ignore while it runs, Overwatch judges nothing for that edit and tells the agent which check wrote which files and to add them to `.gitignore`.
+With `gate.inherited` set to `"block"`, an edit that leaves an inherited check failing is neither committed nor reverted, so the working tree is dirty at the next turn start and TCR becomes unavailable until you commit.
+
+A host stops a hook that runs too long.
+TCR commits only when the checks left at least 30 seconds of `tcr.hostLimitSeconds`, and reverts only when they left 150, which is three saves, the reset and the clean at the 30 seconds each git command may take.
+A checkpoint runs about a dozen git commands and a revert up to about forty, each limited to 30 seconds, so these reserves assume a normal repository and are not a sum of the limits; in a very large repository a phase can outlast its reserve, and the host may then stop the hook.
+Otherwise it holds the edit and says how long the checks took.
+If `git` needs more than 5 seconds to list the files, Overwatch says so and does nothing, TCR included, until it is faster.
+
+TCR needs Python 3.11 or newer on both paths: `engine/discovery.py` imports `typing.Required`, so on an older Python the hook of Codex, OpenCode and Pi fails before TCR starts, and the checkpoint command that Claude Code runs through `python3` on `PATH` answers `overwatch needs python 3.11 or newer` and nothing is committed or reverted.
+
+TCR works in Codex, OpenCode and Pi, and each of them commits and reverts as described and tells the agent why a revert happened.
+OpenCode 1 shows the "TCR is on" notice to you but not to the agent.
+Claude Code does not read the setting yet.
+A revert removes empty directories, and a rename that only changes letter case is invisible to it on a case-insensitive filesystem.
+
 ## Install
 
 ### Claude Code

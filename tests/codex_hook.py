@@ -228,3 +228,16 @@ class CodexHook(unittest.TestCase):
         """Runs git in the project as a fixed test identity, so commits need no user configuration."""
         subprocess.run(["git", "-c", "user.email=dev@example.com", "-c", "user.name=dev", *args],
                        cwd=self.cwd, check=True, capture_output=True)
+
+    def commit(self, message: str) -> str:
+        """Commits everything in the project as the agent's shell tool would and returns the new HEAD. The commit
+        ignores the machine's git configuration, whose hooks and signing are not what these tests are about."""
+        before = engine.commit_of(self.cwd)
+        git = ["git", "-C", str(self.cwd), "-c", "user.name=test", "-c", "user.email=test@example.com",
+               "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"]
+        subprocess.run([*git, "add", "-A"], check=True, capture_output=True)
+        subprocess.run([*git, "commit", "-q", "-m", message], check=True, capture_output=True)
+        head = engine.commit_of(self.cwd)
+        assert head is not None and head != before, f"committing {message!r} left HEAD at {before}; change a file first"
+        assert read(self.cwd / ".git" / "HEAD").startswith("ref: "), f"{self.cwd} is on a detached HEAD; the tests commit on a branch"
+        return head
