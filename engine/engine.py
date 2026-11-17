@@ -25,6 +25,7 @@ from collections.abc import Iterator, Mapping
 from dataclasses import asdict, replace
 from typing import Any
 
+import tcr
 from gating import PolicyError, brings_in_files, protected_checks, read_gate, tool_command
 from triage import InventoryError, parse_check, parse_inventory
 from records import TIMED_OUT, Event, Read, First, Report, Session, State, Step, digest_of
@@ -233,8 +234,10 @@ def process_event(event: Event, root: Path) -> dict[str, Any]:
         edit = event.hook_event_name == "PostToolUse" and event.tool_name in EDITING_TOOLS
         command = tool_command(event.tool_input) if event.hook_event_name == "PostToolUse" else ""
         read = checked_state(session, cwd, Step(edit, command))
+        taken = tcr.settle(tcr.Turn(event, cwd, session, read_override(cwd), read.edited, read.moved), read.old, read.current)
+        read = replace(read, current=taken.state)
         current = read.current
-        output = report_output(event, read, session)
+        output = tcr.told(report_output(event, read, session), event.hook_event_name, taken)
         if event.hook_event_name == "SessionStart" and event.integration == "opencode1":
             current = replace(current, told=read.old.told)
         save_state(session, current)
@@ -270,7 +273,7 @@ def checked_state(session: Session, cwd: Path, step: Step = Step(), followed: li
     head = commit_of(cwd)
     moved = is_moved(cwd, old.head, head, step.command)
     if moved:
-        old = replace(old, baseline={}, fingerprint=None, told=None, failed=False, signatures=())
+        old = replace(old, baseline={}, fingerprint=None, told=None, failed=False, signatures=(), held=(), held_fingerprint=None)
     gate = read_gate(read_override(cwd))
     before = fingerprint(cwd)
     should_run = followed is None and old.fingerprint != before
@@ -293,7 +296,7 @@ def checked_state(session: Session, cwd: Path, step: Step = Step(), followed: li
     )
     assert current.environment[:len(told)] == told, f"environment {current.environment} forgot what the agent was told; keep {told} first"
     assert should_run or followed is not None or current.reports == old.reports, f"unchanged workspace {cwd} got new reports; reuse the saved ones"
-    return Read(old, current, edited)
+    return Read(old, current, edited, moved)
 
 
 def merged_reports(followed: list[Report], saved: tuple[Report, ...]) -> list[Report]:

@@ -14,6 +14,7 @@ import {
   statusLine,
   type Report,
 } from './watchers'
+import { isToldByTcr } from './tcr'
 import type { LiveWatcher, Message, State, Run } from './state'
 
 export const QUIET_MS = 400
@@ -35,7 +36,8 @@ export function setStatus($: EngineInterface, state: State, live: LiveWatcher, t
 export async function send($: EngineInterface, state: State) {
   const messages = [...state.outbox.values()]
   if (messages.length === 0) return
-  const isHeld = state.isTurnRunning ? state.isToldThisTurn : state.isPromptQueued || !messages.some(({ isWaking }) => isWaking)
+  const isTcrNotice = messages.some(({ kind }) => kind === 'tcr')
+  const isHeld = state.isTurnRunning ? state.isToldThisTurn && !isTcrNotice : state.isPromptQueued || !messages.some(({ isWaking }) => isWaking)
   if (isHeld) return
   state.outbox.clear()
   const reports = messages.flatMap(({ text, kind }) => (kind === 'environment' ? [] : [text]))
@@ -44,7 +46,7 @@ export async function send($: EngineInterface, state: State) {
   assert(reports.length + environment.length === messages.length, `sent ${reports.length + environment.length} of ${messages.length} waiting messages; send each`)
   assert(text !== '', `${messages.length} waiting messages joined to nothing; each message needs text`)
   if (state.isTurnRunning) {
-    state.isToldThisTurn = true
+    state.isToldThisTurn = state.isToldThisTurn || messages.some(({ kind }) => kind !== 'tcr')
     await $.session.append({ message: { type: 'user', content: [{ type: 'text', text }] } })
     return
   }
@@ -161,6 +163,7 @@ export async function deliver($: EngineInterface, run: Run, report: Report) {
   const isRegression = hasRegression(report, live.baseline)
   const wasFailing = live.wasFailing
   live.wasFailing = isRegression
+  if (isToldByTcr(state.tcr)) return
   if (isRegression) {
     await tellRegression($, run, report)
     return

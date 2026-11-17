@@ -3,6 +3,8 @@
  */
 import type { Timer } from 'claude-code'
 import type { Report, Watcher } from './watchers'
+import { assert } from './assert'
+import { initialTcr, type Tcr } from './tcr'
 
 /** One watcher's place beside the others: a language in the project or one of its sub-projects, or a checker such as zanity. */
 export type LiveWatcher = {
@@ -36,7 +38,7 @@ export type LiveWatcher = {
 }
 
 /** A message for the agent, waiting to go with the others that arrive with it; each live has at most one of each kind waiting. */
-export type Message = { text: string; isWaking: boolean; kind: 'report' | 'exit' | 'environment' | 'baseline' }
+export type Message = { text: string; isWaking: boolean; kind: 'report' | 'exit' | 'environment' | 'baseline' | 'tcr' }
 
 export type State = {
   /** The interactive session's directory; undefined before it starts and once it ends. */
@@ -68,6 +70,16 @@ export type State = {
   onWatcherEnded: (() => void) | undefined
   /** One for each watcher found so far, in the order found, which is the status line's order. */
   liveWatchers: LiveWatcher[]
+  /** Whether TCR runs in this project, and what it waits to settle; see tcr.ts. */
+  tcr: Tcr
+  /** The decision about TCR in flight, which an edit's fingerprint waits for. */
+  tcrDeciding: Promise<void> | undefined
+  /** The judgement of the agent's latest edit: when it starts, which one it is, and how to stop the checks it runs. */
+  tcrTimer: Timer | undefined
+  tcrTicket: number
+  tcrKills: Set<() => Promise<unknown>>
+  /** The keys of the checks TCR left an edit unjudged for, which have no earlier result until one passes. */
+  tcrHeld: Set<string>
 }
 
 /** One watcher running in its live: what each step of a run needs. */
@@ -78,3 +90,61 @@ export type Restart = { state: State; live: LiveWatcher; watcher: Watcher; endin
 
 /** How a watcher ended of itself, its process exited or never started, when, and what it printed after its last report. */
 export type Ending = { isStarted: boolean; startedAt: number; endedAt: number; output: string }
+
+/** A new live for the watcher of one language in dir, watching nothing yet. */
+export const liveWatcher = (key: string, dir: string): LiveWatcher => {
+  assert(key.endsWith(`:${dir}`), `live watcher key ${key} does not end with its directory ${dir}; key live watchers by language and dir`)
+  const made: LiveWatcher = {
+    watcher: undefined,
+    report: undefined,
+    key,
+    dir,
+    isWatching: false,
+    retryAt: 0,
+    quickExits: 0,
+    kill: undefined,
+    toolchain: undefined,
+    changed: undefined,
+    wasFailing: false,
+    baseline: undefined,
+    isEdited: false,
+    isEditedSinceResult: false,
+    origin: 'session',
+    told: undefined,
+    status: undefined,
+  }
+  assert(made.key === key && made.dir === dir, `live watcher for ${key} was made with key ${made.key} and dir ${made.dir}`)
+  return made
+}
+
+/** A session's state before it starts: no directory, liveWatchers or messages. */
+export const initialState = (): State => {
+  const state: State = {
+    cwd: undefined,
+    epoch: 0,
+    isTurnRunning: false,
+    isPromptQueued: false,
+    head: undefined,
+    completionCorrection: undefined,
+    isCorrectionTurn: false,
+    isEditedSinceCorrection: false,
+    isToldThisTurn: false,
+    outbox: new Map(),
+    flushing: undefined,
+    environment: new Set(),
+    isFinding: false,
+    finding: undefined,
+    isFindDue: false,
+    onWatcherEnded: undefined,
+    liveWatchers: [],
+    tcr: initialTcr(),
+    tcrDeciding: undefined,
+    tcrTimer: undefined,
+    tcrTicket: 0,
+    tcrKills: new Set(),
+    tcrHeld: new Set(),
+  }
+  assert(state.liveWatchers.length === 0 && state.outbox.size === 0, `a new session starts with ${state.liveWatchers.length} liveWatchers and ${state.outbox.size} messages`)
+  assert(!state.isTurnRunning && !state.isFinding, 'a new session starts with a turn or search running')
+  return state
+}

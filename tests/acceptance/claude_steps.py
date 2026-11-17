@@ -320,6 +320,93 @@ class ClaudeSteps:
         'expect(calls).toEqual([])',
     ))
 
+    def claude_tcr_project(self, *, options: str = "{}", before_start: tuple[str, ...] = ()) -> None:
+        """A real Claude hook chain of a project in TCR mode, with a faked repository and checkpoint command, started
+        on green checks; options are those of tcrProject in tests/fixtures/tcr.ts, and before_start steps run first."""
+        assert not hasattr(self, "claude_steps"), f"Start in a fresh acceptance world; existing transcript: {getattr(self, 'claude_steps', None)!r}"
+        assert (ROOT / "tests" / "fixtures" / "tcr.ts").is_file(), "Claude TCR scenarios require the shared TCR fixture"
+        self.claude_project = options
+        self.claude_phase = "tcr-ready"
+        self.claude_steps = [*before_start, "await $.session.start(start)", "await clock.advance(600)"]
+        assert self.claude_steps[-2] == "await $.session.start(start)", f"the session starts before the agent acts; got {self.claude_steps}"
+
+    claude_tcr_inherited_project = partialmethod(claude_tcr_project, options="{ initial: WARNINGS }")
+    claude_tcr_dirty_project = partialmethod(claude_tcr_project, before_start=("workspace.dirty = ['mine.py']", "workspace.fingerprint = 'mine'"))
+
+    claude_tcr_edit_keeping_checks_green = partialmethod(prepare_claude_steps, expected_phase="tcr-ready", phase="tcr-edited", steps=(
+        "await $.turn.start({ text: 'go', turnId: 't1' })",
+        "await clock.advance(100)",
+        "project.willChange(['example.py'], 'f1')",
+        "await $.tool.call({ tool: 'Edit', file_path: '/repo/example.py', old_string: 'a', new_string: 'b' })",
+        "await clock.advance(1300)",
+    ))
+
+    claude_tcr_edit_adding_warnings = partialmethod(prepare_claude_steps, expected_phase="tcr-ready", phase="tcr-edited", steps=(
+        "await $.turn.start({ text: 'go', turnId: 't1' })",
+        "await clock.advance(100)",
+        "project.willChange(['example.py'], 'f1')",
+        "await $.tool.call({ tool: 'Edit', file_path: '/repo/example.py', old_string: 'a', new_string: 'b' })",
+        "project.setReport(WARNINGS)",
+        "await clock.advance(1700)",
+    ))
+
+    claude_tcr_files_change_again = partialmethod(prepare_claude_steps, expected_phase="tcr-ready", phase="tcr-edited", steps=(
+        "await $.turn.start({ text: 'go', turnId: 't1' })",
+        "await clock.advance(100)",
+        "project.setReport(WARNINGS)",
+        "project.willChange(['example.py'], 'f1')",
+        "await $.tool.call({ tool: 'Edit', file_path: '/repo/example.py', old_string: 'a', new_string: 'b' })",
+        "workspace.fingerprint = 'someone-else'",
+        "await clock.advance(1300)",
+    ))
+
+    def claude_tcr_commit_refused(self) -> None:
+        """The repository's commit hook refuses every checkpoint commit."""
+        assert self.claude_phase == "tcr-ready", f"the commit hook refuses only in a TCR project that is ready; the world is {self.claude_phase}, so give the project first"
+        self.claude_steps.append("workspace.refusal = 'the checkpoint commit failed and its changes are left staged: refused'")
+        assert self.claude_steps[-1].startswith("workspace.refusal"), f"the refusal was not recorded: {self.claude_steps}"
+
+    claude_tcr_commits = partialmethod(verify_claude, phase="tcr-edited", expectations=(
+        "expect(workspace.commits).toEqual(['tcr: example.py'])",
+        "expect(workspace.reverted).toEqual([])",
+    ))
+
+    claude_tcr_reverts_and_tells = partialmethod(verify_claude, phase="tcr-edited", expectations=(
+        "expect(workspace.commits).toEqual([])",
+        "expect(workspace.reverted).toEqual([['example.py']])",
+        "expect(prompts.concat(project.appended()).some(text => text.includes('TCR reverted') && text.includes('29 warnings') && text.includes('`example.py`'))).toBe(true)",
+    ))
+
+    claude_tcr_neither_commits_nor_reverts = partialmethod(verify_claude, phase="tcr-edited", expectations=(
+        "expect(workspace.commits).toEqual([])",
+        "expect(workspace.reverted).toEqual([])",
+    ))
+
+    claude_tcr_is_unavailable = partialmethod(verify_claude, phase="tcr-edited", expectations=(
+        "expect(project.appended().concat(prompts).some(text => text.includes('TCR is unavailable'))).toBe(true)",
+        "expect(workspace.commits).toEqual([])",
+        "expect(workspace.reverted).toEqual([])",
+        "expect(workspace.dirty).toEqual(['mine.py', 'example.py'])",
+    ))
+
+    claude_tcr_pauses = partialmethod(verify_claude, phase="tcr-edited", expectations=(
+        "expect(project.appended().concat(prompts).some(text => text.includes('TCR is unavailable') && text.includes('left staged'))).toBe(true)",
+        "expect(workspace.commits).toEqual([])",
+        "expect(workspace.reverted).toEqual([])",
+    ))
+
+    def claude_test_header(self) -> tuple[str, str]:
+        """The import and the project setup of the generated Claude test: the watcher fixture of the gating scenarios, or
+        the TCR fixture, which also gives the steps `project`, `workspace` and the report constants."""
+        options = getattr(self, "claude_project", None)
+        if options is None:
+            setup = f"const {{ clock, calls, prompts, setReport, setZigReport, repair }} = gatingProject(on, {{ withZig: {str(getattr(self, 'claude_with_zig', False)).lower()} }})"
+            return "import { start, ended, gatingProject } from './tests/fixtures/gating'", setup
+        setup = f"const project = tcrProject(on, {options})\n  const {{ clock, prompts, workspace }} = project"
+        assert "project" in setup and "workspace" in setup, f"the TCR setup {setup!r} does not name what the steps use"
+        assert options.startswith("{") and options.endswith("}"), f"the project options {options!r} are not an object for tcrProject"
+        return "import { start, ended, tcrProject, CLEAN, WARNINGS, ZIG_RED } from './tests/fixtures/tcr'", setup
+
     def run_claude_scenario(self) -> None:
         """Run the accumulated DSL steps against the plugin in an isolated Claude test directory."""
         executable = shutil.which("claude")
@@ -330,18 +417,20 @@ class ClaudeSteps:
         (plugin / ".claude-plugin").mkdir()
         shutil.copyfile(ROOT / ".claude-plugin" / "plugin.json", plugin / ".claude-plugin" / "plugin.json")
         # The fixture keeps its place beside hooks/, so its imports of the hooks resolve as they do in the repository.
-        (plugin / "tests" / "fixtures").mkdir(parents=True)
-        shutil.copyfile(ROOT / "tests" / "fixtures" / "gating.ts", plugin / "tests" / "fixtures" / "gating.ts")
-        fixture = json.dumps("./tests/fixtures/gating")
+        fixtures = plugin / "tests" / "fixtures"
+        fixtures.mkdir(parents=True)
+        for name in ("gating.ts", "tcr.ts"):
+            shutil.copyfile(ROOT / "tests" / "fixtures" / name, fixtures / name)
+        fixture_import, project_setup = self.claude_test_header()
         bodies = "\n".join(self.claude_steps).split("// fresh hook instance after restart")
         source = f'''
 import {{ expect, test }} from 'claude-code/testing'
-import {{ start, ended, gatingProject }} from {fixture}
+{fixture_import}
 '''
         for number, body in enumerate(bodies):
             source += f'''
 test('Claude acceptance scenario {number + 1}', async ($, on) => {{
-  const {{ clock, calls, prompts, setReport, setZigReport, repair }} = gatingProject(on, {{ withZig: {str(getattr(self, 'claude_with_zig', False)).lower()} }})
+  {project_setup}
   try {{
     {body}
   }} finally {{

@@ -6,6 +6,7 @@ import {
   environmentIn,
   exitMessage,
   gaveUpMessage,
+  envOf,
   languageOf,
   lastBuild,
   readReport,
@@ -13,9 +14,11 @@ import {
 } from './watchers'
 import { repositoryOf, COMMIT, commitOf, isCommitted, findIn } from './project'
 import { toolchainOf, replacedToolchain, stopIfReplaced, restartOnReplaced } from './toolchain'
-import type { LiveWatcher, State, Run, Restart, Ending } from './state'
+import { initialState, liveWatcher, type LiveWatcher, type State, type Run, type Restart, type Ending } from './state'
 import { QUIET_MS, setStatus, schedule, queue, queueEnvironment, writeLog, deliver } from './delivery'
 import { projectPolicy, guardedFailure, completeTurn } from './completion'
+import { EDITING_TOOLS, cancelJudgement, decideTcr, leaveUnjudged, noteFiles } from './judgement'
+import { initialTcr } from './tcr'
 
 /**
  * A watcher that ends within this long of its start counts as a quick exit and
@@ -25,17 +28,6 @@ const RETRY_MS = 30_000
 
 /** After this many quick exits in a row, a watcher is no longer restarted on a timer, only as turns start. */
 const GIVE_UP_AFTER = 3
-
-/** Tools whose call may change the project's files; a watcher that is no long-running command reruns after each. */
-const EDITING_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Bash'])
-
-/** The spawn option that sets a watcher's env over overwatch's own; none when it sets none. */
-function envOf(watcher: Watcher): { env?: Record<string, string> } {
-  assert(watcher.env === undefined || Object.values(watcher.env).every(value => typeof value === 'string'), `${watcher.name}'s env ${JSON.stringify(watcher.env)} holds a value that is not a string; give each variable a string`)
-  const option = watcher.env === undefined ? {} : { env: { ...watcher.env } }
-  assert(option.env === undefined || Object.keys(option.env).length === Object.keys(watcher.env ?? {}).length, `the env option for ${watcher.name} lost variables of ${JSON.stringify(watcher.env)}; copy each`)
-  return option
-}
 
 /** Runs a command to its end and reports what it printed, unless it was stopped for a newer run first. */
 async function runOnce($: EngineInterface, run: Run, argv: readonly string[], isStale = () => false) {
@@ -285,6 +277,9 @@ async function stop($: EngineInterface, state: State) {
   state.flushing?.cancel()
   state.outbox.clear()
   state.environment.clear()
+  state.tcr = initialTcr()
+  state.tcrHeld.clear()
+  void cancelJudgement(state)
   const liveWatchers = state.liveWatchers.map(each => {
     each.isWatching = false
     each.retryAt = 0
@@ -306,50 +301,27 @@ async function stop($: EngineInterface, state: State) {
   $.ui.status(undefined)
 }
 
-/** A new live for the watcher of one language in dir, watching nothing yet. */
-const liveWatcher = (key: string, dir: string): LiveWatcher => {
-  assert(key.endsWith(`:${dir}`), `live watcher key ${key} does not end with its directory ${dir}; key live watchers by language and dir`)
-  const made: LiveWatcher = {
-    watcher: undefined,
-    report: undefined,
-    key,
-    dir,
-    isWatching: false,
-    retryAt: 0,
-    quickExits: 0,
-    kill: undefined,
-    toolchain: undefined,
-    changed: undefined,
-    wasFailing: false,
-    baseline: undefined,
-    isEdited: false,
-    isEditedSinceResult: false,
-    origin: 'session',
-    told: undefined,
-    status: undefined,
-  }
-  assert(made.key === key && made.dir === dir, `live watcher for ${key} was made with key ${made.key} and dir ${made.dir}`)
-  return made
-}
-
 /**
  * Notes the commit the session's baselines belong to, and takes fresh ones once it moves under the session, as a
  * pull or checkout brings in failures the agent did not make. Each check reruns, stopping a run still reading the
  * old commit, and its next result is its baseline unless the agent edits first. A commit keeps the baselines, even
  * one made in the same step as an edit, since it changes no file, unless `command`, the step that moved HEAD, ran a
- * git operation that can bring in files, as a squash merge committed in the same step does.
+ * git operation that can bring in files, as a squash merge committed in the same step does. Answers whether it took
+ * fresh baselines, so TCR can leave the step's edit unjudged: the failures the move brought in are inherited.
  */
-async function rebaselineOnMove($: EngineInterface, state: State, command = '') {
+async function rebaselineOnMove($: EngineInterface, state: State, command = ''): Promise<boolean> {
   const { cwd, epoch } = state
   assert(state.head === undefined || COMMIT.test(state.head), `the session's HEAD ${state.head} is not a commit id; note only what commitOf returns`)
-  if (cwd === undefined) return
+  if (cwd === undefined) return false
   const root = await repositoryOf($, cwd)
   const head = root === undefined ? undefined : await commitOf($, root)
-  if (state.epoch !== epoch || head === undefined || head === state.head) return
+  if (state.epoch !== epoch || head === undefined || head === state.head) return false
   assert(root !== undefined, `HEAD ${head} was read with no repository for ${cwd}; read it only from one`)
   const from = state.head
   state.head = head
-  if (from === undefined || (!bringsInFiles(command) && await isCommitted($, root, from, head)) || state.epoch !== epoch) return
+  if (from === undefined || (!bringsInFiles(command) && await isCommitted($, root, from, head)) || state.epoch !== epoch) return false
+  state.tcrHeld.clear()
+  state.tcr.held = undefined
   for (const each of state.liveWatchers) {
     each.baseline = undefined
     each.isEdited = false
@@ -357,6 +329,7 @@ async function rebaselineOnMove($: EngineInterface, state: State, command = '') 
     each.changed?.()
   }
   assert(state.liveWatchers.every(each => each.baseline === undefined && !each.isEdited), `a live watcher kept its baseline after HEAD moved to ${head}; clear each`)
+  return true
 }
 
 /**
@@ -367,6 +340,7 @@ async function afterTool($: EngineInterface, state: State, tool: string, command
   assert(tool !== '', `a tool call named the tool ${JSON.stringify(tool)}; pass the name of the tool the agent called`)
   if (!state.isCorrectionTurn) state.completionCorrection = undefined
   assert(!state.isCorrectionTurn || state.completionCorrection !== undefined, `the correction turn lost its correction after ${tool}; keep it while the turn answers it`)
+  await noteFiles($, state, tool)
   if (!EDITING_TOOLS.has(tool)) return
   state.isEditedSinceCorrection = true
   for (const each of state.liveWatchers) {
@@ -374,7 +348,7 @@ async function afterTool($: EngineInterface, state: State, tool: string, command
     each.isEditedSinceResult = true
     each.changed?.()
   }
-  await rebaselineOnMove($, state, command)
+  if (await rebaselineOnMove($, state, command)) await leaveUnjudged(state)
   assert(state.liveWatchers.every(each => each.isEdited || each.baseline === undefined), `a live watcher was not marked edited after ${tool}; mark each so its next result is read against the edit`)
 }
 
@@ -383,32 +357,6 @@ function startTurn(state: State, text: string) {
   assert(typeof text === 'string', `a turn started with ${JSON.stringify(text)}, not its prompt text; pass turn.start's text`)
   state.isCorrectionTurn = state.completionCorrection !== undefined && text === state.completionCorrection
   assert(!state.isCorrectionTurn || text.startsWith('overwatch: '), `the turn ${JSON.stringify(text)} was taken for overwatch's correction; only its own text starts one`)
-}
-
-/** A session's state before it starts: no directory, liveWatchers or messages. */
-const initialState = (): State => {
-  const state: State = {
-    cwd: undefined,
-    epoch: 0,
-    isTurnRunning: false,
-    isPromptQueued: false,
-    head: undefined,
-    completionCorrection: undefined,
-    isCorrectionTurn: false,
-    isEditedSinceCorrection: false,
-    isToldThisTurn: false,
-    outbox: new Map(),
-    flushing: undefined,
-    environment: new Set(),
-    isFinding: false,
-    finding: undefined,
-    isFindDue: false,
-    onWatcherEnded: undefined,
-    liveWatchers: [],
-  }
-  assert(state.liveWatchers.length === 0 && state.outbox.size === 0, `a new session starts with ${state.liveWatchers.length} liveWatchers and ${state.outbox.size} messages`)
-  assert(!state.isTurnRunning && !state.isFinding, 'a new session starts with a turn or search running')
-  return state
 }
 
 export const register: Register = on => {
@@ -423,6 +371,7 @@ export const register: Register = on => {
     state.onWatcherEnded = () => void ensureAll($, state)
     void ensureAll($, state)
     void rebaselineOnMove($, state)
+    void decideTcr($, state)
     return started
   })
 
@@ -446,6 +395,7 @@ export const register: Register = on => {
     schedule($, state)
     void ensureAll($, state)
     void rebaselineOnMove($, state)
+    void decideTcr($, state)
     return next(e)
   })
 

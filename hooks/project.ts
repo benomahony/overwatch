@@ -69,6 +69,15 @@ export async function commitOf($: EngineInterface, root: string): Promise<string
   return COMMIT.test(commit) ? commit : undefined
 }
 
+/** The branch the repository at `root` has checked out, read from its .git directory; undefined when HEAD names a commit or cannot be read. */
+export async function branchOf($: EngineInterface, root: string): Promise<string | undefined> {
+  assert(root.startsWith('/'), `branchOf was given ${root}; pass the repository's absolute path`)
+  const head = await $.fs.read(`${root}/.git/HEAD`).then(text => text.trim(), () => '')
+  const branch = /^ref: refs\/heads\/(.+)$/.exec(head)?.[1]
+  assert(branch === undefined || !branch.includes('\n'), `HEAD names the branch ${JSON.stringify(branch)}, which spans lines`)
+  return branch
+}
+
 /** The reflog message of a move that records the workspace without changing it: a commit, or an amended one. */
 export const RECORDING = /^commit(?: \(amend\))?: /
 

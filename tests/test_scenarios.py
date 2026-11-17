@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 
+from acceptance import catalog
 from acceptance.dsl import Scenario
 from acceptance.runner import scenario_suite
 import paths
@@ -90,6 +91,11 @@ class ScenarioContractTests(unittest.TestCase):
             scenarios.publish_scenarios((scenario,), document=self.document)
             scenarios.publish_scenarios((scenario,), check=True, document=self.document)
         self.assertEqual(self.document.read(), scenarios.render_scenarios((scenario,)))
+
+    def test_a_feature_is_not_both_verified_and_proposed(self) -> None:
+        verified = {scenario.feature for scenario in catalog.SCENARIOS if scenario.status == "implemented"}
+        proposed = {scenario.feature for scenario in catalog.SCENARIOS if scenario.status == "proposed"}
+        self.assertEqual(verified & proposed, set(), "a feature in both lists renders two sections with one heading id")
 
     def test_the_behaviour_form_must_offer_every_catalog_feature(self) -> None:
         form = "  - type: dropdown\n    id: feature\n    attributes:\n      options:\n        - {}\n        - A new feature\n    validations:\n"

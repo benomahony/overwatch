@@ -56,6 +56,8 @@ export type WatcherSettings = {
 /** The project's own `.overwatch.json`, shared with the Neovim plugin, every field optional. */
 export type Override = {
   gate?: GatePolicy
+  mode?: string
+  tcr?: unknown
   enabled?: boolean
   name?: string
   argv?: string[]
@@ -415,6 +417,31 @@ export function failureMessage(watcher: Watcher, report: Report, { known, log, o
   return message
 }
 
+/** One failing watcher's part of a revert: what it reported, what the session had already, and where its full output is. */
+export type Reverted = { watcher: Watcher; report: Report; known: readonly string[]; log: string | undefined }
+
+/** Tells the agent TCR reverted its latest change: which new failures caused it, where the full output is, and which files came back. */
+export function revertMessage(causes: readonly Reverted[], restored: readonly string[], saved: string | null, staged = false): string {
+  assert(causes.length > 0 && restored.length > 0, `a revert of ${restored.length} files for ${causes.length} failures cannot be told; give both`)
+  const parts = causes.map(({ watcher, report, known, log }) => {
+    const knownNames = new Set(known)
+    return [
+      `overwatch: TCR reverted the latest change because ${command(watcher)} failed: ${report.summary}`,
+      ...failingLine(report.failures.filter(name => !knownNames.has(name))),
+      ...logLine(log),
+    ].join('\n')
+  })
+  const kept = saved === null
+    ? 'The reverted content is gone: it was never committed and no copy was saved.'
+    : `The reverted content is saved in ${saved}; \`git checkout ${saved} -- .\` brings it back.${staged ? ` The version that was staged is in \`${saved}^2\`; \`git checkout ${saved}^2 -- .\` brings it back.` : ''}`
+  const message = `${parts.join('\n\n')}\nRestored: ${restored.map(name => `\`${name}\``).join(', ')}. ${kept} Try a smaller step.`
+  assert(message.split('TCR reverted').length === causes.length + 1, `message names ${message.split('TCR reverted').length - 1} reverts for ${causes.length} failures`)
+  assert(restored.every(name => message.includes(`\`${name}\``)), `message leaves out one of the restored files ${restored}`)
+  assert(saved === null ? message.includes('is gone') : message.includes(`git checkout ${saved} -- .`), `message does not say whether the content is gone or saved in ${saved}`)
+  assert(message.includes(`${saved}^2`) === (staged && saved !== null), `message and the staged answer ${staged} disagree about ${saved}^2`)
+  return message
+}
+
 /**
  * Tells the agent a watcher is green again, or back to only the failures it
  * started with. `report` is one readReport built, so its fields are always
@@ -489,4 +516,12 @@ export function statusLine(watcher: Watcher, report: Report): string {
   assert(line.startsWith(`${watcher.name} ${mark} `), `status ${line} does not open with ${watcher.name} and its mark; build it from the name, mark and summary`)
   assert(first === undefined || line.includes(`: ${first}`), `status ${line} does not name ${watcher.name}'s first failure ${first}; append it after a colon`)
   return line
+}
+
+/** The spawn option that sets a watcher's env over overwatch's own; none when it sets none. */
+export function envOf(watcher: Watcher): { env?: Record<string, string> } {
+  assert(watcher.env === undefined || Object.values(watcher.env).every(value => typeof value === 'string'), `${watcher.name}'s env ${JSON.stringify(watcher.env)} holds a value that is not a string; give each variable a string`)
+  const option = watcher.env === undefined ? {} : { env: { ...watcher.env } }
+  assert(option.env === undefined || Object.keys(option.env).length === Object.keys(watcher.env ?? {}).length, `the env option for ${watcher.name} lost variables of ${JSON.stringify(watcher.env)}; copy each`)
+  return option
 }
