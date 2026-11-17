@@ -385,7 +385,6 @@ pre:hover button.copy.floating, button.copy.floating:focus { opacity: 1; }
 }
 
 /* Render equations as text, with accessible MathML and scrolling for long source lines. */
-.prose .katex-display { display: block; overflow-x: auto; overflow-y: hidden; margin: 18px 0 24px; padding: 8px 2px; text-align: left; }
-.prose .katex-display > .katex { text-align: left; }
+.spec-pdf { display: block; width: 100%; height: 80vh; border: 1px solid var(--line, #ddd); border-radius: 6px; }
 
 .scenario-search select { margin-top: 10px; max-width: 100%; padding: 9px 12px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface-solid); color: var(--ink); font: inherit; }

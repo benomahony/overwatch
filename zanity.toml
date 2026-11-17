@@ -1,8 +1,5 @@
 #:schema https://raw.githubusercontent.com/benomahony/zanity/main/zanity.schema.json
 
-# Unmodified third-party distribution; our math integration remains checked.
-exclude = ["docs/assets/vendor/katex.min.js"]
-
 [rules]
 select = ["all"]
 

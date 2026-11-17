@@ -1,6 +1,6 @@
 """Generate site pages from the README, model guide, and executable scenario fixtures.
 
-The README supplies product pages, TLA+ sources supply the specification, and acceptance
+The README supplies product pages, the spec's README and typeset modules supply the specification, and acceptance
 scenarios plus TLC fixtures supply browsable behavior.
 
 Usage: python3 docs/sync.py          # list pages that are out of date, exiting 1 if any are
@@ -17,7 +17,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from contract_docs import HOST_NAMES, render_contracts
-from model_math import model_equations
+from spec_sources import spec_sources
 
 DOCS = Path(__file__).parent.resolve()
 REPO = DOCS.parent
@@ -25,7 +25,7 @@ DATE = "2026-10-21"
 TITLE = re.compile(r"[A-Za-z0-9 ()'.,-]+")
 MAX_PAGES = 59
 PAGE_NAME = re.compile(r"[a-z]+\.smd")
-FRONT_LINE = re.compile(r"\.(title|description|date|layout) = [^\n]+,")
+FRONT_LINE = re.compile(r"\.(title|description|date|layout|custom) = [^\n]+,")
 FRONT_KEYS = ["title", "description", "date", "layout"]
 NEXT_PHASE = {
     None: {"Given": "given"},
@@ -39,7 +39,7 @@ PAGES = {
     "watchers.smd": ("Watchers", "The test runners overwatch finds in a project, and how it reads what they print.", "page.shtml", "## Watchers", "## Per-project override"),
     "configuration.smd": ("Configuration", "Turning overwatch off, or giving a project its own commands, with .overwatch.json.", "page.shtml", "## Per-project override", "## Install"),
     "behavior.smd": ("Behavior", "Executable examples of failure gates, recovery, and inherited-finding policies.", "page.shtml", "# How Overwatch behaves", None),
-    "model.smd": ("Spec", "The complete TLA+ specification, rendered directly from its source.", "page.shtml", "# Overwatch's behavioral specification", None),
+    "model.smd": ("Spec", "The complete TLA+ specification, typeset from its source.", "page.shtml", "# Overwatch's behavioral specification", None),
     "install.smd": ("Install", "Adding overwatch to Claude Code, Codex, OpenCode, Pi, or Neovim.", "page.shtml", "## Install", "## Neovim"),
     "neovim.smd": ("Neovim", "The same watchers beside the editor, with no agent involved.", "page.shtml", "## Neovim", "## Develop"),
     "develop.smd": ("Develop", "Running overwatch's own tests and trying a local checkout.", "page.shtml", "## Develop", None),
@@ -141,20 +141,21 @@ def scenarios(body: list[str]) -> list[str]:
     return marked
 
 
-def page(metadata: tuple[str, str, str], body: list[str], order: int, count: int) -> str:
-    """A SuperMD page: frontmatter with its title, description and layout, then body. The site lists pages newest
+def page(metadata: tuple[str, str, str], body: list[str], order: int, count: int, custom: str | None = None) -> str:
+    """A SuperMD page: frontmatter with its title, description, layout and any custom value, then body. The site lists pages newest
     first, so page order of count is dated count - order seconds after midnight on DATE: the first page is newest."""
     if not all(isinstance(value, str) and value for value in metadata):
         raise SyncError(f"page metadata {metadata} needs a non-empty title, description and layout string; fix it in PAGES")
     title, description, layout = (json.dumps(value, ensure_ascii=False) for value in metadata)
-    front = ["---", f".title = {title},", f".description = {description},", f'.date = .date("{DATE}T00:00:{count - order:02}"),', f".layout = {layout},", "---", ""]
+    front = ["---", f".title = {title},", f".description = {description},", f'.date = .date("{DATE}T00:00:{count - order:02}"),', f".layout = {layout},", *([f".custom = {custom},"] if custom else []), "---", ""]
     text = "\n".join(front + body).rstrip() + "\n"
     assert text.startswith("---\n") and text.count("\n---\n") >= 1, f"page {title} lost its frontmatter fences; check front"
     assert len(text.split("\n---\n", 1)[0].splitlines()) == len(front) - 2, f"page {title}'s frontmatter spans extra lines; a value broke out of its quotes"
     return text
 
 
-def render_pages(pages: dict[str, tuple[str, str, str, str, str | None]], readme: list[str], sources: dict[str, list[str]]) -> dict[str, str]:
+def render_pages(pages: dict[str, tuple[str, str, str, str, str | None]], readme: list[str], sources: dict[str, list[str]],
+                 customs: dict[str, str] | None = None) -> dict[str, str]:
     """Every page's text by file name, built from their authoritative sources before anything is written.
 
     Raises SyncError when the README lacks its title, there are more pages than seconds to date them by, or a page's
@@ -174,23 +175,35 @@ def render_pages(pages: dict[str, tuple[str, str, str, str, str | None]], readme
     for order, (name, (title, description, layout, start, end)) in enumerate(pages.items()):
         source = sources.get(name, readme)
         body = section(source, start, end)
-        rendered[name] = page((title, description, layout), scenarios(body) if name == "behavior.smd" else body, order, count)
+        rendered[name] = page((title, description, layout), scenarios(body) if name == "behavior.smd" else body, order, count,
+                              (customs or {}).get(name))
     assert rendered.keys() == pages.keys(), f"rendered {sorted(rendered)} for pages {sorted(pages)}; render each page once"
     assert all(text.endswith("\n") for text in rendered.values()), "a rendered page lacks its final newline; page() must add it"
     return rendered
 
 
 def model_downloads(directory: Path) -> list[str]:
-    """List available specification artifacts from disk, without a second download catalog."""
-    files = sorted(path for path in directory.iterdir() if path.suffix in {".tla", ".cfg", ".tex", ".pdf", ".json"})
+    """List the specification's sources and configurations from disk, without a second download catalog."""
+    files = sorted(path for path in directory.iterdir() if path.suffix in {".tla", ".cfg", ".json"})
     assert files, f"No specification artifacts in {directory}"
-    lines = ["", "## Sources and typeset downloads", "",
-             "The LaTeX is generated by TLATeX from the TLA+ sources. The PDFs are typeset versions of the two behavioral models. "
-             "Download the LaTeX to typeset or annotate it locally; edit the TLA+ source when changing the specification.", "",
+    lines = ["", "## Sources", "",
+             "Each module below is typeset by TLATeX from its TLA+ source. Edit the TLA+ source when changing the specification.", "",
              "| Artifact | Format |", "| --- | --- |"]
     lines.extend(f"| [{path.name}](https://raw.githubusercontent.com/benomahony/overwatch/main/spec/{path.name}) | {path.suffix[1:]} |" for path in files)
     assert len(lines) == len(files) + 7, 'Each available artifact must have one download row'
     return lines
+
+
+def model_modules(repo: Path) -> str:
+    """The Spec page's custom frontmatter: each module in reading order with its typeset PDF, which the layout embeds.
+
+    Raises SyncError when a module has no PDF in docs/assets/spec."""
+    modules = [source.stem for source in spec_sources(repo)]
+    missing = [name for name in modules if not (repo / "docs/assets/spec" / f"{name}.pdf").is_file()]
+    if missing:
+        raise SyncError(f"modules {missing} have no PDF in docs/assets/spec; run python3 scripts/spec_latex.py")
+    entries = ", ".join(f'.{{ .name = "{name}", .pdf = "spec/{name}.pdf" }}' for name in modules)
+    return f".{{ .modules = [{entries}] }}"
 
 
 def front_keys(text: str) -> list[str | None]:
@@ -202,8 +215,13 @@ def front_keys(text: str) -> list[str | None]:
     block = lines[1 : lines.index("---", 1)]
     keys = [match[1] if (match := FRONT_LINE.fullmatch(line)) else None for line in block]
     assert len(keys) == len(block), f"{len(keys)} keys for {len(block)} frontmatter lines; report one per line"
-    assert set(keys) <= {*FRONT_KEYS, None}, f"keys {keys} include ones FRONT_LINE should not match; keep it to {FRONT_KEYS}"
+    assert set(keys) <= {*FRONT_KEYS, "custom", None}, f"keys {keys} include ones FRONT_LINE should not match; keep it to {FRONT_KEYS} and custom"
     return keys
+
+
+def is_generated(keys: list[str | None]) -> bool:
+    """Whether frontmatter keys are those page() writes: FRONT_KEYS, then a custom value when the page has one."""
+    return keys in (FRONT_KEYS, [*FRONT_KEYS, "custom"])
 
 
 def replace_page(target: Path, text: str) -> str:
@@ -213,7 +231,7 @@ def replace_page(target: Path, text: str) -> str:
         fcntl.flock(page, fcntl.LOCK_EX)
         page.seek(0)
         previous = page.read()
-        if previous and front_keys(previous) != FRONT_KEYS:
+        if previous and not is_generated(front_keys(previous)):
             raise SyncError(f"{target} was not generated by docs/sync.py; move it aside and rerun")
         page.seek(0)
         page.truncate()
@@ -222,7 +240,7 @@ def replace_page(target: Path, text: str) -> str:
         page.seek(0)
         written = page.read()
     assert written == text, f"{target} holds {len(written)} characters after writing {len(text)}; rerun python3 docs/sync.py --write"
-    assert front_keys(written) == FRONT_KEYS, f"{target} was written with frontmatter keys {front_keys(written)}; page() must write {FRONT_KEYS}"
+    assert is_generated(front_keys(written)), f"{target} was written with frontmatter keys {front_keys(written)}; page() must write {FRONT_KEYS}"
     return previous
 
 
@@ -271,12 +289,15 @@ def main(pages: dict[str, tuple[str, str, str, str, str | None]], repo: Path, wr
         readme, guide = (repo / "README.md").read_text().splitlines(), (docs / "behavior.md").read_text().splitlines()
     except OSError as error:
         raise SyncError(f"could not read {error.filename}: {error.strerror}; run from a full checkout") from error
-    model = model_equations(repo)
+    try:
+        guide_of_spec = (repo / "spec/README.md").read_text().splitlines()
+    except OSError as error:
+        raise SyncError(f"could not read {error.filename}: {error.strerror}; run from a full checkout") from error
     rows = json.loads((repo / "tests/fixtures/integration-contract.json").read_text())
     boundary = guide.index("## Proposed behavior (not implemented)")
     sources = {"behavior.smd": guide[:boundary] + render_contracts(rows) + guide[boundary:],
-               "model.smd": model + model_downloads(repo / "spec")}
-    rendered = render_pages(pages, readme, sources)
+               "model.smd": guide_of_spec + model_downloads(repo / "spec")}
+    rendered = render_pages(pages, readme, sources, {"model.smd": model_modules(repo)})
     content = docs / "content"
     assert len(rendered) == len(pages), f"rendered {len(rendered)} of {len(pages)} pages; render_pages must return every page"
     stale = stale_pages(content, rendered)

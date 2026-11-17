@@ -1,11 +1,5 @@
 <extend template="base.shtml">
-<head id="head">
-    <ctx :if="$site.page('model').isCurrent()">
-        <link rel="stylesheet" href="$site.asset('vendor/katex.min.css').link()">
-        <script defer src="$site.asset('vendor/katex.min.js').link()"></script>
-        <script defer src="$site.asset('math.js').link()"></script>
-    </ctx>
-</head>
+<head id="head"></head>
 <body id="body">
 	<div class="docs">
 		<nav class="sidebar" aria-label="Documentation">
@@ -27,6 +21,15 @@
 			<h1 :text="$page.title"></h1>
 			<p class="lede" :text="$page.description"></p>
 			<article class="prose" :html="$page.content()"></article>
+			<ctx :if="$page.custom.get?('modules')">
+				<ctx :loop="$if">
+					<section class="prose spec-module">
+						<h2 :text="$loop.it.get('name')"></h2>
+						<object class="spec-pdf" type="application/pdf" data="$site.asset($loop.it.get('pdf')).link()"></object>
+						<p><a href="$site.asset($loop.it.get('pdf')).link()">Download the PDF</a></p>
+					</section>
+				</ctx>
+			</ctx>
 			<footer class="pager">
 				<ctx :if="$page.nextPage?()">
 					<a class="prev" href="$if.link()"><small>Previous</small><strong :text="$if.title"></strong></a>

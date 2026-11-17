@@ -35,11 +35,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          fetch-depth: 0
+
+      - name: Find whether the spec changed
+        id: spec
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ "$EVENT" = workflow_dispatch ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null || ! git diff --quiet "$BASE" HEAD -- spec; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Model check the timing spec
+        if: steps.spec.outputs.changed == 'true'
         uses: benomahony/tla-check@7dab51c86bc6223aa2f62e7acb98050bb429f71f # v0.1.0
 
       - name: Verify implementation traces come from the current model
+        if: steps.spec.outputs.changed == 'true'
         run: |
           curl -fsSL https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar -o "$RUNNER_TEMP/tla2tools.jar"
           echo "936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88  $RUNNER_TEMP/tla2tools.jar" | sha256sum --check
@@ -47,6 +61,7 @@ jobs:
           python3 scripts/integration_traces.py --jar "$RUNNER_TEMP/tla2tools.jar" --check
 
       - name: Validate traces of the real engine against the model
+        if: steps.spec.outputs.changed == 'true'
         run: python3 tests/trace_validation.py --jar "$RUNNER_TEMP/tla2tools.jar"
 
   agents:

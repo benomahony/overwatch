@@ -27,7 +27,7 @@ jobs:
           python3 -m unittest discover -s tests -p test_scenarios.py
           python3 scripts/scenarios.py --check
 
-      - name: Verify model fixtures and generated LaTeX
+      - name: Verify model fixtures and typeset modules
         run: |
           sudo apt-get update
           sudo apt-get install -y texlive-latex-base
@@ -37,7 +37,6 @@ jobs:
           python3 scripts/integration_traces.py --jar "$RUNNER_TEMP/tla2tools.jar" --check
           python3 scripts/spec_latex.py --jar "$RUNNER_TEMP/tla2tools.jar" --check
           python3 -m unittest discover -s tests -p test_contract_docs.py
-          python3 -m unittest discover -s tests -p test_model_math.py
 
       - name: Verify command and Claude integration contracts
         run: |
@@ -59,17 +58,14 @@ jobs:
           version=$(sed -n 's/.*\.zine_version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' docs/zine.ziggy)
           curl -sSfL "https://github.com/kristoff-it/zine/releases/download/v$version/x86_64-linux-musl.tar.xz" | tar -xJ -C /usr/local/bin zine
 
-      - name: Install the pinned math renderer
-        run: npm install --no-save --prefix "$RUNNER_TEMP/model-math" katex@0.16.22 jsdom@26.1.0
+      - name: Install the DOM the behavior filter check runs in
+        run: npm install --no-save --prefix "$RUNNER_TEMP/site-dom" jsdom@26.1.0
 
       - name: Build the site
         working-directory: docs
         run: |
           zine release
-          MODEL_DOM_MODULE="$RUNNER_TEMP/model-math/node_modules/jsdom" node ../scripts/check_behavior_filters.mjs
-          MODEL_DOM_MODULE="$RUNNER_TEMP/model-math/node_modules/jsdom" node ../scripts/check_live_model_math.mjs
-          KATEX_MODULE="$RUNNER_TEMP/model-math/node_modules/katex" node ../scripts/render_model_math.mjs
-          python3 ../scripts/check_model_html.py
+          MODEL_DOM_MODULE="$RUNNER_TEMP/site-dom/node_modules/jsdom" node ../scripts/check_behavior_filters.mjs
 
       - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
         with:

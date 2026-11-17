@@ -2,7 +2,7 @@
 
 The specification covers Claude Code, Codex, OpenCode 1, OpenCode 2, Pi, and Neovim. Their different host capabilities are explicit contracts, not exceptions in a shared test adapter.
 
-The package reading order is declared once in `modules.json`: shared failure policy, result state machine, host contract, then the lifecycle instance. Documentation and typesetting use that order. Section headings and explanations live in ordinary TLA+ comments in the modules; the published Spec page renders those comments and every mathematical block without a parallel guide.
+The package reading order is declared once in `modules.json`: shared failure policy, result state machine, host contract, then the lifecycle instance. Documentation and typesetting use that order. Section headings and explanations live in ordinary TLA+ comments in the modules; the typeset modules on the Spec page carry those comments with every definition, without a parallel guide.
 
 There are two layers:
 
@@ -15,9 +15,9 @@ The interface model receives completed snapshots from the result layer. This is 
 
 ## Host contracts
 
-`Capabilities` in `IntegrationContract.tla` defines each host's permission, completion, delivery, status, and wakeup behavior. The published specification renders that definition directly.
+`Capabilities` in `IntegrationContract.tla` defines each host's permission, completion, delivery, status, and wakeup behavior. The typeset `IntegrationContract` module on the Spec page shows that definition directly.
 
-[Read the host capability definition](https://benomahony.github.io/overwatch/model/#integrationcontract---capabilities)
+[Read the host capability definition](https://benomahony.github.io/overwatch/spec/IntegrationContract.pdf)
 
 Every host must permit unprotected inspection and repair independently of check progress. Protected calls consult only their selected checks; an empty selection means all checks. Inherited findings guard only under the configured `block` policy. Deduplicating a message or correction never releases a failure gate. Completed tool work can permit one fresh correction request for unchanged findings.
 
@@ -72,27 +72,13 @@ python3 scripts/model_traces.py --jar /path/to/tla2tools.jar --check
 python3 scripts/integration_traces.py --jar /path/to/tla2tools.jar --check
 ```
 
-The Spec page renders every declaration and definition from every TLA+ module in source order. Its sections and explanations come directly from comments in those files. There is no separate documentation equation catalog. `scripts/model_math.py` extracts the definitions from the TLA+ source and translates their notation into LaTeX; it does not maintain separate copies of the formula bodies. Unsupported notation fails generation. Zine emits the TeX expressions, and the pinned KaTeX build step renders them as equation layouts with accessible MathML and the original TeX attached as an annotation. Release pages need no JavaScript, image viewer, or PDF plugin. Zine's local development server renders the same expressions in the browser using a bundled copy of the pinned KaTeX version; plain `cd docs && zine` works without a separate rendering step or network access. CI compares those annotations against the current source definitions.
-
-For the complete typeset-module downloads, install `pdflatex` (for example, TeX Live's `texlive-latex-base`). TLATeX generates the standalone `.tex` files from the same TLA+ modules. The generator checks alignment and rejects overflowing lines and can refresh the existing PDF downloads from the same source:
+The Spec page is this guide followed by every module as TLATeX typesets it, in reading order. Its sections and explanations come directly from comments in the TLA+ files, so the page keeps no separate copy of any definition. Install `pdflatex` (for example, TeX Live's `texlive-latex-base`) to typeset them. The generator writes one PDF per module to `docs/assets/spec`, where the Spec page embeds each with a download link, and rejects overflowing lines; `--check` typesets every module without rewriting them:
 
 ```sh
-python3 scripts/spec_latex.py --jar /path/to/tla2tools.jar --refresh-pdfs
+python3 scripts/spec_latex.py --jar /path/to/tla2tools.jar
 python3 scripts/spec_latex.py --jar /path/to/tla2tools.jar --check
-mkdir -p /tmp/overwatch-typeset
-pdflatex -interaction=nonstopmode -halt-on-error -output-directory=/tmp/overwatch-typeset spec/Overwatch.tex
-pdflatex -interaction=nonstopmode -halt-on-error -output-directory=/tmp/overwatch-typeset spec/IntegrationContract.tex
 python3 docs/sync.py --write
 python3 docs/sync.py
 ```
 
-To build the equations into the site, install the pinned renderer in a temporary directory and run the HTML rendering and verification steps after Zine:
-
-```sh
-npm install --no-save --prefix /tmp/overwatch-doc-math katex@0.16.22
-(cd docs && zine release --force)
-KATEX_MODULE=/tmp/overwatch-doc-math/node_modules/katex node scripts/render_model_math.mjs
-python3 scripts/check_model_html.py
-```
-
-This contributor guide is separate from the published specification. The site generator reads the TLA+ source files themselves and discovers the source, configuration, LaTeX, and PDF downloads from `spec/`. CI verifies the generated LaTeX and fixture expectations, runs the contract replays, and rejects stale site pages. After an intentional model change, regenerate the fixtures and LaTeX, review the resulting PDFs, and run the implementation replays before publishing the docs.
+The site generator takes this guide, the module PDFs, and the source and configuration downloads from `spec/` and `docs/assets/spec`. CI typesets every module, verifies the fixture expectations, runs the contract replays, and rejects stale site pages. After an intentional model change, regenerate the fixtures and PDFs, review the PDFs, and run the implementation replays before publishing the docs.
