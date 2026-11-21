@@ -1,0 +1,292 @@
+"""Tests of what a TCR checkpoint refuses to commit: files named like secrets, lines that are high-confidence secrets,
+and files too large for a hosting service, run against real git repositories in temporary directories.
+
+Copyright (c) 2026 benomahony. SPDX-License-Identifier: MIT
+"""
+from __future__ import annotations
+
+import json
+import tempfile
+import time
+import unittest
+from collections.abc import Callable
+from pathlib import Path
+
+from paths import ROOT
+import checkpoint
+import secrets_guard
+from checkpoint_repository import git, isolate_git, make_dir, put, remove_fixture_file, restore_git
+from discovery import ConfigurationError
+from codex_hook import read
+
+AWS_KEY = "AKIA" + "A" * 16
+PRIVATE_KEY = "-----BEGIN " + "RSA PRIVATE KEY-----"
+GITHUB_TOKEN = "ghp_" + "a" * 36
+SLACK_TOKEN_LETTERS = "baprs"
+SLACK_TOKENS = tuple(f"xox{letter}-1234-abcd" for letter in SLACK_TOKEN_LETTERS)
+STRIPE_KEY = "sk_live_" + "a" * 24
+FINE_GRAINED_GITHUB_TOKEN = "github_pat_" + "a" * 60
+RESTRICTED_STRIPE_KEY = "rk_live_" + "a" * 30
+ANTHROPIC_KEY = "sk-ant-" + "api03-abcdef"
+GOOGLE_KEY = "AIza" + "a" * 35
+CONTENT_SAMPLES = (
+    ("AWS access key", AWS_KEY), ("private key", PRIVATE_KEY), ("GitHub token", GITHUB_TOKEN), ("GitHub token", FINE_GRAINED_GITHUB_TOKEN), *(("Slack token", token) for token in SLACK_TOKENS),
+    ("Stripe live key", STRIPE_KEY), ("Stripe live key", RESTRICTED_STRIPE_KEY), ("Anthropic key", ANTHROPIC_KEY), ("Google API key", GOOGLE_KEY),
+)
+FINE_GRAINED_GITHUB_MINIMUM = 22
+STRIPE_RULE = "Stripe live key"
+GITHUB_RULE = "GitHub token"
+CHARACTERS_BEFORE_A_KEY = ("=", "'", '"', " ", ":", "(", "-", "/", "_")
+WORDS_ENDING_IN_A_KEY_PREFIX = tuple(f"{word}{'a' * 36}" for word in ("work_live_", "network_live_", "fork_live_", "mark_live_", "task_live_", "risk_live_",
+                                                                     "mysk_live_", "7rk_live_", "mygithub_pat_", "7github_pat_",
+                                                                     "Xsk_live_", "Xrk_live_", "Xgithub_pat_", "Zgithub_pat_"))
+WORDS_ENDING_IN_A_GITHUB_PREFIX = tuple(f"{word}{'a' * 36}" for word in ("myghp_", "7gho_", "Xghu_", "Zghs_", "mighr_"))
+REFUSED_NAMES = (".env", ".env.local", ".env.production", "server.pem", "a.key", "id_rsa", "id_ed25519", "id_ecdsa", "id_dsa", "id_rsa.bak", "keys/id_ed25519",
+                 ".npmrc", ".netrc", "credentials", "credentials.json", "credentials.yml", "credentials.yaml", "bundle.p12", "bundle.pfx", "config/.env", "keys/server.pem")
+ALLOWED_NAMES = (".env.example", ".env.sample", ".env.template", "id_rsa.pub", "environment.py", "keyboard.txt", "pemberton.txt", "notes.txt",
+                 "id_utils.py", "src/id_utils.py", "id_custom", "credentials_test.py", "src/credentials_helper.py")
+SMALL_FILES = 1000
+GENEROUS_SECONDS_FOR_SMALL_FILES = 2.0
+
+
+def timed(action: Callable[[], object]) -> float:
+    """How many seconds the action took."""
+    started = time.perf_counter()
+    action()
+    elapsed = time.perf_counter() - started
+    assert elapsed >= 0, f"the clock ran backwards by {-elapsed} seconds"
+    assert callable(action), f"{action!r} is not something to run"
+    return elapsed
+
+
+HEADER_PATHS = {
+    "the header of a deleted file, which has no prefix": ("/dev/null", "/dev/null"),
+    "a header the same length as its path": ("x", "x"),
+    "a path with the prefix": ("b/x", "x"),
+    "a path that starts with the prefix twice": ("b/b/y", "b/y"),
+    "a path under a directory named b": ("b/b/dir/file.txt", "b/dir/file.txt"),
+    "a path under a directory named b, with the tab git adds for a space": ("b/b/my file.txt\t", "b/my file.txt"),
+}
+DELETED_FILE_DIFF = "diff --git a/gone.txt b/gone.txt\ndeleted file mode 100644\n--- a/gone.txt\n+++ /dev/null\n@@ -1 +0,0 @@\n-one\n"
+
+
+class HeaderPathTests(unittest.TestCase):
+    def test_each_header_gives_its_path_with_one_prefix_removed(self) -> None:
+        for shape, (header, expected) in HEADER_PATHS.items():
+            with self.subTest(shape=shape):
+                self.assertEqual(secrets_guard.header_path(header), expected, f"{shape}: the path read from {header!r} was not {expected!r}")
+
+    def test_a_path_exactly_as_long_as_its_header_is_accepted_and_a_longer_one_is_not_made(self) -> None:
+        for header in ("/dev/null", "x", "b"):
+            with self.subTest(header=header):
+                path = secrets_guard.header_path(header)
+                self.assertEqual(path, header, f"the header {header!r} has no prefix to remove, so it is its own path")
+                self.assertLessEqual(len(path), len(header), "a path read from a header is never longer than the header")
+
+    def test_the_diff_of_a_deleted_file_adds_no_line_and_is_read_to_its_end(self) -> None:
+        self.assertEqual(list(secrets_guard.added_lines(DELETED_FILE_DIFF)), [], "a deleted file adds no line")
+        self.assertEqual(list(secrets_guard.added_lines(DELETED_FILE_DIFF + "diff --git a/b.txt b/b.txt\n--- /dev/null\n+++ b/b.txt\n@@ -0,0 +1 @@\n+two\n")),
+                         [("b.txt", 1, "two")], "the file added after a deleted one is named by its own header")
+
+
+class CheckpointGuardTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.addCleanup(restore_git, isolate_git())
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.repo = Path(self.temporary.name)
+        git(self.repo, ["init", "-q", "-b", "main"])
+        put(self.repo / "a.txt", "base\n")
+        git(self.repo, ["add", "-A"])
+        git(self.repo, ["commit", "-q", "-m", "start"])
+        assert git(self.repo, ["status", "--porcelain"]) == "", f"{self.repo} is not clean after setup"
+        assert git(self.repo, ["rev-list", "--count", "HEAD"]) == "1", f"{self.repo} does not hold exactly the start commit"
+
+    def stage(self, name: str, text: str = "x\n") -> None:
+        path = self.repo / name
+        if not path.parent.exists():
+            make_dir(path.parent)
+        put(path, text)
+        git(self.repo, ["add", "-A"])
+        assert name in git(self.repo, ["diff", "--cached", "--name-only", "-z"]).split("\0"), f"{name} was not staged in {self.repo}"
+        assert path.is_file(), f"{path} is no file after it was written"
+
+    def refusals(self, allow: tuple[str, ...] = ()) -> list[str]:
+        found = [refusal.text() for refusal in checkpoint.refusals(self.repo, allow)]
+        assert all(isinstance(text, str) and text for text in found), f"a refusal came back as no text: {found}"
+        assert len(set(found)) == len(found), f"a refusal came back twice: {found}"
+        return found
+
+    def test_files_named_like_secrets_are_refused_by_their_name(self) -> None:
+        for name in REFUSED_NAMES:
+            with self.subTest(name=name):
+                self.stage(name)
+                self.assertEqual(self.refusals(), [f"{name} (name pattern)"])
+                git(self.repo, ["reset", "-q"])
+                remove_fixture_file(self.repo / name)
+
+    def test_files_named_like_templates_or_public_keys_are_not_refused(self) -> None:
+        for name in ALLOWED_NAMES:
+            with self.subTest(name=name):
+                self.stage(name)
+                self.assertEqual(self.refusals(), [])
+                git(self.repo, ["reset", "-q"])
+                remove_fixture_file(self.repo / name)
+
+    def test_each_high_confidence_secret_is_refused_with_its_file_and_line(self) -> None:
+        for rule, sample in CONTENT_SAMPLES:
+            with self.subTest(rule=rule, sample=sample[:12]):
+                self.stage("src/a.py", f"one = 1\ntwo = 2\nvalue = '{sample}'\n")
+                self.assertEqual(self.refusals(), [f"src/a.py:3 ({rule})"])
+                git(self.repo, ["reset", "-q"])
+                remove_fixture_file(self.repo / "src" / "a.py")
+
+    def test_a_stripe_or_github_prefix_inside_a_longer_word_is_not_refused(self) -> None:
+        for word in (*WORDS_ENDING_IN_A_KEY_PREFIX, *WORDS_ENDING_IN_A_GITHUB_PREFIX):
+            with self.subTest(word=word):
+                self.stage("src/a.py", f"value = '{word}'\n")
+                self.assertEqual(self.refusals(), [])
+                git(self.repo, ["reset", "-q"])
+                remove_fixture_file(self.repo / "src" / "a.py")
+
+    def test_a_stripe_or_github_key_is_refused_after_each_character_that_can_come_before_it(self) -> None:
+        for rule, key in ((STRIPE_RULE, STRIPE_KEY), (STRIPE_RULE, RESTRICTED_STRIPE_KEY), (GITHUB_RULE, FINE_GRAINED_GITHUB_TOKEN), (GITHUB_RULE, GITHUB_TOKEN)):
+            for before in CHARACTERS_BEFORE_A_KEY:
+                with self.subTest(key=key[:10], before=before):
+                    self.stage("src/a.py", f"value{before}{key}\n")
+                    self.assertEqual(self.refusals(), [f"src/a.py:1 ({rule})"])
+                    git(self.repo, ["reset", "-q"])
+                    remove_fixture_file(self.repo / "src" / "a.py")
+            with self.subTest(key=key[:10], before="line start"):
+                self.stage("src/a.py", f"{key}\n")
+                self.assertEqual(self.refusals(), [f"src/a.py:1 ({rule})"])
+                git(self.repo, ["reset", "-q"])
+                remove_fixture_file(self.repo / "src" / "a.py")
+
+    def test_a_fine_grained_github_token_is_refused_from_its_minimum_length_and_not_below_it(self) -> None:
+        for length, refused in ((FINE_GRAINED_GITHUB_MINIMUM, True), (FINE_GRAINED_GITHUB_MINIMUM - 1, False)):
+            with self.subTest(length=length):
+                self.stage("src/a.py", f"value = 'github_pat_{'a' * length}'\n")
+                self.assertEqual(self.refusals(), [f"src/a.py:1 ({GITHUB_RULE})"] if refused else [])
+                git(self.repo, ["reset", "-q"])
+                remove_fixture_file(self.repo / "src" / "a.py")
+
+    def test_added_lines_that_look_like_diff_headers_do_not_derail_the_line_numbers(self) -> None:
+        self.stage("notes.md", f"++ one\n+++ two\n--- three\nvalue = '{AWS_KEY}'\n")
+        self.assertEqual(self.refusals(), [f"notes.md:4 (AWS access key)"])
+
+    def test_a_secret_after_a_changed_line_is_named_by_its_new_line_number(self) -> None:
+        put(self.repo / "a.txt", "one\ntwo\nthree\nfour\n")
+        git(self.repo, ["add", "-A"])
+        git(self.repo, ["commit", "-q", "-m", "four lines"])
+        self.stage("a.txt", f"one\nTWO\nthree\nfour\nvalue = '{AWS_KEY}'\n")
+        self.assertEqual(self.refusals(), [f"a.txt:5 (AWS access key)"])
+
+    def test_a_generic_key_assignment_is_not_refused(self) -> None:
+        self.stage("src/a.py", 'api_key = "x"\nsecret = "hunter2"\npassword = "abc123"\n')
+        self.assertEqual(self.refusals(), [])
+
+    def test_a_secret_on_a_line_the_edit_removed_is_not_refused(self) -> None:
+        put(self.repo / "old.py", f"value = '{AWS_KEY}'\n")
+        git(self.repo, ["add", "-A"])
+        git(self.repo, ["commit", "-q", "-m", "an old secret"])
+        self.stage("old.py", "value = 'gone'\n")
+        self.assertEqual(self.refusals(), [])
+
+    def test_a_file_over_the_size_cap_is_refused_and_one_at_the_cap_is_not(self) -> None:
+        self.stage("at_cap.bin", "")
+        with (self.repo / "at_cap.bin").open("r+b") as handle:
+            handle.truncate(checkpoint.MAX_STAGED_BYTES)
+        git(self.repo, ["add", "-A"])
+        self.assertEqual(self.refusals(), [])
+        with (self.repo / "at_cap.bin").open("r+b") as handle:
+            handle.truncate(checkpoint.MAX_STAGED_BYTES + 1)
+        git(self.repo, ["add", "-A"])
+        self.assertEqual(self.refusals(), ["at_cap.bin (larger than 50 MiB)"])
+
+    def test_the_allowlist_skips_the_name_and_content_rules_but_not_the_size_cap(self) -> None:
+        self.stage(".env", f"value = '{AWS_KEY}'\n")
+        self.stage("config/.env.local")
+        self.stage("big.key", "")
+        with (self.repo / "big.key").open("r+b") as handle:
+            handle.truncate(checkpoint.MAX_STAGED_BYTES + 1)
+        git(self.repo, ["add", "-A"])
+        self.assertEqual(self.refusals(allow=(".env", "config/*", "big.key")), ["big.key (larger than 50 MiB)"])
+
+    def test_an_allowlist_name_without_a_directory_matches_only_that_name_at_the_root(self) -> None:
+        self.stage(".env")
+        self.stage("deploy/prod/.env")
+        self.assertEqual(self.refusals(allow=(".env",)), ["deploy/prod/.env (name pattern)"])
+
+    def test_an_allowlist_entry_that_starts_with_two_stars_matches_the_name_in_any_directory(self) -> None:
+        self.stage(".env")
+        self.stage("deploy/prod/.env")
+        self.assertEqual(self.refusals(allow=("**/.env",)), [])
+
+    def test_a_star_in_an_allowlist_entry_does_not_cross_a_directory(self) -> None:
+        self.stage("config/.env.local")
+        self.stage("config/sub/.env")
+        self.assertEqual(self.refusals(allow=("config/*",)), ["config/sub/.env (name pattern)"])
+
+    def test_an_allowlist_entry_names_a_path_with_a_space(self) -> None:
+        self.stage("sp ace/x.py", f"value = '{AWS_KEY}'\n")
+        self.assertEqual(self.refusals(), [f"sp ace/x.py:1 (AWS access key)"])
+        self.assertEqual(self.refusals(allow=("sp ace/x.py",)), [])
+
+    def test_a_secret_inside_a_binary_file_is_refused(self) -> None:
+        self.stage("a.dat", f"\0\0{AWS_KEY}\0")
+        self.assertEqual(self.refusals(), ["a.dat:1 (AWS access key)"])
+
+    def test_an_allowlist_entry_that_is_empty_or_only_wildcards_is_an_error_that_names_the_field(self) -> None:
+        for entry in ("", "*", "**", "**/*", "  ", "**/?*", "?", "[]", "*/?[]"):
+            with self.subTest(entry=entry), self.assertRaises(ConfigurationError) as caught:
+                checkpoint.checkpoint(self.repo, allow=(entry,))
+            self.assertIn("tcr.allow", str(caught.exception))
+            self.assertIn("only wildcards", str(caught.exception))
+
+    def test_a_checkpoint_that_would_commit_a_secret_commits_and_reverts_nothing_and_leaves_the_work_tree_and_unstaged_files(self) -> None:
+        put(self.repo / "a.txt", "edited\n")
+        put(self.repo / ".env", "TOKEN=1\n")
+        head = git(self.repo, ["rev-parse", "HEAD"])
+        with self.assertRaises(checkpoint.Refused) as caught:
+            checkpoint.checkpoint(self.repo)
+        self.assertEqual([refusal.text() for refusal in caught.exception.refusals], [".env (name pattern)"])
+        self.assertEqual(git(self.repo, ["rev-parse", "HEAD"]), head)
+        self.assertEqual(git(self.repo, ["diff", "--cached", "--name-only"]), "")
+        self.assertEqual(read(self.repo / "a.txt"), "edited\n")
+        self.assertEqual(read(self.repo / ".env"), "TOKEN=1\n")
+        self.assertEqual(sorted(line.strip() for line in git(self.repo, ["status", "--porcelain"]).splitlines()), ["?? .env", "M a.txt"])
+
+    def test_a_refused_checkpoint_names_every_file_and_rule_in_its_error(self) -> None:
+        put(self.repo / ".env", "TOKEN=1\n")
+        put(self.repo / "src.py", f"value = '{AWS_KEY}'\n")
+        with self.assertRaises(checkpoint.Refused) as caught:
+            checkpoint.checkpoint(self.repo)
+        self.assertIn(".env (name pattern)", str(caught.exception))
+        self.assertIn("src.py:1 (AWS access key)", str(caught.exception))
+
+    def test_a_checkpoint_commits_an_allowlisted_env_file_and_a_template(self) -> None:
+        put(self.repo / ".env", "TOKEN=1\n")
+        put(self.repo / ".env.example", "TOKEN=\n")
+        sha = checkpoint.checkpoint(self.repo, allow=(".env",))
+        self.assertEqual(sha, git(self.repo, ["rev-parse", "HEAD"]))
+        self.assertEqual(sorted(git(self.repo, ["show", "--name-only", "--format=", "HEAD"]).split()), [".env", ".env.example"])
+
+    def test_a_checkpoint_commits_a_generic_key_assignment(self) -> None:
+        put(self.repo / "a.py", 'api_key = "x"\n')
+        self.assertIsNotNone(checkpoint.checkpoint(self.repo))
+
+    def test_the_guard_reads_a_thousand_small_files_well_within_a_generous_bound(self) -> None:
+        for index in range(SMALL_FILES):
+            put(self.repo / f"f{index:04}.txt", "line one\nline two\nline three\n")
+        git(self.repo, ["add", "-A"])
+        elapsed = timed(lambda: self.assertEqual(checkpoint.refusals(self.repo, ()), []))
+        self.assertLess(elapsed, GENEROUS_SECONDS_FOR_SMALL_FILES, f"screening {SMALL_FILES} staged files took {elapsed:.3f} s")
+        self.addCleanup(print, f"\nscreening {SMALL_FILES} staged files took {elapsed * 1000:.0f} ms", flush=True)
+
+    def test_the_module_ships_in_the_package(self) -> None:
+        self.assertIn("engine", json.loads(read(ROOT / "package.json"))["files"])
+
+
+if __name__ == "__main__":
+    unittest.main()
