@@ -96,7 +96,7 @@ def load_state(session: Session) -> State:
         if not isinstance(saved, dict) or saved.get("digest") != digest_of(value):
             raise StateError(f"{session.state} has no digest matching its state{REBUILT}")
         state = state_from(value)
-    except (FileNotFoundError, json.JSONDecodeError, StateError):
+    except (FileNotFoundError, json.JSONDecodeError, UnicodeDecodeError, StateError):
         state = State()
     assert session.state.parent == session.logs.parent, f"state {session.state} is not beside its logs {session.logs}; build the session with locked"
     assert session.state.suffix == ".json", f"state {session.state} is not a .json file; name it with state_path"

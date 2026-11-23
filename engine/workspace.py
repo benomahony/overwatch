@@ -10,8 +10,11 @@ import os
 from pathlib import Path
 import re
 import subprocess
+from stat import S_IMODE, S_ISREG
+from typing import BinaryIO
 
 from discovery import ConfigurationError
+from unix import open_without_blocking, read_regular_text
 
 
 # How long a git query may take, in seconds, before overwatch gives up on it.
@@ -20,6 +23,8 @@ GIT_TIMEOUT = 5
 
 # The size, in bytes, of a workspace fingerprint's digest.
 FINGERPRINT_BYTES = 20
+CONTENT_READ_LIMIT = 50 * 1024 * 1024
+READ_CHUNK = 1024 * 1024
 
 
 def workspace_files(cwd: Path) -> list[Path]:
@@ -36,6 +41,9 @@ def workspace_files(cwd: Path) -> list[Path]:
             check=True,
         )
         paths = list(dict.fromkeys(cwd / os.fsdecode(part) for part in result.stdout.split(b"\0") if part))
+    except subprocess.TimeoutExpired as error:
+        raise ConfigurationError(f"listing the files of {cwd} took more than {GIT_TIMEOUT} seconds, so overwatch cannot tell what changed and "
+                                 "does nothing, TCR included, until git lists them faster; ignore the large directories or keep fewer files") from error
     except (OSError, subprocess.SubprocessError) as error:
         raise ConfigurationError(f"git could not list the files of {cwd}: {error}; check that git is installed and can read the repository") from error
     assert all(path.is_relative_to(cwd) for path in paths), f"listed {[path for path in paths if not path.is_relative_to(cwd)]} outside {cwd}; list only the workspace"
@@ -70,7 +78,7 @@ def is_committed(cwd: Path, old: str, new: str) -> bool:
     try:
         result = subprocess.run(['git', 'rev-parse', '--git-path', 'logs/HEAD'], cwd=cwd,
                                 capture_output=True, text=True, timeout=GIT_TIMEOUT, check=True)
-        lines = (cwd / result.stdout.strip()).read_text(errors='replace').splitlines()
+        lines = read_regular_text(cwd / result.stdout.strip(), errors='replace').splitlines()
     except (OSError, subprocess.SubprocessError):
         return False
     at, is_reached = new, False
@@ -103,6 +111,39 @@ def fingerprint(cwd: Path) -> str:
     value = digest.hexdigest()
     assert len(value) == FINGERPRINT_BYTES * 2, f"fingerprint {value} is not {FINGERPRINT_BYTES} bytes; keep digest_size=FINGERPRINT_BYTES"
     assert all(character in "0123456789abcdef" for character in value), f"fingerprint {value} is not hexadecimal; use hexdigest"
+    return value
+
+
+def digest_file(handle: BinaryIO, digest: "hashlib._Hash") -> None:
+    """Adds the size and permission bits of the open file to digest and, when it is a regular file, its first CONTENT_READ_LIMIT bytes. The content of a pipe or a device is not read, since a read may never end."""
+    status = os.fstat(handle.fileno())
+    digest.update(f"\0{status.st_size}\0{S_IMODE(status.st_mode):o}\0".encode())
+    if not S_ISREG(status.st_mode):
+        return
+    assert handle.readable() and handle.tell() == 0, f"{handle.name} is not an open file at its start"
+    read = 0
+    for chunk in iter(lambda: handle.read(READ_CHUNK), b""):
+        digest.update(chunk)
+        read += len(chunk)
+        if read >= CONTENT_READ_LIMIT:
+            break
+    assert read <= CONTENT_READ_LIMIT + READ_CHUNK, f"{handle.name} was read to {read} bytes, past the limit of {CONTENT_READ_LIMIT}"
+
+
+def content_fingerprint(cwd: Path, names: list[str]) -> str:
+    """A digest of the names and the contents of the files in names, relative to cwd, each read up to
+    CONTENT_READ_LIMIT bytes. A file that cannot be read is digested as missing. A change of a file's permission bits changes the digest."""
+    assert cwd.is_dir(), f"{cwd} is no directory to read the files {names[:3]} in"
+    digest = hashlib.blake2b(digest_size=FINGERPRINT_BYTES)
+    for name in sorted(names):
+        digest.update(os.fsencode(name))
+        try:
+            with open(cwd / name, "rb", opener=open_without_blocking) as handle:
+                digest_file(handle, digest)
+        except OSError:
+            digest.update(b"\0missing")
+    value = digest.hexdigest()
+    assert len(value) == FINGERPRINT_BYTES * 2, f"content fingerprint {value} is not {FINGERPRINT_BYTES} bytes; keep digest_size=FINGERPRINT_BYTES"
     return value
 
 

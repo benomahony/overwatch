@@ -24,6 +24,7 @@ Codex does not currently let a plugin start a new turn in an idle session, so th
 With OpenCode, overwatch checks the project at session start, before model calls, and after editing tools.
 OpenCode 1 appends a red report to the editing tool's result and warns if the session goes idle.
 OpenCode 2 also queues one correction pass when the session tries to settle while red.
+If OpenCode reports that prompt as failed, Overwatch asks again at the next idle; when the host had queued it before it reported the failure, as after a timeout, the agent reads the correction twice.
 
 With Pi, overwatch runs the full suite at session start, adds failures to editing tool results, keeps the latest failure in Pi's status line, and requests a correction pass whenever guarded failures remain at settlement.
 
@@ -132,6 +133,7 @@ Codex, OpenCode, and Pi honour `timeout` today; Claude Code and Neovim accept it
 An entry turned off gives way to the next of its language, so turning off `vitest` runs `jest` or `bun` when the project has one.
 The top-level fields above apply after these.
 Codex, OpenCode, and Pi refuse a setting of the wrong type, or a field it does not take, and name it.
+`timeout`, `settle` and `tcr.hostLimitSeconds` take a finite number above zero: `0`, a negative number, `NaN`, `Infinity`, `-Infinity`, a string and `true` are refused, and the error names the field.
 
 ```json
 {
@@ -238,6 +240,152 @@ Protected tools remain guarded.
 OpenCode and Pi use their before-tool hooks for protected actions.
 Reload the plugin after updating hook definitions; Codex may require renewed hook trust.
 
+### TCR mode
+
+Set `"mode": "tcr"` in `.overwatch.json` to run test && commit || revert.
+After each edit of the agent that changes files, Overwatch reads the check results and does one of four things.
+A checker that is installed on your `PATH`, such as `zanity`, counts as a check, like a test runner the project configures.
+
+- **Commit.** If no check has a new failure against the session baseline, it commits every file that `.gitignore` does not ignore, on the current branch, as `tcr: <files>`. Inherited failures never count, and neither does the `git` upstream check, whose failure is another person's push.
+- **Revert.** If a check has a new failure, it restores the files to the latest commit, removes the files the agent added, and tells the agent which failure caused the revert and which files came back. Before it deletes anything it saves the work it discards in a git ref, `refs/overwatch/reverted/<UTC time>`, without moving HEAD or changing the index. The agent is told the ref and the command that gets the work back: `git checkout <ref> -- .`. A version that only the index held, because a file was staged and then changed again, is the second parent of the saved commit, and the agent is told `git checkout <ref>^2 -- .` for it. Set `tcr.saveReverted` to `false` to keep nothing; the revert message then says the work is gone.
+- **Hold.** A failing check that has no earlier result in the session, because the edit made it appear, cannot tell a new failure from an old one. The edit stays uncommitted and unreverted, the agent is told which check held it, and the edit is committed together with the next edit once the check passes. A check that had a passing or inherited result before still reverts. A check that outlives its deadline is held too, since a timeout says nothing of what the edit broke. A held check holds the edit again, however much worse it fails, until an edit is committed while it passes: its pass counts as an earlier result only then, so a pass beside another held check, beside a failure that is reverted, or while inherited failures block everything, does not release it. If any check is held, or the host's time limit left an edit alone, or inherited failures that block left it alone, when the next turn starts and nobody changed the files since, TCR stays on and the edit stays; Overwatch tells that by the size and time of every file and by the contents and permission bits of the files that differ from the latest commit. If someone changed them, TCR is unavailable until the tree is clean.
+- **Leave alone.** A check that cannot run in the environment, a result that another edit overtook, or a failing inherited check while `gate.inherited` is `"block"` makes Overwatch neither commit nor revert. Results that `engine.py follow` reads between hooks, for a session that watches while idle, are told but never judged: only the result a hook reads after the agent's own edit commits or reverts.
+
+```json
+{
+  "mode": "tcr",
+  "tcr": {
+    "saveReverted": true,
+    "allow": ["fixtures/.env.test", "**/*.pem.example"],
+    "hostLimitSeconds": 550
+  }
+}
+```
+
+`tcr.saveReverted` defaults to `true`.
+`tcr.allow` lists paths and globs that a checkpoint may commit although their name or content looks like a secret.
+`tcr.hostLimitSeconds` is how long your host lets one hook run; it defaults to 550 seconds: how long the Pi and OpenCode plugins wait for the engine, below the hook timeout of 600 seconds that Codex sets.
+An unknown field under `tcr`, or an `allow` entry that is empty or only wildcards, is an error that names the field.
+
+**The saved refs.** Overwatch never prunes `refs/overwatch/reverted/`.
+List them with `git for-each-ref refs/overwatch/reverted` and delete them with `git for-each-ref --format='%(refname)' refs/overwatch/reverted | xargs -n1 git update-ref -d`.
+A ref holds every file the revert discarded, including a person's untracked files, so a `.env` that was in the tree is in the ref, and `git push --mirror` would publish it.
+If a git command takes more than 30 seconds before the reset, as it can in a very large repository, the revert stops before it deletes anything and TCR is unavailable.
+A git command that takes this long in the reset or after it is told as described under "A failure or a bug during a revert".
+Overwatch saves again while it finds new files, and gives up without deleting when the files keep changing.
+It then removes only the untracked files of its last look, so a new file written after that look stays and the agent is told it was left.
+A file of that look, or a tracked file, that changes in the tens of milliseconds between the last look and the reset is lost, because git cannot reset and look in one step.
+A revert does not go into submodules: the files inside one stay as they are, and the message to the agent names each submodule that still holds changes.
+
+**What TCR sees of a held edit's files.** It recognises a held edit again by the size and modification time of every file, and by a digest of the content of the files that differ from HEAD.
+The digest reads at most the first 50 MiB of a file, so a change after those bytes that leaves the size and the permission bits as they were is not seen.
+A pipe or a device is opened without blocking and is not read, since a read may never end: its digest holds its size and permission bits only.
+A socket cannot be opened, so it is digested as missing.
+A change of what a pipe or a device holds is therefore not seen by the digest; its modification time still is, by the fingerprint.
+
+**A failure or a bug during a revert.** Overwatch lists the changed files and reads HEAD before it resets the tree.
+After the reset it runs only the removal of the untracked files, the check of the tree and a second listing of the changed files.
+A git command that fails after the revert began, or an error raised in one of those steps, is told to the agent with the saved ref, and TCR is unavailable.
+This holds for every error that the entry point treats as unexpected, `ValueError`, `TypeError`, `KeyError`, `SubprocessError` and the engine's bugs, and for `OSError`; the exit code stays 0, and the traceback of all but an `OSError` goes to stderr.
+The notice says `TCR reverted` only when git reported that the reset succeeded.
+When the reset failed, or timed out so that nobody knows whether it ended, the notice says that TCR tried to revert and that git failed, or that a bug stopped it; a bug is named as one.
+The notice names files only as the two listings show them: `Restored` for a file that the first listing has and the second does not, `Still changed` for a file in both, and `Changed after TCR listed the files` for a file only the second has.
+It gives no cause for a file that is still changed and does not say that files are unchanged: `git status` shows the present state.
+The notice of an attempt, when the reset did not succeed or nobody knows whether it ended, lists a file of the first listing that the second does not list as `Now as HEAD has them`, not as restored.
+The sentence says how the file is now, and not who made it so.
+When git cannot list the files after the reset, the notice says so and names no file as restored.
+A read that fails before the reset, such as the log of the failing check or the submodule list, reverts nothing: TCR is unavailable, the failing edit stays in the tree, and the next turn start says the tree is dirty.
+A HEAD that git cannot name does not stop the revert.
+A bug in building the text of the message or the answer tells the agent nothing of the revert, and the work is in the saved ref.
+The engine's entry point catches `OSError`, `ValueError`, `TypeError`, `KeyError` and `SubprocessError`, as it does for every event: it prints a system message and exits 0, which a host may not show.
+A bug that is none of those, such as an `AssertionError` or a `RuntimeError`, raised before the reset ends the hook with exit code 1, its traceback and nothing on stdout.
+After the reset, every error of the kinds above and every such bug is told as the revert with the saved ref, with exit code 0 and the traceback on stderr.
+`KeyboardInterrupt`, `MemoryError` and `SystemExit` are not converted, before or after the reset: the hook ends with no JSON, and after the reset the agent is not told the saved ref.
+A `KeyboardInterrupt` ends the hook by the interrupt signal, with exit code -2 to a parent that reads the signal and 130 to a shell, and its traceback on stderr; a `MemoryError` exits 1 with its traceback; a `SystemExit(n)` exits n and prints nothing, so a `SystemExit(0)` exits 0 with no output, which a host reads as success; and a SIGTERM ends it with -15 and nothing on stderr.
+In none of these cases does anything, stderr included, tell where the saved ref is; list the refs with the command above.
+No assert of `tcr` or `tcr_texts` inspects the text of a notice, so a file named like one of its sentences cannot stop the hook.
+
+**What a notice prints of text it does not control.** A file name, a submodule name or a ref is written with an escape for control characters, line and paragraph separators, spaces other than the plain space, format characters such as bidirectional marks and zero-width ones, and backticks, and is cut at 200 characters with `...`; a notice lists at most five of them and then how many more.
+A summary or git's own message is written with the same escape, except that it keeps the tab and its backticks, and it is not cut.
+A command, a check name, a failing test name, a directory and a path are written with an escape for line breaks and control characters other than the tab, and nothing else is changed, so a command can still be copied.
+A path is never cut.
+The same holds for the data directory in the notice of an inherited backlog and for the error text the hook prints.
+A command, name or directory with no line break or control character prints as it did before these escapes, and so does a summary with no hiding character.
+A summary that holds a raw ESC, NBSP, ZWSP, bidirectional control or line break is written with escapes.
+
+**A checkpoint never commits secrets or very large files.** It refuses a file named `.env` or `.env.*` (except `.env.example`, `.env.sample` and `.env.template`), `*.pem`, `*.key`, `*.p12`, `*.pfx`, `id_rsa`, `id_ed25519`, `id_ecdsa` or `id_dsa` (also with a suffix, as in `id_rsa.bak`, but not `.pub`), `*.keystore`, `.npmrc`, `.netrc`, `.pgpass`, `.git-credentials`, `kubeconfig`, `terraform.tfstate`, `secrets.yml`, `secrets.yaml`, or `credentials`, `credentials.json`, `credentials.yml` or `credentials.yaml`.
+It reads a file that replaces a symlink, or the other way round, like any other file.
+It also refuses a line that the edit adds, in a text, UTF-16 or binary file, and that holds an AWS access key id, a private key header (also an encrypted one), a GitHub token that starts with `ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_` or `github_pat_`, a Slack token that starts with `xoxb-`, `xoxa-`, `xoxp-`, `xoxr-` or `xoxs-`, a Stripe live key that starts with `sk_live_` or `rk_live_`, an Anthropic key or a Google API key.
+A GitHub token or a Stripe live key with a letter or digit before its prefix is not seen, as in `Xghp_`, `7sk_live_` or `Xgithub_pat_`.
+A file over 50 MiB, new or changed, is refused too, from its size on disk and before git reads it.
+When the diff of the staged files is not in a form the guard reads, it refuses each file it could not screen, with the rule `its added lines could not be read, so they were not screened for secrets`; an entry of `tcr.allow` skips that screening for the file it names.
+When it refuses, Overwatch commits nothing, reverts nothing, leaves the files in the working tree unstaged, and tells the agent each file and the rule, as `.env (name pattern)` or `src/a.py:12 (AWS access key)`, and that TCR stays unavailable until you commit the pending edit yourself.
+
+`tcr.allow` entries are paths from the repository's root.
+A star matches within one directory or file name and never crosses a `/`, a name without a directory matches only that name at the root, and `**/` before a name matches it in any directory: `".env"` allows `.env` but not `deploy/prod/.env`, which `"**/.env"` also allows.
+An entry skips the name and content rules for the files it names and never the size limit.
+Add what is safe to commit to `tcr.allow`, or what is not to `.gitignore`, then commit the pending edit: TCR starts again at the start of the next turn once the tree is clean.
+
+The guard is not a secret scanner.
+It does not see a secret that is split across lines, a bare secret, a JWT or a base64-encoded one, a secret in a file whose encoding does not write ASCII as itself, such as EBCDIC, a password in a URL such as `postgres://user:pass@host`, an OpenAI `sk-proj-` key, or a password in a plain assignment, and it flags any text that holds one of its keys, such as a README that quotes `sk_live_`.
+There is no generic `key = "..."` rule, because that rule flagged ordinary code.
+Screening 1000 staged files is one `git diff`, and a test fails if it takes more than two seconds.
+
+TCR starts only on a clean tree, on a branch that has a commit, with no merge, rebase, cherry-pick, revert or bisect in progress, no untracked nested repository, no tracked file that is marked `assume-unchanged` or `skip-worktree` and differs from the latest commit in content, in mode or in being a file or a link, and at least one check configured.
+A checkpoint and a revert refuse for the same reason, so that neither commits nor overwrites an edit that git does not show.
+Otherwise Overwatch tells the agent that TCR is unavailable, and why, and changes nothing.
+When the tree is dirty it names the files, and when a check wrote them, such as `report.xml`, it says that the checks changed the files while they ran and to add what a check writes to `.gitignore`.
+When the branch is `main` or `master` it tells the agent once that checkpoints land on it.
+Overwatch checks again at the start of each turn in Codex, OpenCode 1 and OpenCode 2; Pi reports only the start of a session, so there TCR does not start again after it became unavailable.
+In a project whose `.overwatch.json` sets `"mode": "tcr"`, OpenCode 1 holds a message until the check that its session start began has ended, which can be as long as the baseline run, up to the 550 seconds that the plugin waits for the engine.
+The agent's first edit waits for that check only if OpenCode waits for the `chat.message` hook before its first model call; no real OpenCode host has shown that.
+A project that does not set the mode has no wait and no check for a message.
+In OpenCode 1, a `.overwatch.json` that is not a regular file, is larger than 1024 KiB, or takes more than 1 second to read counts as no mode for that message.
+A file that the user cannot read, and a file that is not valid JSON, count as no mode too.
+A UTF-8 byte order mark at the start makes a file invalid JSON, as it does for the engine.
+OpenCode 1 checks each message only in a session whose start announced TCR, as on or as unavailable; a session that started without TCR needs a new session after TCR is turned on.
+
+To turn TCR off, remove `mode` from `.overwatch.json`: the next event tells the agent that TCR is off, and nothing is committed or reverted.
+OpenCode 1 shows the "TCR is off" notice to you at your next message in a session that announced TCR, and not to the agent.
+Setting `"enabled": false` stops every check, so TCR commits and reverts nothing.
+The next turn start then says that TCR is unavailable because every check is off.
+
+TCR assumes the agent is the only writer.
+A revert discards every change that is not committed, so with `tcr.saveReverted` set to `false` a person's work in the working tree, or a second agent's in the same checkout, is gone.
+When Overwatch sees files change at an event that no editing tool announced, it makes TCR unavailable until the next turn start, so a revert cannot discard those files.
+A shell command counts as an editing tool, so what it writes is judged as the agent's edit: committed when the checks are green, and saved to a ref and reverted when they are not.
+It cannot tell a person's edit from the agent's when both come before the same edit tool, so do not edit the working tree, or run a second agent in it, while TCR runs.
+
+The baseline is the first result of each check in the session.
+It stays while HEAD moves by commits alone; a move that brings in files, such as a checkout or a pull, takes a new baseline.
+A check that failed at the start, and that an edit made pass, is committed; when a later edit makes it fail again, that failure is not new against the baseline, so TCR commits it.
+Fixing an inherited failure and breaking it again is not reverted.
+
+The repository's commit hooks and signing run.
+If a checkpoint commit fails, the changes stay staged, nothing is reverted, and TCR is unavailable until it can start again.
+A check that fails while no file differs from the latest commit leaves the edit alone, and the agent is told that there is nothing to revert.
+When a check writes files that git does not ignore while it runs, Overwatch judges nothing for that edit and tells the agent which check wrote which files and to add them to `.gitignore`.
+With `gate.inherited` set to `"block"`, an edit that leaves an inherited check failing is neither committed nor reverted.
+TCR stays on at the next turn start when nobody changed the files since, and the edit stays in the working tree.
+A later edit that leaves no inherited check failing commits it.
+
+A host stops a hook that runs too long.
+TCR commits only when the checks left at least 30 seconds of `tcr.hostLimitSeconds`, and reverts only when they left 150, which is three saves, the reset and the clean at the 30 seconds each git command may take.
+A checkpoint runs about 30 git commands and a revert about 50, each limited to 30 seconds, so these reserves assume a normal repository and are not a sum of the limits; more files, or files that keep changing, add commands, and in a very large repository a phase can outlast its reserve, and the host may then stop the hook.
+Otherwise it holds the edit and says how long the checks took.
+If `git` needs more than 5 seconds to list the files, Overwatch says so and does nothing, TCR included, until it is faster.
+
+The engine needs Python 3.11 or newer.
+On Python 3.9 the hook of Codex, OpenCode and Pi prints `overwatch needs python 3.11 or newer` as JSON and exits 1, and nothing is committed or reverted.
+Python 3.10 was not tried.
+
+TCR works in Codex, OpenCode and Pi.
+The engine commits and reverts, and the host's hook hands the engine's notice to the agent.
+The tests run the Codex hook with real git; they run the OpenCode and Pi plugins with a fake engine, so no real OpenCode or Pi host has run TCR.
+OpenCode 1 shows the "TCR is on" notice to you but not to the agent.
+Claude Code does not read the setting yet.
+A revert removes empty directories, and a rename that only changes letter case is invisible to it on a case-insensitive filesystem.
+
 ## Install
 
 ### Claude Code
@@ -326,6 +474,21 @@ The [behavior guide](https://benomahony.github.io/overwatch/behavior/) is genera
 Each implemented step is executable against an isolated repository and the real command hook.
 Proposed scenarios are displayed separately and do not count as passing tests.
 Generation and CI checks run the implemented scenarios first; failing scenarios cannot publish a verified behavior page.
+
+The test that every read of a file in the engine decodes by a rule, and the one that no assert inspects text, find the shapes a developer writes by accident, such as `getattr(path, "read_text")()`, `read_bytes().decode()`, `notice[:9]`, and `list(sys.stdin)`, `next(iter(sys.stdin))`, `print(*sys.stdin)` and `shutil.copyfileobj(sys.stdin, out)`; they do not find a reader that is named at run time or reached through `operator`, a library that decodes inside (`tomllib`, `subprocess.run(text=True)`, `check_output(encoding="utf-8")`), `sys.stdin` given to a library that reads it (`csv.reader(sys.stdin)`) or to `map` (`map(f, sys.stdin)`), to a function that iterates the stream it is given, or joined into a text (`''.join(sys.stdin)`), or an `except ValueError` in the same function that guards another call.
+The test that every read of a file in the engine is made without blocking finds `read_text`, `read_bytes`, `open`, `copyfile`, `file_digest`, `shutil.copy`, `shutil.copy2`, `shutil.copytree`, `fileinput.input`, `fileinput.FileInput`, `filecmp.cmp`, `filecmp.cmpfiles` and `operator.methodcaller` given one of those names; it does not find a reader reached through an alias (`from shutil import copy as duplicate`), a copy made by a method of a path (`p.copy(q)`), `getattr(path, name)` with a name held in a variable, or a command that reads a file (`subprocess.run(['cat', path])`).
+Two reads are left as they are: `subprocess.run(text=True)` in `workspace` and `watching`, which decodes strictly and is not found; and `read_event`, where a hook event of bytes that are not UTF-8 on a strict stdin ends in the entry point's handler as `overwatch: unexpected error` with exit 0, which a test pins.
+The test that no assert inspects text scans the engine modules of this change (`bugs`, `checkpoint`, `checkpoint_git`, `repository_state`, `safe_text`, `saved_revert`, `secrets_guard`, `tcr`, `tcr_settings`, `tcr_texts`).
+The test does not scan the other engine modules (`daemon`, `discovery`, `engine`, `gating`, `messages`, `reading`, `records`, `running`, `sessions`, `triage`, `unix`, `watching`, `workspace`).
+Widening the scan means reading each of them for asserts over text.
+`messages` holds asserts over text, and this test does not scan it.
+The test that CI runs every test file reads the `run:` of the steps of `test.yml`.
+It leaves out comments, `echo`, `printf`, `ls` and `cat` lines, `:` commands, a command followed by `|| true`, `|| :`, `|| exit 0` (with or without a closing `;`), `|| (exit 0)`, `|| (true)`, `|| { true; }`, `|| /bin/true`, `|| echo` or `|| printf`, a command piped into `true` or left in the background by `&`, a command after `false &&`, `exit` or `set +e`, and steps or jobs whose `if:` is literally false (`0`, `${{ !true }}` and `false && ...` too), that set `continue-on-error: true` or that set a `working-directory`.
+It reports a workflow that starts only by hand, or only for a push to a branch that is not the default one; it reads only the block style of `on:`.
+A command followed by `; true` still counts: the step runs with `bash -e`, so the failure ends it.
+It does not follow a matrix, a composite action, a reusable workflow, a script that runs the tests, a glob such as `tests/*.mjs`, a step written in flow style, or a pipeline that starts with `echo` or `cat`, so it reports the files these run as not run.
+It counts a file as run when an `if:` is false by an expression, when a job has `needs:` on a job that does not exist, when a step has `if: failure()` or `if: always() && false`, when a job sets `defaults.run.working-directory`, `timeout-minutes: 0`, a runner no one has, a `--test-name-pattern` or `--test-skip-pattern` that matches nothing or every test, when a command sits in a shell `if` that is false or after a `[ .. ] &&` test that is false, when it runs in a pipeline into `tee`, `cat` or `head`, when a step has a `shell:` that is no shell, and when the command sits in the body of a heredoc.
+It looks for Node and Lua tests only directly in `tests/`.
 
 Add a scenario by composing `Scenario(...).given(...).when(...).then(...)` with fixture actions for every implemented step.
 Titles must be unique.

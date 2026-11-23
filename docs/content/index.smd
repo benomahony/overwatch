@@ -30,6 +30,7 @@ Codex does not currently let a plugin start a new turn in an idle session, so th
 With OpenCode, overwatch checks the project at session start, before model calls, and after editing tools.
 OpenCode 1 appends a red report to the editing tool's result and warns if the session goes idle.
 OpenCode 2 also queues one correction pass when the session tries to settle while red.
+If OpenCode reports that prompt as failed, Overwatch asks again at the next idle; when the host had queued it before it reported the failure, as after a timeout, the agent reads the correction twice.
 
 With Pi, overwatch runs the full suite at session start, adds failures to editing tool results, keeps the latest failure in Pi's status line, and requests a correction pass whenever guarded failures remain at settlement.
 

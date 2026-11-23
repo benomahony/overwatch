@@ -8,6 +8,8 @@
  * Copyright (c) 2026 benomahony. SPDX-License-Identifier: MIT
  */
 import assert from "node:assert/strict"
+import { join } from "node:path"
+import { readBoundedText } from "../engine/bounded_read.js"
 import { contextOf, deniedAction, serialChecker } from "../engine/check.js"
 import { SessionDelivery } from "../engine/delivery.js"
 
@@ -45,16 +47,67 @@ function warningText(output) {
   return text
 }
 
-/**
- * OpenCode 1's hooks for the project in directory: before a tool runs, refuse it when the checker denies it; after
- * an editing tool, add what the checker reports to the tool's output; when a session starts or goes idle, warn with
- * the checker's status or refusal through client's toast, once for each event OpenCode sends.
- */
+function statusWarning(output) {
+  assert(output !== null && typeof output === "object", `hook output ${String(output)} is not an object; pass the checker's JSON`)
+  const text = output.systemMessage ?? contextOf(output)
+  assert(text === undefined || typeof text === "string", `warning is ${typeof text}; the checker writes it as text`)
+  return text
+}
+
+function blockedWarning(output) {
+  assert(output !== null && typeof output === "object", `hook output ${String(output)} is not an object; pass the checker's JSON`)
+  const text = output.decision === "block" ? warningText(output) : undefined
+  assert((text === undefined) === (output.decision !== "block"), `decision ${output.decision} gave warning ${text}; give one only for block`)
+  return text
+}
+
+const TCR_NOTICE = /^overwatch: TCR is /
+const OVERRIDE_FILE = ".overwatch.json"
+const TCR_MODE = "tcr"
+
+async function projectTurnsTcrOn(directory) {
+  assert(typeof directory === "string" && directory !== "", `directory is ${directory}; pass the project's directory`)
+  let mode
+  try {
+    mode = JSON.parse(await readBoundedText(join(directory, OVERRIDE_FILE)))?.mode
+  } catch {
+    mode = undefined
+  }
+  const turnsOn = mode === TCR_MODE
+  assert(typeof turnsOn === "boolean", `the project's mode ${String(mode)} gave ${String(turnsOn)}; answer yes or no`)
+  return turnsOn
+}
+
+function announcesTcr(output) {
+  assert(output !== null && typeof output === "object", `hook output ${String(output)} is not an object; pass the checker's JSON`)
+  const notices = output.overwatch?.notices
+  assert(notices === undefined || Array.isArray(notices), `notices are ${typeof notices}; the checker writes a list`)
+  return notices !== undefined && notices.some(notice => TCR_NOTICE.test(notice))
+}
+
+function trackStart(begin) {
+  assert(typeof begin === "function", `begin is ${typeof begin}; pass a function that runs the start check`)
+  const start = { announcesTcr: false, done: undefined }
+  start.done = begin(output => { start.announcesTcr = announcesTcr(output) })
+  assert(typeof start.done?.then === "function", `begin gave ${typeof start.done}; it must return the check's promise`)
+  return start
+}
+
+async function messageNeedsCheck(directory, start) {
+  if (start?.announcesTcr !== true && !await projectTurnsTcrOn(directory)) return false
+  assert(start === undefined || typeof start.done?.then === "function", `start is ${JSON.stringify(start)}; pass the record trackStart gave, or undefined`)
+  await start?.done.catch(() => undefined)
+  const needed = start === undefined || start.announcesTcr
+  assert(needed === (start === undefined || start.announcesTcr === true), `a message's need of a check came out ${needed} for ${JSON.stringify(start)}`)
+  return needed
+}
+
 export function createV1Hooks({ directory, client }, checker = serialChecker()) {
   assert(typeof directory === "string" && directory !== "", `OpenCode gave directory ${directory}; the hooks need the project's directory`)
   assert(typeof checker === "function", `checker is ${typeof checker}; pass a function from payload to output`)
   const check = checker
   const sessions = new SessionDelivery()
+  const starts = new Map()
   // Shows message as a warning toast. A toast that cannot be shown is logged, as OpenCode's own plugins do, since
   // failing the hook would stop the agent for a notice it can do without.
   const warn = async message => {
@@ -68,6 +121,14 @@ export function createV1Hooks({ directory, client }, checker = serialChecker()) 
     }
   }
 
+  const warnAbout = async (life, event, read = statusWarning, observe = () => undefined) => {
+    assert(typeof event.hook_event_name === "string", `event ${JSON.stringify(event)} names no hook; build it with payload`)
+    assert(typeof read === "function", `read is ${typeof read}; pass a function from the checker's output to text`)
+    const output = await check(event)
+    observe(output)
+    if (!life.closed) await warn(read(output))
+  }
+
   return {
     "tool.execute.before": async (input, output) => {
       const result = await check({ ...payload("PreToolUse", directory, input.sessionID),
@@ -75,19 +136,20 @@ export function createV1Hooks({ directory, client }, checker = serialChecker()) 
       const reason = deniedAction(result)
       if (reason !== undefined) throw new Error(reason)
     },
+    "chat.message": async input => {
+      if (await messageNeedsCheck(directory, starts.get(input.sessionID))) await warnAbout(sessions.stateOf(input.sessionID), payload("UserPromptSubmit", directory, input.sessionID))
+    },
     event: async ({ event }) => {
       const sessionID = sessionIDOf(event)
       if (!sessionID) return
-      if (event.type === "session.deleted") { sessions.remove(sessionID); return }
+      if (event.type === "session.deleted") { sessions.remove(sessionID); starts.delete(sessionID); return }
       const life = sessions.stateOf(sessionID)
       if (event.type === "session.created") {
-        const output = await check({ ...payload("SessionStart", directory, sessionID), source: "startup" })
-        if (!life.closed) await warn(output.systemMessage ?? contextOf(output))
+        const start = trackStart(observe => warnAbout(life, { ...payload("SessionStart", directory, sessionID), source: "startup" }, statusWarning, observe))
+        starts.set(sessionID, start)
+        await start.done
       }
-      if (event.type === "session.idle") {
-        const output = await check(payload("Stop", directory, sessionID))
-        if (!life.closed && output.decision === "block") await warn(warningText(output))
-      }
+      if (event.type === "session.idle") await warnAbout(life, payload("Stop", directory, sessionID), blockedWarning)
     },
     "tool.execute.after": async (input, output) => {
       if (!EDITING_TOOLS.has(input.tool)) return
@@ -147,34 +209,42 @@ export async function setupV2(ctx, checker = serialChecker()) {
     if (!controller.signal.aborted && !life.closed) delivery.observe(event.sessionID, output)
   })
 
-  void followIdle(ctx, check, { cwd, delivery, controller })
+  void followIdle(ctx, check, { cwd, delivery, controller }).catch(error => {
+    if (!controller.signal.aborted) console.error("overwatch event subscription", error)
+  })
   return () => { controller.abort(); delivery.clear() }
 }
 
 async function followIdle(ctx, check, { cwd, delivery, controller }) {
   assert(typeof ctx.event.subscribe === 'function', 'OpenCode V2 needs an event subscription')
   assert(!controller.signal.aborted, 'OpenCode V2 cannot start an aborted subscription')
-  try {
-      for await (const event of ctx.event.subscribe({ signal: controller.signal })) {
-        const sessionID = sessionIDOf(event)
-        if (!sessionID) continue
-        if (event.type === "session.deleted") { delivery.remove(sessionID); continue }
-        if (event.type !== "session.idle") continue
-        const output = await check(payload("Stop", cwd, sessionID, "opencode2"))
-        if (controller.signal.aborted) return
-        if (!delivery.correction(sessionID, output)) continue
+  for await (const event of ctx.event.subscribe({ signal: controller.signal })) {
+    const sessionID = sessionIDOf(event)
+    if (!sessionID) continue
+    if (event.type === "session.deleted") { delivery.remove(sessionID); continue }
+    if (event.type !== "session.idle") continue
+    try {
+      const output = await check(payload("Stop", cwd, sessionID, "opencode2"))
+      if (controller.signal.aborted) return
+      delivery.observe(sessionID, output)
+      if (!delivery.correction(sessionID, output)) continue
+      try {
         await ctx.session.prompt({ sessionID, text: output.reason, delivery: "queue" })
+      } catch (error) {
+        delivery.undelivered(sessionID)
+        throw error
       }
     } catch (error) {
       if (!controller.signal.aborted) console.error("overwatch event loop", error)
     }
+  }
 }
 
 /** OpenCode 1 discovers named plugin functions. */
 export async function OverwatchPlugin(context) {
   assert(context !== null && typeof context === "object", `OpenCode gave plugin context ${String(context)}; pass its context object`)
   const hooks = createV1Hooks(context)
-  assert(["tool.execute.before", "tool.execute.after", "event"].every(name => typeof hooks[name] === "function"), `hooks ${Object.keys(hooks)} miss one OpenCode 1 calls`)
+  assert(["tool.execute.before", "tool.execute.after", "chat.message", "event"].every(name => typeof hooks[name] === "function"), `hooks ${Object.keys(hooks)} miss one OpenCode 1 calls`)
   return hooks
 }
 

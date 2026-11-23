@@ -157,56 +157,56 @@ Tags: claude, session, resume.
 Tags: repair, warnings.
 [View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L82)
 
-- **Given** [A previously passing check now reports 29 warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L85).
-- **When** [The agent lists, searches, reads, edits, and runs check commands](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L93).
-- **Then** [Every repair operation is allowed and the edited file can be read](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L111).
+- **Given** [A previously passing check now reports 29 warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L90).
+- **When** [The agent lists, searches, reads, edits, and runs check commands](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L98).
+- **Then** [Every repair operation is allowed and the edited file can be read](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L116).
 
 #### Protected actions stay protected on every attempt
 
 Tags: protected-actions.
 [View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L87)
 
-- **Given** [A previously passing check now reports 29 warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L85).
-- **When** [The agent attempts configured publication actions twice](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L118).
-- **Then** [Every attempt is denied with the failing check's summary](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L126).
+- **Given** [A previously passing check now reports 29 warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L90).
+- **When** [The agent attempts configured publication actions twice](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L123).
+- **Then** [Every attempt is denied with the failing check's summary](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L131).
 
 #### Completion stays guarded during a continuation
 
 Tags: completion.
 [View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L92)
 
-- **Given** [A previously passing check now reports 29 warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L85).
-- **When** [The agent repeatedly tries to finish, including a Stop continuation](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L134).
-- **Then** [Every completion attempt remains guarded](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L140).
+- **Given** [A previously passing check now reports 29 warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L90).
+- **When** [The agent repeatedly tries to finish, including a Stop continuation](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L139).
+- **Then** [Every completion attempt remains guarded](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L145).
 
 #### Successful checks release the failure gate
 
 Tags: recovery.
 [View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L97)
 
-- **Given** [A previously passing check now reports 29 warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L85).
-- **When** [The repaired code passes its check](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L146).
-- **Then** [Completion and configured publication actions are allowed](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L153).
+- **Given** [A previously passing check now reports 29 warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L90).
+- **When** [The repaired code passes its check](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L151).
+- **Then** [Completion and configured publication actions are allowed](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L158).
 
 #### Protected actions consult their relevant checks
 
 Tags: check-scope.
 [View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L120)
 
-- **Given** [Publication requires the passing Go check](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L238).
-- **And** [The unrelated Zanity check develops 29 warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L85).
-- **When** [The agent attempts publication and completion](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L179).
-- **Then** [Publication is allowed while overall completion remains guarded](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L248).
+- **Given** [Publication requires the passing Go check](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L370).
+- **And** [The unrelated Zanity check develops 29 warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L90).
+- **When** [The agent attempts publication and completion](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L184).
+- **Then** [Publication is allowed while overall completion remains guarded](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L380).
 
 #### Inspection never starts a check
 
 Tags: repair, check-execution.
 [View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L126)
 
-- **Given** [A previously passing check now reports 29 warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L85).
-- **And** [The checker is unavailable for a new run](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L253).
-- **When** [The agent lists files](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L260).
-- **Then** [Listing succeeds without rerunning or replacing the failed result](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L266).
+- **Given** [A previously passing check now reports 29 warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L90).
+- **And** [The checker is unavailable for a new run](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L385).
+- **When** [The agent lists files](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L392).
+- **Then** [Listing succeeds without rerunning or replacing the failed result](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L398).
 
 ### Legacy debt
 
@@ -215,30 +215,114 @@ Tags: repair, check-execution.
 Tags: baseline, regressions.
 [View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L102)
 
-- **Given** [The session starts with 29 inherited warnings under the default policy](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L159).
-- **When** [The agent attempts completion and publication](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L179).
-- **Then** [Completion and configured publication actions are allowed](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L187).
-- **When** [A change increases the warning count to 30](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L192).
-- **Then** [The new failure guards completion](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L199).
+- **Given** [The session starts with 29 inherited warnings under the default policy](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L164).
+- **When** [The agent attempts completion and publication](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L184).
+- **Then** [Completion and configured publication actions are allowed](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L192).
+- **When** [A change increases the warning count to 30](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L324).
+- **Then** [The new failure guards completion](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L331).
 
 #### A commit made with a failing edit does not hide the failure
 
 Tags: baseline, regressions, commits.
 [View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L109)
 
-- **Given** [The project's files are committed and the session starts with a passing check](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L216).
-- **When** [One shell step breaks the check and commits the change](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L223).
-- **Then** [The failure is reported as new and Stop is refused](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L231).
+- **Given** [The project's files are committed and the session starts with a passing check](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L348).
+- **When** [One shell step breaks the check and commits the change](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L355).
+- **Then** [The failure is reported as new and Stop is refused](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L363).
 
 #### Strict inherited-finding policy still permits inspection
 
 Tags: baseline, strict.
 [View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L114)
 
-- **Given** [Inherited findings are configured to block](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L166).
-- **And** [The session starts with 29 inherited warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L159).
-- **When** [The agent attempts completion, publication, and inspection](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L179).
-- **Then** [Completion and publication are denied while inspection remains available](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L173).
+- **Given** [Inherited findings are configured to block](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L171).
+- **And** [The session starts with 29 inherited warnings](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L164).
+- **When** [The agent attempts completion, publication, and inspection](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L184).
+- **Then** [Completion and publication are denied while inspection remains available](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L178).
+
+### TCR mode
+
+#### TCR mode commits an edit that keeps the checks green
+
+Tags: modes, tcr, checkpoint.
+[View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L158)
+
+- **Given** [The project runs overwatch in TCR mode with green checks](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L211).
+- **When** [The agent makes an edit and the checks on that edit pass](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L230).
+- **Then** [The change is committed as a checkpoint](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L261).
+
+#### TCR mode reverts an edit that introduces a new failure
+
+Tags: modes, tcr, revert.
+[View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L163)
+
+- **Given** [The project runs overwatch in TCR mode with green checks](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L211).
+- **When** [The agent makes an edit and the checks on that edit report a new failure](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L230).
+- **Then** [The working tree is restored to the latest checkpoint and the agent is told which failure caused the revert](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L266).
+
+#### TCR mode leaves inherited failures alone
+
+Tags: modes, tcr, inherited.
+[View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L168)
+
+- **Given** [The project runs overwatch in TCR mode and the session baseline has inherited failures](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L211).
+- **When** [The checks on an edit report only those inherited failures](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L230).
+- **Then** [The change is committed as a checkpoint](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L261).
+
+#### TCR mode never acts on an overtaken result
+
+Tags: modes, tcr, overtaken.
+[View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L173)
+
+- **Given** [The project runs overwatch in TCR mode with green checks](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L211).
+- **When** [The agent edits again while the checks on an earlier edit are running](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L242).
+- **Then** [The earlier result neither commits nor reverts](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L272).
+
+#### TCR mode does not start on a dirty working tree
+
+Tags: modes, tcr, dirty-tree.
+[View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L178)
+
+- **Given** [The project runs overwatch in TCR mode and the working tree has uncommitted changes when the session starts](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L211).
+- **When** [The agent makes an edit that adds a failure](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L230).
+- **Then** [Overwatch reports that TCR is unavailable and no revert discards those changes](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L277).
+
+#### TCR mode pauses when a checkpoint commit fails
+
+Tags: modes, tcr, commit-failure.
+[View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L183)
+
+- **Given** [The project runs overwatch in TCR mode with green checks](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L211).
+- **And** [A commit hook refuses commits](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L250).
+- **When** [The agent makes an edit that keeps the checks green](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L230).
+- **Then** [Overwatch reports that TCR is unavailable and the change stays staged](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L283).
+
+#### TCR mode keeps the work a revert discards in a git ref
+
+Tags: modes, tcr, revert, recovery.
+[View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L189)
+
+- **Given** [The project runs overwatch in TCR mode with green checks](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L211).
+- **When** [The agent makes an edit and the checks on that edit report a new failure](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L230).
+- **Then** [The discarded edit is saved in a ref that the agent is told](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L289).
+
+#### TCR mode holds an edit when a failing check has no earlier result
+
+Tags: modes, tcr, held.
+[View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L194)
+
+- **Given** [The project runs overwatch in TCR mode with green checks](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L211).
+- **When** [The agent's edit makes a check appear that fails, and that has no earlier result in the session](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L296).
+- **Then** [The edit is neither committed nor reverted and the agent is told which check held it](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L305).
+
+#### TCR mode refuses to commit a file named like a secret
+
+Tags: modes, tcr, secrets.
+[View test](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L199)
+
+- **Given** [The project runs overwatch in TCR mode with green checks](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L211).
+- **When** [The agent's edit keeps the checks green and writes a .env file](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L311).
+- **Then** [Nothing is committed, the file stays unstaged and the agent is told the file and the rule](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/world.py#L318).
 
 ## Proposed behavior (not implemented)
 
@@ -297,7 +381,7 @@ Tags: age, deadlines.
 #### Advisory mode reports failures without guarding
 
 Tags: modes, advisory.
-[View proposal](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L158)
+[View proposal](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L204)
 
 - **Given** The project runs overwatch in advisory mode.
 - **And** A change introduces a new failure.
@@ -308,7 +392,7 @@ Tags: modes, advisory.
 #### Strict mode waits for a result of the latest edit
 
 Tags: modes, strict.
-[View proposal](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L165)
+[View proposal](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L211)
 
 - **Given** The project runs overwatch in strict mode.
 - **When** The agent edits and tries to finish before the checks have run on that edit.
@@ -317,7 +401,7 @@ Tags: modes, strict.
 #### Edits wait while the agent is too far ahead of its checks
 
 Tags: limits, max-ahead.
-[View proposal](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L170)
+[View proposal](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L216)
 
 - **Given** The project allows the agent three edits ahead of its latest result.
 - **And** Checks are still running on an earlier edit.
@@ -328,7 +412,7 @@ Tags: limits, max-ahead.
 #### Strict mode hands a lingering failure to a person
 
 Tags: limits, red-budget.
-[View proposal](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L177)
+[View proposal](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L223)
 
 - **Given** The project runs overwatch in strict mode with a budget of edits while red.
 - **And** A new failure has been reported.
@@ -338,7 +422,7 @@ Tags: limits, red-budget.
 #### A check that exceeds its time limit fails
 
 Tags: limits, timeout.
-[View proposal](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L183)
+[View proposal](https://github.com/benomahony/overwatch/blob/main/tests/acceptance/catalog.py#L229)
 
 - **Given** The project sets a time limit on checks.
 - **When** A run exceeds it.
