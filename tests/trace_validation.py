@@ -234,6 +234,9 @@ CONSTANTS
     Names = {{"a", "b"}}
     MaxEdits = {MAX_VERSIONS}
     Timeout = 2
+    TcrMode = FALSE
+    SaveReverted = FALSE
+    StartQueued = FALSE
 INVARIANTS
     Reached
 ''')

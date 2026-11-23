@@ -20,6 +20,29 @@ READ_WAIT = 0.1
 READ_CHUNK = 65_536
 
 
+class NotRegularFile(OSError):
+    """The path is a pipe, a device, a directory or a socket, and a read of it could wait for ever or give no text."""
+
+
+def open_without_blocking(path: Path, flags: int) -> int:
+    """Opens path for reading and returns at once, as a pipe with no writer would otherwise keep the open waiting for one."""
+    assert flags & os.O_ACCMODE == os.O_RDONLY, f"the flags {flags} open {path} for more than reading"
+    descriptor = os.open(path, flags | os.O_NONBLOCK)
+    assert descriptor >= 0, f"{path} was opened as the descriptor {descriptor}"
+    return descriptor
+
+
+def read_regular_text(path: Path, errors: str = "strict") -> str:
+    """The text of the file at path, or NotRegularFile when what it names, after following a link, is not a regular file. With errors "strict", bytes that are not UTF-8 raise UnicodeDecodeError, which the caller tells."""
+    assert path.name, f"{path} names no file to read"
+    with os.fdopen(open_without_blocking(path, os.O_RDONLY), errors=errors) as handle:
+        if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+            raise NotRegularFile(f"{path} is not a regular file")
+        text = handle.read()
+    assert isinstance(text, str), f"{path} was read as {type(text).__name__}, not text"
+    return text
+
+
 @contextmanager
 def exclusive(descriptor: int) -> Iterator[None]:
     """Waits for, then holds, an exclusive flock on the open file or directory descriptor for the block, and releases

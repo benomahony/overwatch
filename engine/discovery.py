@@ -6,15 +6,17 @@ Copyright (c) 2026 benomahony. SPDX-License-Identifier: MIT
 from __future__ import annotations
 
 import json
+import math
 import os
 from pathlib import Path, PurePosixPath
 import re
 from typing import Any, Required, TypedDict
 
-from unix import is_private, on_path
+from unix import NotRegularFile, is_private, on_path, read_regular_text
 
 
 OVERRIDE_PATH = ".overwatch.json"
+BUILTINS_MODULE = "builtins"
 
 
 # The table every runtime reads; patterns are JavaScript regexes that Python reads the same way.
@@ -58,16 +60,30 @@ class ConfigurationError(Exception):
     """The project, its .overwatch.json or the hook event cannot be used; the message says what to change."""
 
 
+def not_regular_file(path: Path) -> str:
+    assert path.name, f"{path} names no file to call a regular file"
+    assert path.name == OVERRIDE_PATH, f"{path} is no {OVERRIDE_PATH}, which the message tells the user to replace"
+    return f"{path} is not a regular file; replace it with a JSON file or remove it"
+
+
 def read_override(cwd: Path) -> dict[str, Any]:
     """The project's .overwatch.json, which may name commands to run, so it is read only when the user running the
     hook owns it; none when there is none."""
     path = cwd / OVERRIDE_PATH
     try:
-        value = json.loads(path.read_text())
+        value = json.loads(read_regular_text(path))
     except FileNotFoundError:
         return {}
-    except (OSError, json.JSONDecodeError) as error:
-        raise ConfigurationError(f"could not read {path}: {error}; fix the JSON in it") from error
+    except (NotRegularFile, IsADirectoryError) as error:
+        raise ConfigurationError(not_regular_file(path)) from error
+    except PermissionError as error:
+        raise ConfigurationError(f"could not read {path}: permission denied") from error
+    except (json.JSONDecodeError, UnicodeDecodeError) as error:
+        raise ConfigurationError(f"could not read {path}: {error}; fix the JSON in it, which must be UTF-8 text") from error
+    except OSError as error:
+        if path.is_socket():
+            raise ConfigurationError(not_regular_file(path)) from error
+        raise ConfigurationError(f"could not read {path}: {error.strerror or error}") from error
     if not is_private(path):
         raise ConfigurationError(f"{path} is owned or writable by another user, so its commands are not run; make it yours alone with chmod go-w or remove it")
     if not isinstance(value, dict):
@@ -75,6 +91,19 @@ def read_override(cwd: Path) -> dict[str, Any]:
     assert path.name == OVERRIDE_PATH, f"read {path} instead of {OVERRIDE_PATH}; build the path from cwd and OVERRIDE_PATH"
     assert all(isinstance(key, str) for key in value), f"{path} gave keys {list(value)}; read it with json.loads"
     return value
+
+
+def is_positive_seconds(value: Any) -> bool:
+    """Whether value is a finite number of seconds above zero: not a bool, NaN, infinity or an integer too large for a float."""
+    assert not isinstance(value, (bytes, bytearray)), f"{value!r} is bytes; pass what json.loads gave"
+    assert type(value).__module__ == BUILTINS_MODULE, f"{value!r} is a {type(value).__name__}, which json.loads does not give"
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        seconds = float(value)
+    except OverflowError:
+        return False
+    return math.isfinite(seconds) and seconds > 0
 
 
 def string_list(value: Any, field: str) -> list[str] | None:
@@ -109,9 +138,8 @@ def apply_override(watcher: Watcher, override: dict[str, Any]) -> Watcher:
         if field in ("argv", "baseline"):
             result[field] = string_list(value, field)
         elif field in SECONDS:
-            # bool is an int in Python, and true seconds is no time anyone means.
-            if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
-                raise ConfigurationError(f"{OVERRIDE_PATH} field {field!r} is {value!r}; give the seconds {SECONDS[field]} as a positive number")
+            if not is_positive_seconds(value):
+                raise ConfigurationError(f"{OVERRIDE_PATH} field {field!r} is {value!r}; give the seconds {SECONDS[field]} as a finite number above zero")
             result[field] = value
         elif isinstance(value, str):
             result[field] = value
