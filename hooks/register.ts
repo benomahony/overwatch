@@ -1,44 +1,39 @@
-import type { EngineInterface, Register, Timer } from 'claude-code'
+import type { EngineInterface, Register } from 'claude-code'
 import { assert } from './assert'
-import { bringsInFiles, commandOf, protectedChecks } from './gating'
+import { background, failOpen, guarded, guardedNow, runBoth, tellUnexpected } from './boundary'
+import { safePath } from './safe-text'
+import { commandOf, protectedChecks } from './gating'
 import {
   commandLine,
   environmentIn,
   exitMessage,
   gaveUpMessage,
+  envOf,
   languageOf,
   lastBuild,
   readReport,
   type Watcher,
 } from './watchers'
-import { repositoryOf, COMMIT, commitOf, isCommitted, findIn } from './project'
-import { toolchainOf, replacedToolchain, stopIfReplaced, restartOnReplaced } from './toolchain'
-import type { LiveWatcher, State, Run, Restart, Ending } from './state'
-import { QUIET_MS, setStatus, schedule, queue, queueEnvironment, writeLog, deliver } from './delivery'
-import { projectPolicy, guardedFailure, completeTurn } from './completion'
+import { findIn, within } from './project'
+import { toolchainOf, replacedToolchain, stopIfReplaced, restartOnReplaced, holdOffAfterRead } from './toolchain'
+import { leaveUnjudged } from './deciding'
+import { initialState, liveWatcher, unmark, type EditMarks, type LiveWatcher, type Mark, type State, type Run, type Restart, type Ending } from './state'
+import { RETRY_MS, setStatus, schedule, queue, queueEnvironment, writeLog, deliver, tellSuppressed } from './delivery'
+import { endMainTurn } from './completion'
+import { stopWaiting, whenQuiet } from './quiet'
+import { deniedWhileFailing, whileEditing } from './tool-calls'
+import { EDITING_TOOLS, decideTcr, noteFiles } from './judgement'
+import { cancelJudgement, pauseOnExpected } from './pausing'
+import { rebaselineOnMove } from './head-move'
 
-/**
- * A watcher that ends within this long of its start counts as a quick exit and
- * waits before it restarts: this long after the first, doubling after each further one.
- */
-const RETRY_MS = 30_000
+export { rebaselineOnMove }
+import { CommandError, announceUnreadable, initialTcr } from './tcr'
 
 /** After this many quick exits in a row, a watcher is no longer restarted on a timer, only as turns start. */
 const GIVE_UP_AFTER = 3
 
-/** Tools whose call may change the project's files; a watcher that is no long-running command reruns after each. */
-const EDITING_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Bash'])
-
-/** The spawn option that sets a watcher's env over overwatch's own; none when it sets none. */
-function envOf(watcher: Watcher): { env?: Record<string, string> } {
-  assert(watcher.env === undefined || Object.values(watcher.env).every(value => typeof value === 'string'), `${watcher.name}'s env ${JSON.stringify(watcher.env)} holds a value that is not a string; give each variable a string`)
-  const option = watcher.env === undefined ? {} : { env: { ...watcher.env } }
-  assert(option.env === undefined || Object.keys(option.env).length === Object.keys(watcher.env ?? {}).length, `the env option for ${watcher.name} lost variables of ${JSON.stringify(watcher.env)}; copy each`)
-  return option
-}
-
 /** Runs a command to its end and reports what it printed, unless it was stopped for a newer run first. */
-async function runOnce($: EngineInterface, run: Run, argv: readonly string[], isStale = () => false) {
+export async function runOnce($: EngineInterface, run: Run, argv: readonly string[], isStale = () => false) {
   const { state, live, watcher, cwd } = run
   assert(argv.length > 0, `${watcher.name} was asked to run an empty command; give it argv or baseline`)
   assert(live.kill === undefined, `${live.key} starts ${commandLine(watcher, argv)} while another run is still killable; stop it first`)
@@ -71,13 +66,12 @@ async function runOnce($: EngineInterface, run: Run, argv: readonly string[], is
  * made while it runs stops that run, whose result would already be out of
  * date, and starts another.
  */
-function rerunOnChange($: EngineInterface, run: Run, argv: readonly string[]) {
+export function rerunOnChange($: EngineInterface, run: Run, argv: readonly string[]) {
   assert(argv.length > 0, `${run.watcher.name} reruns an empty command; give it a baseline`)
-  let timer: Timer | undefined
   let isRunning = false
   let isPending = false
   const rerun = async () => {
-    if (!run.live.isWatching) return
+    if (!run.live.isWatching || run.epoch !== run.state.epoch) return
     if (isRunning) {
       isPending = true
       await run.live.kill?.()
@@ -91,11 +85,9 @@ function rerunOnChange($: EngineInterface, run: Run, argv: readonly string[]) {
     if (isPending) await rerun()
     assert(!isRunning || isPending, `${run.live.key} is marked running after its last run ended`)
   }
-  run.live.changed = () => {
-    timer?.cancel()
-    timer = $.clock.after(QUIET_MS, () => void rerun())
-  }
-  assert(run.live.changed !== undefined, `${run.live.key} has no change handler after rerunOnChange`)
+  const { live } = run
+  live.changed = () => whenQuiet($, run, rerun)
+  assert(live.changed !== undefined, `${run.live.key} has no change handler after rerunOnChange`)
 }
 
 /** Watches until the watcher ends of itself, resolving how; a watcher with no command never ends. */
@@ -120,26 +112,24 @@ async function watch($: EngineInterface, run: Run): Promise<Ending | undefined> 
   live.kill = () => child.return({ code: null, signal: null })
   setStatus($, state, live, `${watcher.name}: starting`)
   let output = ''
-  let flush: Timer | undefined
   let isStarted = true
   try {
     for await (const { text } of child) {
       output += text
-      flush?.cancel()
-      flush = $.clock.after(QUIET_MS, () => {
+      whenQuiet($, run, () => {
         // A transport chunk can stop in the middle of a summary line.
         const end = output.lastIndexOf('\n') + 1
         const lines = output.slice(0, end)
         const report = readReport(watcher, lines)
-        if (report === undefined) return
+        if (report === undefined) return undefined
         output = lastBuild(watcher, lines).remaining + output.slice(end)
-        void deliver($, run, report)
+        return deliver($, run, report)
       })
     }
-    flush?.cancel()
+    stopWaiting(run)
     if (!live.isWatching) return undefined
   } catch (error) {
-    flush?.cancel()
+    stopWaiting(run)
     if (!live.isWatching) return undefined
     $.ui.log(`overwatch: ${String(error)}`, { to: 'debug' })
     isStarted = false
@@ -155,12 +145,12 @@ async function watch($: EngineInterface, run: Run): Promise<Ending | undefined> 
 }
 
 /** Delivers the last report before showing that the watcher exited. */
-async function deliverExit($: EngineInterface, run: Run, output: string) {
+export async function deliverExit($: EngineInterface, run: Run, output: string) {
   assert(run.live.kill === undefined, `${run.live.key} exited but is still killable; clear live.kill when it ends`)
   const report = readReport(run.watcher, output)
   if (report !== undefined) await deliver($, run, report)
-  assert(report === undefined || run.live.report === report, `${run.watcher.name}'s last report was not delivered to ${run.live.key}`)
-  if (run.live.isWatching) $.ui.toast(`overwatch: ${commandLine(run.watcher)} exited`)
+  assert(report === undefined || run.epoch !== run.state.epoch || run.live.report === report, `${run.watcher.name}'s last report was not delivered to ${run.live.key}`)
+  if (run.live.isWatching && run.epoch === run.state.epoch) $.ui.toast(`overwatch: ${safePath(commandLine(run.watcher))} exited`)
 }
 
 /**
@@ -178,6 +168,25 @@ async function ensureAll($: EngineInterface, state: State) {
     state.isFindDue = true
     return
   }
+  const searching = searchAll($, state).finally(() => {
+    if (state.discovering === searching) state.discovering = undefined
+  })
+  state.discovering = searching
+  assert(state.discovering === searching, 'the search for watchers is not the one in flight; record it before it ends')
+  assert(state.isFinding, `a search of ${state.cwd} began but the session does not say it is searching`)
+  return searching
+}
+
+/** What a search of a session that ended finds when its read failed: no watchers. A bug of the plugin is shown to the user and tells the session that follows nothing, so the search the next round runs for that session goes on. */
+function forgetFailure($: EngineInterface, state: State, error: unknown, epoch: number): [] {
+  assert(state.epoch !== epoch, `a search of the session ${epoch} was dropped while that session still runs`)
+  assert(Number.isInteger(epoch) && epoch < state.epoch, `a search began in the session ${epoch}, which is not older than the session ${state.epoch}`)
+  if (!(error instanceof CommandError)) tellUnexpected($, state, error, epoch)
+  return []
+}
+
+/** Searches the session's directory for watchers, and again while another search is due, and starts those found. */
+export async function searchAll($: EngineInterface, state: State) {
   // A search asked for during one runs once after it; asks come from hooks and exits, so each round answers all so far.
   // The search stays marked running until its watchers have started, so a search asked for meanwhile waits its turn.
   // Each round reads the session afresh, so a search a newer session asked for runs in that session's directory.
@@ -187,12 +196,14 @@ async function ensureAll($: EngineInterface, state: State) {
       if (cwd === undefined) break
       state.isFinding = true
       state.isFindDue = false
-      state.finding = findIn($, cwd)
-      const watchers = await state.finding.finally(() => {
-        state.finding = undefined
-      })
-      if (state.epoch !== epoch) continue
+      const finding = findIn($, cwd, state)
+      state.finding = finding
+      const watchers = await finding.finally(() => {
+        if (state.finding === finding) state.finding = undefined
+      }).catch(error => (state.epoch === epoch ? pauseOnExpected($, state, error, epoch) : forgetFailure($, state, error, epoch)))
+      if (watchers === undefined) break
       const now = await $.clock.now()
+      if (state.epoch !== epoch) continue
       for (const { watcher, dir } of watchers) {
         const key = `${languageOf(watcher)}:${dir}`
         let found = state.liveWatchers.find(each => each.key === key)
@@ -200,10 +211,11 @@ async function ensureAll($: EngineInterface, state: State) {
           found = liveWatcher(key, dir)
           state.liveWatchers.push(found)
         }
-        if (found.isWatching) void stopIfReplaced($, found)
+        if (found.isWatching) background($, state, () => stopIfReplaced($, found).catch(error => pauseOnExpected($, state, error, epoch)))
         if (found.isWatching || now < found.retryAt) continue
         found.isWatching = true
-        void start($, state, found, watcher)
+        const starting = found
+        background($, state, () => start($, state, starting, watcher).catch(error => holdOffAfterRead($, state, { live: starting, watcher, epoch }, error)))
       }
       assert(watchers.every(({ watcher, dir }) => state.liveWatchers.some(each => each.key === `${languageOf(watcher)}:${dir}`)), `a watcher of ${cwd} has no live`)
     } while (state.isFindDue)
@@ -219,13 +231,25 @@ async function start($: EngineInterface, state: State, live: LiveWatcher, watche
   live.watcher = watcher
   live.isWatching = true
   live.retryAt = 0
-  const ending = await watch($, { state, live, watcher, cwd: live.dir })
+  const ending = await watch($, { state, live, watcher, cwd: live.dir, epoch })
   assert(ending === undefined || ending.endedAt >= ending.startedAt, `${watcher.name} ended at ${ending?.endedAt}, before it started at ${ending?.startedAt}`)
   if (ending === undefined || state.epoch !== epoch) return
   const replaced = await replacedToolchain($, live)
   if (state.epoch !== epoch) return
   if (replaced === undefined) await restart($, { state, live, watcher, ending })
   else restartOnReplaced($, { state, live, watcher }, replaced)
+}
+
+/** Stops restarting a check that exited quickly too often in a row until the first turn after RETRY_MS, and tells the agent once, with where its output is logged, unless an environment error says why or the session `epoch` ended while the log was written. */
+async function giveUp($: EngineInterface, { state, live, watcher }: Omit<Run, 'cwd' | 'epoch'>, { what, output, epoch, endedAt, hasEnvironment }: { what: string; output: string; epoch: number; endedAt: number; hasEnvironment: boolean }) {
+  assert(live.quickExits >= GIVE_UP_AFTER, `${watcher.name} was given up after ${live.quickExits} exits, fewer than ${GIVE_UP_AFTER}`)
+  assert(typeof output === 'string', `the output of ${watcher.name} is ${typeof output}, not text`)
+  live.retryAt = endedAt + RETRY_MS
+  setStatus($, state, live, `${watcher.name}: ${what} ${live.quickExits} times in a row; retrying at the first turn after ${RETRY_MS / 1000}s`)
+  if (live.quickExits !== GIVE_UP_AFTER || hasEnvironment) return
+  const text = gaveUpMessage(watcher, live.quickExits, RETRY_MS, await writeLog($, live, output))
+  if (state.epoch !== epoch) return
+  queue($, { state, live }, `exited:${output}`, { text, isWaking: true, kind: 'exit' })
 }
 
 /**
@@ -237,7 +261,7 @@ async function start($: EngineInterface, state: State, live: LiveWatcher, watche
  * comes back on its own. One that cannot run in this environment is told of
  * once, in the environment summary, and never wakes the agent.
  */
-async function restart($: EngineInterface, { state, live, watcher, ending }: Restart) {
+export async function restart($: EngineInterface, { state, live, watcher, ending }: Restart) {
   const { epoch } = state
   const { isStarted, startedAt, endedAt, output } = ending
   assert(live.watcher === watcher, `${live.key} restarts ${watcher.name} but runs ${live.watcher?.name}`)
@@ -246,17 +270,9 @@ async function restart($: EngineInterface, { state, live, watcher, ending }: Res
   live.isWatching = false
   const what = isStarted ? `${commandLine(watcher)} exited` : `could not start ${commandLine(watcher)}`
   const environment = environmentIn(output)
-  if (environment !== undefined) queueEnvironment($, { state, live, watcher }, environment)
-  if (live.quickExits >= GIVE_UP_AFTER) {
-    live.retryAt = endedAt + RETRY_MS
-    const status = `${what} ${live.quickExits} times in a row; retrying at the first turn after ${RETRY_MS / 1000}s`
-    setStatus($, state, live, `${watcher.name}: ${status}`)
-    if (live.quickExits === GIVE_UP_AFTER && environment === undefined) {
-      const text = gaveUpMessage(watcher, live.quickExits, RETRY_MS, await writeLog($, live, output))
-      queue($, { state, live }, `exited:${output}`, { text, isWaking: true, kind: 'exit' })
-    }
-    return
-  }
+  const hasEnvironment = environment !== undefined
+  if (hasEnvironment) queueEnvironment($, { state, live, watcher }, environment)
+  if (live.quickExits >= GIVE_UP_AFTER) return giveUp($, { state, live, watcher }, { what, output, epoch, endedAt, hasEnvironment })
   const delay = isQuick ? RETRY_MS * 2 ** (live.quickExits - 1) : 0
   assert(delay < RETRY_MS * 2 ** GIVE_UP_AFTER, `${watcher.name} waits ${delay}ms to restart after ${live.quickExits} quick exits; it should have given up`)
   live.retryAt = endedAt + delay
@@ -266,12 +282,12 @@ async function restart($: EngineInterface, { state, live, watcher, ending }: Res
     $.clock.after(delay, () => {
       if (state.epoch === epoch) state.onWatcherEnded?.()
     })
-  if (environment !== undefined || !state.isTurnRunning) return
+  if (hasEnvironment) return
   queue($, { state, live }, `exited:${output}`, { text: exitMessage(watcher, delay), isWaking: false, kind: 'exit' })
 }
 
 /** Stops every watcher and forgets what the session found and told, so the next session starts afresh. */
-async function stop($: EngineInterface, state: State) {
+export async function stop($: EngineInterface, state: State): Promise<number> {
   state.cwd = undefined
   state.onWatcherEnded = undefined
   state.completionCorrection = undefined
@@ -282,15 +298,24 @@ async function stop($: EngineInterface, state: State) {
   state.isPromptQueued = false
   state.isToldThisTurn = false
   state.epoch += 1
+  const { epoch } = state
   state.flushing?.cancel()
   state.outbox.clear()
+  state.policyTold = undefined
+  state.rootStall = undefined
   state.environment.clear()
+  state.tcr = initialTcr()
+  state.tcrHeld.clear()
+  state.tcrEditing.clear()
+  void cancelJudgement($, state)
   const liveWatchers = state.liveWatchers.map(each => {
     each.isWatching = false
     each.retryAt = 0
     each.quickExits = 0
     each.toolchain = undefined
     each.changed = undefined
+    for (const timer of each.quiet.values()) timer.cancel()
+    each.quiet.clear()
     each.wasFailing = false
     each.baseline = undefined
     each.isEdited = false
@@ -300,63 +325,14 @@ async function stop($: EngineInterface, state: State) {
     each.status = undefined
     return each.kill?.()
   })
-  await Promise.all([...liveWatchers, state.finding])
+  const { finding } = state
+  await Promise.all([...liveWatchers, finding === undefined ? undefined : within($, () => finding).catch(() => undefined)])
+  if (state.epoch !== epoch) return epoch
   assert(state.liveWatchers.every(each => !each.isWatching), `liveWatchers ${state.liveWatchers.filter(each => each.isWatching).map(each => each.key)} still watch after stop`)
-  assert(state.outbox.size === 0, `${state.outbox.size} messages wait after stop; the next session must start afresh`)
+  state.outbox.clear()
+  assert(state.outbox.size === 0, `${state.outbox.size} messages wait after the outbox was cleared`)
   $.ui.status(undefined)
-}
-
-/** A new live for the watcher of one language in dir, watching nothing yet. */
-const liveWatcher = (key: string, dir: string): LiveWatcher => {
-  assert(key.endsWith(`:${dir}`), `live watcher key ${key} does not end with its directory ${dir}; key live watchers by language and dir`)
-  const made: LiveWatcher = {
-    watcher: undefined,
-    report: undefined,
-    key,
-    dir,
-    isWatching: false,
-    retryAt: 0,
-    quickExits: 0,
-    kill: undefined,
-    toolchain: undefined,
-    changed: undefined,
-    wasFailing: false,
-    baseline: undefined,
-    isEdited: false,
-    isEditedSinceResult: false,
-    origin: 'session',
-    told: undefined,
-    status: undefined,
-  }
-  assert(made.key === key && made.dir === dir, `live watcher for ${key} was made with key ${made.key} and dir ${made.dir}`)
-  return made
-}
-
-/**
- * Notes the commit the session's baselines belong to, and takes fresh ones once it moves under the session, as a
- * pull or checkout brings in failures the agent did not make. Each check reruns, stopping a run still reading the
- * old commit, and its next result is its baseline unless the agent edits first. A commit keeps the baselines, even
- * one made in the same step as an edit, since it changes no file, unless `command`, the step that moved HEAD, ran a
- * git operation that can bring in files, as a squash merge committed in the same step does.
- */
-async function rebaselineOnMove($: EngineInterface, state: State, command = '') {
-  const { cwd, epoch } = state
-  assert(state.head === undefined || COMMIT.test(state.head), `the session's HEAD ${state.head} is not a commit id; note only what commitOf returns`)
-  if (cwd === undefined) return
-  const root = await repositoryOf($, cwd)
-  const head = root === undefined ? undefined : await commitOf($, root)
-  if (state.epoch !== epoch || head === undefined || head === state.head) return
-  assert(root !== undefined, `HEAD ${head} was read with no repository for ${cwd}; read it only from one`)
-  const from = state.head
-  state.head = head
-  if (from === undefined || (!bringsInFiles(command) && await isCommitted($, root, from, head)) || state.epoch !== epoch) return
-  for (const each of state.liveWatchers) {
-    each.baseline = undefined
-    each.isEdited = false
-    each.isEditedSinceResult = false
-    each.changed?.()
-  }
-  assert(state.liveWatchers.every(each => each.baseline === undefined && !each.isEdited), `a live watcher kept its baseline after HEAD moved to ${head}; clear each`)
+  return epoch
 }
 
 /**
@@ -367,48 +343,59 @@ async function afterTool($: EngineInterface, state: State, tool: string, command
   assert(tool !== '', `a tool call named the tool ${JSON.stringify(tool)}; pass the name of the tool the agent called`)
   if (!state.isCorrectionTurn) state.completionCorrection = undefined
   assert(!state.isCorrectionTurn || state.completionCorrection !== undefined, `the correction turn lost its correction after ${tool}; keep it while the turn answers it`)
-  if (!EDITING_TOOLS.has(tool)) return
+  const isEditing = EDITING_TOOLS.has(tool)
+  const edit: EditMarks = { marks: isEditing ? markEdited(state) : new Map<LiveWatcher, Mark>(), isUnchanged: false }
+  const move = await runBoth($, state, { before: () => noteFiles($, state, tool, edit), after: () => (isEditing ? afterEdit($, state, tool, command) : 'none') })
+  if (edit.isUnchanged && move === 'none' && state.tcrEditing.size <= 1) unmark(edit.marks)
+}
+
+/** Marks each check as edited, so that its next result is read against the edit, before anything that can fail reads the files. Answers what each check was marked as before, which a tool that changed nothing restores. */
+function markEdited(state: State): Map<LiveWatcher, Mark> {
+  assert(Array.isArray(state.liveWatchers), `the live watchers are ${typeof state.liveWatchers}, not a list`)
   state.isEditedSinceCorrection = true
+  const before = new Map<LiveWatcher, Mark>()
   for (const each of state.liveWatchers) {
+    before.set(each, { isEdited: each.isEdited, isEditedSinceResult: each.isEditedSinceResult })
     each.isEdited = true
     each.isEditedSinceResult = true
-    each.changed?.()
   }
-  await rebaselineOnMove($, state, command)
-  assert(state.liveWatchers.every(each => each.isEdited || each.baseline === undefined), `a live watcher was not marked edited after ${tool}; mark each so its next result is read against the edit`)
+  assert(state.liveWatchers.every(each => each.isEdited), 'a live watcher was not marked edited; mark each so its next result is read against the edit')
+  return before
+}
+
+/** What an editing tool leaves once the files were noted, or the note failed: HEAD may have moved, and then the edit is not judged. */
+async function afterEdit($: EngineInterface, state: State, tool: string, command: string): Promise<'fresh' | 'kept' | 'none'> {
+  assert(EDITING_TOOLS.has(tool) && typeof command === 'string', `${tool} is no editing tool, or its command is ${typeof command}, not text`)
+  const { epoch } = state
+  for (const each of state.liveWatchers) each.changed?.()
+  const move = await rebaselineOnMove($, state, command)
+  if (move === 'fresh') await leaveUnjudged($, state)
+  if (move === 'kept' && !state.tcr.unjudged) state.tcr.isLeftToChecks = true
+  assert(state.epoch !== epoch || state.liveWatchers.every(each => each.isEdited || each.baseline === undefined), `a live watcher was not marked edited after ${tool}; mark each so its next result is read against the edit`)
+  return move
 }
 
 /** Notes whether a starting turn is overwatch's own correction, submitted with that correction's text. */
 function startTurn(state: State, text: string) {
   assert(typeof text === 'string', `a turn started with ${JSON.stringify(text)}, not its prompt text; pass turn.start's text`)
   state.isCorrectionTurn = state.completionCorrection !== undefined && text === state.completionCorrection
-  assert(!state.isCorrectionTurn || text.startsWith('overwatch: '), `the turn ${JSON.stringify(text)} was taken for overwatch's correction; only its own text starts one`)
+  assert(typeof state.isCorrectionTurn === 'boolean', `the turn is marked ${typeof state.isCorrectionTurn} as a correction`)
 }
 
-/** A session's state before it starts: no directory, liveWatchers or messages. */
-const initialState = (): State => {
-  const state: State = {
-    cwd: undefined,
-    epoch: 0,
-    isTurnRunning: false,
-    isPromptQueued: false,
-    head: undefined,
-    completionCorrection: undefined,
-    isCorrectionTurn: false,
-    isEditedSinceCorrection: false,
-    isToldThisTurn: false,
-    outbox: new Map(),
-    flushing: undefined,
-    environment: new Set(),
-    isFinding: false,
-    finding: undefined,
-    isFindDue: false,
-    onWatcherEnded: undefined,
-    liveWatchers: [],
+/** Stops the session's watchers, and starts afresh in the directory the host resumes it in when it resumes. */
+async function endSession($: EngineInterface, state: State, reason: string) {
+  assert(typeof state === 'object' && state !== null, `the session ended for the state ${typeof state}`)
+  const epoch = await stop($, state)
+  if (reason !== 'resume') state.announced.clear()
+  if (reason === 'resume') {
+    const cwd = await $.session.cwd()
+    if (state.epoch !== epoch) return
+    state.cwd = cwd
+    state.onWatcherEnded = () => background($, state, () => ensureAll($, state))
+    state.onUntold = () => background($, state, () => tellSuppressed($, state))
+    $.clock.after(0, () => background($, state, () => ensureAll($, state)))
   }
-  assert(state.liveWatchers.length === 0 && state.outbox.size === 0, `a new session starts with ${state.liveWatchers.length} liveWatchers and ${state.outbox.size} messages`)
-  assert(!state.isTurnRunning && !state.isFinding, 'a new session starts with a turn or search running')
-  return state
+  assert(Number.isInteger(state.epoch) && state.epoch >= epoch, `the session is at epoch ${state.epoch} after its end at epoch ${epoch}, which is no count that only grows`)
 }
 
 export const register: Register = on => {
@@ -419,55 +406,59 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
     if (!e.isInteractive) return started
-    state.cwd = e.cwd
-    state.onWatcherEnded = () => void ensureAll($, state)
-    void ensureAll($, state)
-    void rebaselineOnMove($, state)
+    if (state.cwd === undefined) state.epoch += 1
+    await guarded($, state, () => {
+      state.cwd = e.cwd
+      state.onWatcherEnded = () => background($, state, () => ensureAll($, state))
+      state.onUntold = () => background($, state, () => tellSuppressed($, state))
+      background($, state, () => announceUnreadable($, state.announced))
+      background($, state, () => ensureAll($, state))
+      background($, state, () => rebaselineOnMove($, state))
+      background($, state, () => decideTcr($, state))
+    })
     return started
   })
 
   on('tool.call', async ($, e, next) => {
-    if (state.liveWatchers.some(each => each.report?.isFailed)) {
-      const policy = await projectPolicy($, state)
-      const checks = protectedChecks(e.tool, e, policy)
-      const reason = checks === undefined ? undefined : guardedFailure(state, policy, checks)
-      if (reason !== undefined) return { deny: reason }
-    }
-    const result = await next(e)
-    await afterTool($, state, e.tool, commandOf(e))
-    return result
+    const denied = await failOpen($, state, () => deniedWhileFailing($, state, e))
+    if (denied !== undefined) return denied
+    return whileEditing($, state, e.tool, async () => {
+      const result = await next(e)
+      await failOpen($, state, () => afterTool($, state, e.tool, commandOf(e)))
+      return result
+    })
   })
 
   on('turn.start', ($, e, next) => {
-    startTurn(state, e.text)
-    state.isTurnRunning = true
-    state.isToldThisTurn = state.isPromptQueued
-    state.isPromptQueued = false
-    schedule($, state)
-    void ensureAll($, state)
-    void rebaselineOnMove($, state)
+    guardedNow($, state, () => {
+      startTurn(state, e.text)
+      state.isTurnRunning = true
+      state.isToldThisTurn = state.isPromptQueued
+      state.isPromptQueued = false
+      schedule($, state)
+      background($, state, () => ensureAll($, state))
+      background($, state, () => rebaselineOnMove($, state))
+      background($, state, () => decideTcr($, state))
+    })
     return next(e)
   })
 
   on('turn.complete', async ($, e, next) => {
     if (e.agentId === undefined) {
+      state.tcrEditing.clear()
       const isAnswered = !e.isAborted && e.reason === 'answer'
-      const reason = await completeTurn($, state, isAnswered)
+      const reason = await endMainTurn($, state, isAnswered)
       if (reason !== undefined) return { text: reason }
       if (!isAnswered) return next(e)
     }
-    void ensureAll($, state)
+    background($, state, () => ensureAll($, state))
     return next(e)
   })
 
   on('session.end', async ($, e, next) => {
     if (e.reason === 'clear') return next(e)
-    await stop($, state)
-    if (e.reason === 'resume') {
-      state.cwd = await $.session.cwd()
-      state.onWatcherEnded = () => void ensureAll($, state)
-      $.clock.after(0, () => void ensureAll($, state))
-    }
+    const epochAfterEnd = state.epoch + 1
+    await failOpen($, state, () => endSession($, state, e.reason), epochAfterEnd)
     return next(e)
   })
 }

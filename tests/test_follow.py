@@ -13,6 +13,7 @@ import unittest
 
 import paths
 from daemons import data_directory, eventually, is_running, stop_daemons
+import checkpoint
 import engine
 
 assert str(paths.ROOT / "engine") in sys.path, f"{paths.ROOT / 'engine'} is not on sys.path {sys.path}; paths puts engine/ there so engine imports by name"
@@ -102,6 +103,87 @@ class FollowTests(unittest.TestCase):
         line = self.next_line(follower)
         self.assertIn("RESULT: FAIL", json.dumps(line))
         self.assertEqual((line["overwatch"]["guarded"], line["overwatch"]["waking"]), (True, False))
+
+    def start_tcr_session(self) -> None:
+        """Commits the project in TCR mode and starts the session on that clean commit, with its passing baseline."""
+        override = json.loads((self.project / ".overwatch.json").read_text())
+        (self.project / ".overwatch.json").write_text(json.dumps({**override, "mode": "tcr"}))
+        git = ["git", "-C", str(self.project), "-c", "user.name=test", "-c", "user.email=test@example.com", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"]
+        subprocess.run([*git, "add", "-A"], check=True, capture_output=True)
+        subprocess.run([*git, "commit", "-q", "-m", "start"], check=True, capture_output=True)
+        for setting, value in (("user.name", "test"), ("user.email", "test@example.com")):
+            subprocess.run(["git", "-C", str(self.project), "config", setting, value], check=True, capture_output=True)
+        self.settle_baseline()
+        assert json.loads((self.project / ".overwatch.json").read_text())["mode"] == "tcr", f"{self.project} does not run TCR"
+        assert not subprocess.run(["git", "-C", str(self.project), "status", "--porcelain"], capture_output=True, text=True).stdout, f"{self.project} is not clean"
+
+    def agent_writes(self, name: str) -> Path:
+        """The agent's edit: a new file in the project, which the editing tool's PreToolUse has announced."""
+        self.hook("PreToolUse", "Edit")
+        edit = self.write_in_project(name, "the agent's edit\n")
+        assert edit.read_text() == "the agent's edit\n", f"{edit} does not hold the edit"
+        assert edit.name == name, f"the agent's edit is {edit.name}, not {name}"
+        return edit
+
+    def person_writes(self, name: str) -> Path:
+        """A person's new file in the project, which no editing tool of the agent announced."""
+        person = self.write_in_project(name, "a person's file\n")
+        assert person.read_text() == "a person's file\n", f"{person} does not hold the person's file"
+        assert person.name == name, f"the person's file is {person.name}, not {name}"
+        return person
+
+    def write_in_project(self, name: str, text: str) -> Path:
+        """A new file in the project holding text."""
+        written = self.project / name
+        written.write_text(text)
+        assert written.read_text() == text, f"{written} does not hold {text!r}"
+        assert written.is_relative_to(self.project), f"{written} is outside the project {self.project}"
+        return written
+
+    def test_a_failure_the_follower_reads_is_never_judged_by_tcr(self) -> None:
+        self.start_tcr_session()
+        follower = self.start_follower()
+        edit = self.agent_writes("edit.txt")
+        self.break_build()
+        line = self.next_line(follower)
+        self.assertIn("RESULT: FAIL", json.dumps(line))
+        self.assertNotIn("TCR reverted", json.dumps(line))
+        self.assertTrue(edit.exists())
+
+    def test_an_edit_the_follower_read_first_is_still_reverted_when_it_fails(self) -> None:
+        self.start_tcr_session()
+        follower = self.start_follower()
+        edit = self.agent_writes("edit.txt")
+        self.break_build()
+        self.assertIn("RESULT: FAIL", json.dumps(self.next_line(follower)))
+        output = self.hook("PostToolUse", "Edit")
+        self.assertIn("TCR reverted", json.dumps(output))
+        self.assertFalse(edit.exists())
+
+    def test_an_edit_the_follower_read_first_is_still_committed_when_it_passes(self) -> None:
+        self.start_tcr_session()
+        edit = self.agent_writes("edit.txt")
+        self.follower_reads()
+        self.hook("PostToolUse", "Edit")
+        self.assertEqual(checkpoint.run_git(self.project, ["log", "--format=%s"]).split("\n")[:2], ["tcr: edit.txt", "start"])
+        self.assertTrue(edit.exists())
+
+    def test_a_change_of_a_person_the_follower_read_first_still_pauses_tcr(self) -> None:
+        self.start_tcr_session()
+        person = self.person_writes("person.txt")
+        self.follower_reads()
+        output = self.hook("PostToolUse", "Read")
+        self.assertIn("files changed outside the agent's edits", json.dumps(output))
+        self.assertTrue(person.exists())
+
+    def follower_reads(self) -> None:
+        """What one pass of follow does with the reports the daemon already gave: reads them in the session's state and saves it."""
+        event = engine.Event("Follow", "follow", str(self.project), "", {}, "claude")
+        with engine.locked(engine.state_path(event, self.project, self.data), self.data) as session:
+            read = engine.checked_state(session, self.project, followed=list(engine.load_state(session).reports))
+            engine.save_state(session, read.current)
+        assert read.current.fingerprint is not None, f"the follower read of {self.project} recorded no fingerprint"
+        assert read.old.fingerprint != read.current.fingerprint, f"the follower read of {self.project} saw no change from the agent's edit"
 
     def test_follow_stops_with_the_process_that_started_it(self) -> None:
         pid = self.orphaned_follower()

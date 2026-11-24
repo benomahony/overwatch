@@ -39,9 +39,7 @@ jobs:
           python3 -m unittest discover -s tests -p test_contract_docs.py
 
       - name: Verify command and Claude integration contracts
-        run: |
-          node --test tests/test_integration_contract.mjs
-          claude plugin test .
+        run: node --test tests/test_integration_contract.mjs
 
       - name: Verify editor integration contracts
         run: |

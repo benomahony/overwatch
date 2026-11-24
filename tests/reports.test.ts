@@ -1,8 +1,9 @@
-import { expect, mock, test } from 'claude-code/testing'
+import { expect, mock } from 'claude-code/testing'
 import { CHECKERS, WATCHERS, environmentIn, failureMessage, hasRegression, readReport, statusLine } from '../hooks/watchers'
 import { GO_FAILING, sorted } from './fixtures/watchers'
 import { FAILING, PASSING, ZIG_WATCH, turnHooks } from './fixtures/session'
 import { start, ended } from './fixtures/gating'
+import { longTest } from './fixtures/tcr-session'
 
 const zig = WATCHERS[0]!
 const python = WATCHERS[1]!
@@ -58,7 +59,7 @@ const ZANITY_CLEAN = `zanity: checked 1 file, no issues found.
 zanity: watching for changes; save a file to check again, Ctrl-C to stop.
 `
 
-test('zanity on PATH runs beside the project watcher', async ($, on) => {
+longTest('zanity on PATH runs beside the project watcher',  async ($, on) => {
   const clock = mock.clock(on)
   mock.env(on, { PATH: '/usr/bin:/home/me/.local/bin' })
   const spawned: string[][] = []
@@ -98,7 +99,7 @@ test('zanity on PATH runs beside the project watcher', async ($, on) => {
   )
 })
 
-test('zanity is not run when it is not on PATH', async ($, on) => {
+longTest('zanity is not run when it is not on PATH', async ($, on) => {
   const clock = mock.clock(on)
   mock.env(on, { PATH: '/usr/bin' })
   const spawned: string[][] = []
@@ -115,7 +116,7 @@ test('zanity is not run when it is not on PATH', async ($, on) => {
   expect(spawned).toEqual([ZIG_WATCH])
 })
 
-test('a zanity warning fails, a clean check passes', () => {
+longTest('a zanity warning fails, a clean check passes', () => {
   expect(readReport(zanity, ZANITY_WARNINGS)?.isFailed).toBe(true)
   expect(readReport(zanity, 'zanity: 2 errors, 0 warnings in 3/9 files.')?.isFailed).toBe(true)
   expect(readReport(zanity, 'zanity: 0 errors and 2 warnings in 2 of 9 files')?.isFailed).toBe(true)
@@ -124,7 +125,7 @@ test('a zanity warning fails, a clean check passes', () => {
   expect(readReport(zanity, 'zanity: watching for changes; save a file to check again, Ctrl-C to stop.')).toBeUndefined()
 })
 
-test('new upstream commits fail the git checker and name each commit', () => {
+longTest('new upstream commits fail the git checker and name each commit', () => {
   const git = CHECKERS.find(checker => checker.name === 'git')!
   const behind = 'new upstream commit 1084b40 three\nnew upstream commit 6001fbe two things\norigin/main has 2 new commits; pull and rebase\n'
   expect(readReport(git, behind)).toMatchObject({ isFailed: true, failures: ['1084b40 three', '6001fbe two things'] })
@@ -138,13 +139,13 @@ test('new upstream commits fail the git checker and name each commit', () => {
   expect(hasRegression(before, before)).toBe(false)
 })
 
-test('the zig summary line decides pass or fail', () => {
+longTest('the zig summary line decides pass or fail', () => {
   expect(readReport(zig, FAILING)?.isFailed).toBe(true)
   expect(readReport(zig, PASSING)?.isFailed).toBe(false)
   expect(readReport(zig, 'test\n+- compile test')).toBeUndefined()
 })
 
-test('a pyproject.toml project runs pytest under a watcher', async ($, on) => {
+longTest('a pyproject.toml project runs pytest under a watcher', async ($, on) => {
   const clock = mock.clock(on)
   const spawned: string[][] = []
   const prompts: string[] = []
@@ -181,7 +182,7 @@ test('a pyproject.toml project runs pytest under a watcher', async ($, on) => {
   await $.session.end({ reason: 'prompt_input_exit', sessionId: 's1', resume: { id: 's1' } })
 })
 
-test('the full suite runs green before the watcher starts', async ($, on) => {
+longTest('the full suite runs green before the watcher starts', async ($, on) => {
   const clock = mock.clock(on)
   const statuses: (string | undefined)[] = []
   const spawned: string[][] = []
@@ -210,7 +211,7 @@ test('the full suite runs green before the watcher starts', async ($, on) => {
   await $.session.end({ reason: 'prompt_input_exit', sessionId: 's1', resume: { id: 's1' } })
 })
 
-test('the pytest summary line decides pass or fail', () => {
+longTest('the pytest summary line decides pass or fail', () => {
   expect(readReport(python, PYTEST_FAILING)?.isFailed).toBe(true)
   expect(readReport(python, PYTEST_COLLECTION_ERROR)?.isFailed).toBe(true)
   expect(readReport(python, PYTEST_PASSING)?.isFailed).toBe(false)
@@ -218,7 +219,7 @@ test('the pytest summary line decides pass or fail', () => {
   expect(readReport(python, '=== test session starts ===\ncollected 3 items')).toBeUndefined()
 })
 
-test('the status line drops the summary decoration and names the first failing test', () => {
+longTest('the status line drops the summary decoration and names the first failing test', () => {
   expect(statusLine(python, readReport(python, PYTEST_FAILING)!)).toBe(
     'python ✗ 1 failed, 2 passed in 0.03s: tests/test_add.py::test_add',
   )
@@ -228,7 +229,7 @@ test('the status line drops the summary decoration and names the first failing t
   )
 })
 
-test('a failure names only what is new since the session started, and where its full output is', () => {
+longTest('a failure names only what is new since the session started, and where its full output is', () => {
   const go = { ...WATCHERS.find(watcher => watcher.name === 'go' && watcher.requires === undefined)!, dir: 'services/api' }
   const report = readReport(go, `--- FAIL: TestOld (0.00s)\n${GO_FAILING}`, 1)!
   expect(failureMessage(go, report, { known: ['TestOld'], log: '/home/me/.cache/overwatch/logs/go.log' }).split('\n')).toEqual([
@@ -240,7 +241,7 @@ test('a failure names only what is new since the session started, and where its 
   ])
 })
 
-test('a timing failure under testmon says testmon slows it, and how to keep it out of the watcher', () => {
+longTest('a timing failure under testmon says testmon slows it, and how to keep it out of the watcher', () => {
   const python = WATCHERS.find(watcher => watcher.name === 'python' && watcher.requires === 'uv')!
   const timing = 'FAILED tests/test_web.py::test_responds_within_limit_ms - AssertionError: / took 87ms (limit: 50ms)\n=== 1 failed, 4 passed in 0.31s ===\n'
   const lines = failureMessage(python, readReport(python, timing)!, { known: [], log: '/tmp/python.log' }).split('\n')
@@ -253,7 +254,7 @@ test('a timing failure under testmon says testmon slows it, and how to keep it o
   expect(failureMessage(python, readReport(python, untimed)!, { known: [], log: '/tmp/python.log' })).not.toContain('timing test')
 })
 
-test('a failure for want of a network, interpreter, wheel or key is an environment error', () => {
+longTest('a failure for want of a network, interpreter, wheel or key is an environment error', () => {
   expect(environmentIn('error: Failed to fetch: `https://pypi.internal/simple/acme/`\n  Caused by: dns error')).toBe(
     'error: Failed to fetch: `https://pypi.internal/simple/acme/`',
   )
@@ -265,7 +266,7 @@ test('a failure for want of a network, interpreter, wheel or key is an environme
   expect(readReport(python, PYTEST_FAILING)?.environment).toBeUndefined()
 })
 
-test('an environment error is told once, in one summary, and never asks for a fix', async ($, on) => {
+longTest('an environment error is told once, in one summary, and never asks for a fix', async ($, on) => {
   const clock = mock.clock(on)
   const session = mock.session(on)
   const prompts: string[] = []
@@ -293,8 +294,9 @@ test('an environment error is told once, in one summary, and never asks for a fi
   expect(prompts).toEqual([])
 })
 
-test('an identical failure is told once, and one message at most goes to a turn', async ($, on) => {
+longTest('an identical failure is told once, and one message at most goes to a turn', async ($, on) => {
   const clock = mock.clock(on)
+  mock.env(on, {})
   const session = mock.session(on)
   const prompts: string[] = []
   const override = { name: 'cargo', baseline: ['cargo', 'test'], summary: '^test result: .*$', failed: 'FAILED' }
@@ -334,7 +336,7 @@ test('an identical failure is told once, and one message at most goes to a turn'
   expect(prompts[0]).toContain('test result: FAILED. other')
 })
 
-test('a one-shot run that gives no summary but exits nonzero fails', () => {
+longTest('a one-shot run that gives no summary but exits nonzero fails', () => {
   expect(readReport(python, 'error: Failed to parse uv.lock', 2)?.summary).toBe('exited with code 2')
   expect(readReport(python, 'nothing to see', 0)).toBeUndefined()
 })

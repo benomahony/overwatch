@@ -1,9 +1,10 @@
-import { expect, mock, test } from 'claude-code/testing'
+import { expect, mock } from 'claude-code/testing'
 import { commandLine, hasRegression } from '../hooks/watchers'
 import { watcherNamed } from './fixtures/watchers'
 import { start } from './fixtures/gating'
+import { longTest } from './fixtures/tcr-session'
 
-test('a large inherited backlog is saved for triage while only a new issue wakes the agent', async ($, on) => {
+longTest('a large inherited backlog is saved for triage while only a new issue wakes the agent', async ($, on) => {
   const clock = mock.clock(on)
   const logs = new Map<string, string>()
   const prompts: string[] = []
@@ -38,7 +39,7 @@ test('a large inherited backlog is saved for triage while only a new issue wakes
   expect(JSON.parse(logs.get('/home/me/.cache/overwatch/logs/go-repo.baseline.log.json')!).checks[0].failures.length).toBe(10_000)
 })
 
-test('a pull that moves HEAD takes a fresh baseline, so only the agent\'s own failures wake it', async ($, on) => {
+longTest('a pull that moves HEAD takes a fresh baseline, so only the agent\'s own failures wake it', async ($, on) => {
   const clock = mock.clock(on)
   const prompts: string[] = []
   const git = new Map([['/repo/.git/HEAD', 'ref: refs/heads/main\n'], ['/repo/.git/packed-refs', `${'a'.repeat(40)} refs/heads/main\n`]])
@@ -69,7 +70,7 @@ test('a pull that moves HEAD takes a fresh baseline, so only the agent\'s own fa
   expect(prompts[0]).toContain('2 more were already failing when the session started.')
 })
 
-test('an edit committed in the same step keeps the baseline, so its failure wakes the agent', async ($, on) => {
+longTest('an edit committed in the same step keeps the baseline, so its failure wakes the agent', async ($, on) => {
   const clock = mock.clock(on)
   const prompts: string[] = []
   const git = new Map([['/repo/.git/HEAD', 'ref: refs/heads/main\n'], ['/repo/.git/packed-refs', `${'a'.repeat(40)} refs/heads/main\n`]])
@@ -95,20 +96,20 @@ test('an edit committed in the same step keeps the baseline, so its failure wake
   expect(prompts[0]).toContain('TestBroken')
 })
 
-test('a summary-only legacy backlog guards count increases and permits reductions', () => {
+longTest('a summary-only legacy backlog guards count increases and permits reductions', () => {
   const baseline = { summary: '10000 errors and 20 warnings', isFailed: true, text: '', failures: [] }
   expect(hasRegression({ ...baseline, summary: '9999 errors and 20 warnings' }, baseline)).toBe(false)
   expect(hasRegression({ ...baseline, summary: '10001 errors and 20 warnings' }, baseline)).toBe(true)
   expect(hasRegression({ ...baseline, summary: '9999 errors and 21 warnings' }, baseline)).toBe(true)
 })
 
-test('a summary with two failure counts compares each with its own', () => {
+longTest('a summary with two failure counts compares each with its own', () => {
   const baseline = { summary: 'Build Summary: 3/5 steps succeeded (1 failed); 1/3 tests passed (2 failed)', isFailed: true, text: '', failures: [] }
   expect(hasRegression({ ...baseline, summary: 'Build Summary: 3/5 steps succeeded (2 failed); 1/3 tests passed (2 failed)' }, baseline)).toBe(true)
   expect(hasRegression({ ...baseline, summary: 'Build Summary: 4/5 steps succeeded (1 failed); 2/3 tests passed (1 failed)' }, baseline)).toBe(false)
 })
 
-test('a command line quotes an argument a shell would split', () => {
+longTest('a command line quotes an argument a shell would split', () => {
   const watcher = { ...watcherNamed('zig'), argv: ['zig', 'build', 'test', '-Dfilter=two words', 'say "hi"'] }
   expect(commandLine(watcher)).toBe('zig build test "-Dfilter=two words" "say \\"hi\\""')
 })

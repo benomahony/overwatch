@@ -2,14 +2,18 @@
 import type { EngineInterface, On } from 'claude-code'
 import { register } from '../../hooks/register'
 import { assert } from '../../hooks/assert'
+import { COMMAND_LIMITS_MS } from '../../hooks/tcr'
 
 type Event = Record<string, unknown>
 type Handler = ($: EngineInterface, event: Event, next: (event: Event) => Promise<unknown>) => unknown
 type Timer = { kind: 'read' | 'flush'; run: () => unknown; cancelled: boolean }
 
 /** Settle bounded discovery and delivery promise chains without advancing any timers. */
+/** How many turns of the microtask queue the host lets the plugin's chain of reads take: each read of the project awaits its limit before it starts. */
+const SETTLE_HOPS = 1000
+
 async function settle() {
-  for (let hop = 0; hop < 100; hop++) await Promise.resolve()
+  for (let hop = 0; hop < SETTLE_HOPS; hop++) await Promise.resolve()
 }
 
 /** An explicitly controlled stream; returning it wakes any pending next() immediately. */
@@ -103,7 +107,8 @@ export function modelHost(options: ModelOptions = {}) {
     ...projectIO(() => commit, options),
     clock: {
       now: async () => 0,
-      after: (_ms: number, run: () => unknown) => {
+      after: (ms: number, run: () => unknown) => {
+        if (ms === COMMAND_LIMITS_MS.fingerprint) return { cancel: () => undefined }
         const timer: Timer = { kind, run, cancelled: false }
         timers.push(timer)
         return { cancel: () => { timer.cancelled = true } }

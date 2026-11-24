@@ -18,7 +18,7 @@ const script = window.document.createElement('script')
 script.textContent = readFileSync(new URL('../docs/public/site.js', import.meta.url), 'utf8')
 window.document.head.append(script)
 window.document.dispatchEvent(new window.Event('DOMContentLoaded'))
-const scenarios = [...window.document.querySelectorAll('.prose > .verified, .prose > .proposed')]
+const scenarios = [...window.document.querySelectorAll('.prose > .verified, .prose > .unverified, .prose > .proposed')]
 const select = window.document.querySelector('select[aria-label="Filter by coding agent"]')
 const input = window.document.querySelector('input[type="search"]')
 assert(select && input, 'Behavior must expose agent and text filters')

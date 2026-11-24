@@ -23,6 +23,7 @@ body:
         - Finding age
         - Legacy debt
         - Modes and limits
+        - TCR mode
         - A new feature
     validations:
       required: true

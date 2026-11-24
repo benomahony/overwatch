@@ -1,10 +1,11 @@
 /** Every Claude contract observation comes from TLC, through the production hook chain. */
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
 import { CONTRACT_TRACES } from './fixtures/integration-contract'
 import { modelHost } from './fixtures/model-host'
+import { longTest } from './fixtures/tcr-session'
 
 for (const trace of CONTRACT_TRACES.filter(trace => trace.host === 'claude')) {
-  test(`Claude host contract: ${trace.name}`, async () => {
+  longTest(`Claude host contract: ${trace.name}`, async () => {
     const names = { primary: 'zig', secondary: 'zanity' } as const
     const host = modelHost({ multi: true, inherited: trace.inherited, checks: trace.selected.map(key => names[key]) })
     const begin = () => host.fire('session.start', { cwd: '/repo', surface: 'terminal', isInteractive: true })

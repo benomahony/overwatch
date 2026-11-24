@@ -1,10 +1,11 @@
-import { expect, mock, test } from 'claude-code/testing'
+import { expect, mock } from 'claude-code/testing'
 import { CHECKERS } from '../hooks/watchers'
+import { longTest } from './fixtures/tcr-session'
 
 const start = { cwd: '/repo', surface: 'terminal' as const, isInteractive: true }
 const PASSING = 'Build Summary: 4/4 steps succeeded; 48/48 tests passed\n'
 
-test('.overwatch.json settings under watchers configure each entry by name', async ($, on) => {
+longTest('.overwatch.json settings under watchers configure each entry by name', async ($, on) => {
   const clock = mock.clock(on)
   mock.env(on, { PATH: '/usr/bin' })
   const override = {
@@ -32,7 +33,7 @@ test('.overwatch.json settings under watchers configure each entry by name', asy
   expect(spawned.map(each => each.argv[0]).sort()).toEqual(['sh', 'zig'])
 })
 
-test('a watchers entry turned off gives way to the next alternative of its language', async ($, on) => {
+longTest('a watchers entry turned off gives way to the next alternative of its language', async ($, on) => {
   const clock = mock.clock(on)
   mock.env(on, { PATH: '/usr/bin' })
   const spawned: string[][] = []

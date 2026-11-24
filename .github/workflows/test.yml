@@ -32,7 +32,21 @@ jobs:
         run: python3 -m unittest discover -s tests -p 'test_*.py'
 
       - name: Test the integrations against fake hosts
-        run: node --test tests/test_integrations.mjs tests/test_model_integrations.mjs tests/test_integration_contract.mjs
+        run: node --test tests/test_integrations.mjs tests/test_bounded_read.mjs tests/test_delivery.mjs tests/test_model_integrations.mjs tests/test_integration_contract.mjs
+
+  oldest-python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.11"
+
+      - name: Compile the engine and the hooks with the oldest Python the README names
+        run: test -d engine && test -d integrations && python -m compileall -q engine integrations
+
+      - name: Test the entry point with it
+        run: python -m unittest discover -s tests -p 'test_engine_entry.py'
 
   model:
     runs-on: ubuntu-latest

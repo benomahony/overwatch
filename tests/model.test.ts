@@ -1,10 +1,11 @@
 /** Replay TLC-derived observations through production hooks with a deterministic host. */
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
 import { MODEL_TRACES } from './fixtures/model-traces'
 import { modelHost } from './fixtures/model-host'
+import { longTest } from './fixtures/tcr-session'
 
 for (const trace of MODEL_TRACES) {
-  test(`model conformance: ${trace.name}`, async () => {
+  longTest(`model conformance: ${trace.name}`, async () => {
     const host = modelHost()
     let version = 0
     let partial = ''

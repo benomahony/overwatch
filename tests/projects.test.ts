@@ -1,10 +1,12 @@
-import { expect, mock, test } from 'claude-code/testing'
+import { expect, mock } from 'claude-code/testing'
 import { CARGO_FAILING, GO_FAILING, SUBPROJECT_TREE, sorted, treeEntry } from './fixtures/watchers'
 import { PASSING, ZIG_WATCH, commands } from './fixtures/session'
 import { start } from './fixtures/gating'
+import { longTest } from './fixtures/tcr-session'
 
-test('a language the root lacks is watched in each sub-project that has it', async ($, on) => {
+longTest('a language the root lacks is watched in each sub-project that has it', async ($, on) => {
   const clock = mock.clock(on)
+  mock.env(on, {})
   const spawned: string[][] = []
   const statuses: (string | undefined)[] = []
   const prompts: string[] = []
@@ -37,8 +39,9 @@ test('a language the root lacks is watched in each sub-project that has it', asy
   expect(prompts).toEqual([])
 })
 
-test('every language in a polyglot project gets its own watcher', async ($, on) => {
+longTest('every language in a polyglot project gets its own watcher', async ($, on) => {
   const clock = mock.clock(on)
+  mock.env(on, {})
   const spawned: string[][] = []
   const statuses: (string | undefined)[] = []
   on('fs.read', () => ({ deny: 'no such file' }))
@@ -56,8 +59,9 @@ test('every language in a polyglot project gets its own watcher', async ($, on) 
   )
 })
 
-test('a JS project runs the test runner it has installed, and only that one', async ($, on) => {
+longTest('a JS project runs the test runner it has installed, and only that one', async ($, on) => {
   const clock = mock.clock(on)
+  mock.env(on, {})
   const spawned: string[][] = []
   on('fs.read', () => ({ deny: 'no such file' }))
   const files = ['/repo/.git', '/repo/package.json', '/repo/bun.lock', '/repo/node_modules/.bin/jest']
@@ -68,7 +72,7 @@ test('a JS project runs the test runner it has installed, and only that one', as
   expect(spawned).toEqual([['npx', '--no', '--', 'jest', '--watchAll']])
 })
 
-test('Go uses gotestsum’s watcher when it is on PATH, else reruns go test after edits', async ($, on) => {
+longTest('Go uses gotestsum’s watcher when it is on PATH, else reruns go test after edits', async ($, on) => {
   const clock = mock.clock(on)
   const spawned: string[][] = []
   let path = '/usr/bin'

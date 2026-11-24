@@ -141,7 +141,7 @@ function createAgentFilter(scenarios) {
 /** Adds a box that filters the behavior guide's scenarios, hiding features and statuses left empty. */
 function buildSearch() {
   const prose = document.querySelector(".prose")
-  const scenarios = [...document.querySelectorAll(".prose > .verified, .prose > .proposed")]
+  const scenarios = [...document.querySelectorAll(".prose > .verified, .prose > .unverified, .prose > .proposed")]
   if (!prose || scenarios.length === 0) return
   const search = document.createElement("div")
   search.className = "scenario-search"

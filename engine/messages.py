@@ -13,6 +13,7 @@ from typing import Any
 
 from records import First, Report
 from discovery import key_of
+from safe_text import safe_line, safe_path
 
 
 FAILURE_LIMIT = 10
@@ -31,17 +32,17 @@ def failing_line(failures: list[str]) -> str:
     shown = failures[:FAILURE_LIMIT]
     hidden = len(failures) - len(shown)
     more = f", and {hidden} more" if hidden else ""
-    line = f"Failing: {', '.join(f'`{name}`' for name in shown)}{more}.\n" if shown else ""
-    assert not shown or line.startswith(f"Failing: `{shown[0]}`"), f"line {line} does not name {shown} first; quote the first {FAILURE_LIMIT} in order"
+    line = f"Failing: {', '.join(f'`{safe_path(name)}`' for name in shown)}{more}.\n" if shown else ""
+    assert not shown or line.startswith(f"Failing: `{safe_path(shown[0])}`"), f"line {line} does not name {shown} first; quote the first {FAILURE_LIMIT} in order"
     assert (hidden > 0) == line.endswith(" more.\n"), f"line {line} for {len(failures)} failures miscounts the {hidden} not shown"
     return line
 
 
 def where(report: Report) -> str:
     """The sub-project a report's command ran in, for the agent."""
-    text = f" in `{report.dir}`" if report.dir else ""
+    text = f" in `{safe_path(report.dir)}`" if report.dir else ""
     assert bool(text) == bool(report.dir), f"where gave {text} for dir {report.dir}; name the dir only when there is one"
-    assert not text or text.endswith(f"`{report.dir}`"), f"where gave {text}; quote the dir {report.dir}"
+    assert not text or text.endswith(f"`{safe_path(report.dir)}`"), f"where gave {text}; quote the dir {report.dir}"
     return text
 
 
@@ -99,7 +100,7 @@ def timing_hint(report: Report) -> str:
     if "--testmon" in report.command.split() and TIMING.search(report.text):
         hint = (f"This looks like a timing test, and `--testmon` traces every call in watch mode, so it runs slower than it "
                 f"would alone. If the code is no slower, mark timing tests and keep them out of the watcher with "
-                f"`-m \"not performance\"` in `watchers.{report.name}.argv` in .overwatch.json.\n")
+                f"`-m \"not performance\"` in `watchers.{safe_path(report.name)}.argv` in .overwatch.json.\n")
     assert hint == "" or hint.endswith("\n"), f"timing hint {hint!r} must end its line"
     assert hint == "" or "--testmon" in report.command, f"timing hint given for {report.command!r}, which runs no testmon"
     return hint
@@ -115,25 +116,24 @@ def failure_message(reports: list[Report], baseline: Mapping[str, First], logs: 
         fresh = [name for name in report.failures if name not in known]
         old = len(report.failures) - len(fresh)
         messages.append(
-            f"overwatch: `{report.command}`{where(report)} failed after "
-            f"{'a change made outside this session' if outside else 'the latest change'}: {report.summary}\n"
+            f"overwatch: `{safe_path(report.command)}`{where(report)} failed after "
+            f"{'a change made outside this session' if outside else 'the latest change'}: {safe_line(report.summary)}\n"
             f"{failing_line(fresh)}"
             f"{f'{old} more were already failing when the session started.' + chr(10) if old else ''}"
             + ("This session made no edit since the previous result, so another process may be changing these files; "
                "check before overwriting its work.\n" if outside else
                "Fix these new failures before finishing. Tools remain available while you investigate.\n") +
             timing_hint(report) +
-            f"Full output: `{logs[report_key(report)]}`"
+            f"Full output: `{safe_path(str(logs[report_key(report)]))}`"
         )
-    text = "\n\n".join(messages)
-    assert text.count("Full output: ") == len(reports), f"message links {text.count('Full output: ')} logs for {len(reports)} reports; link each once"
-    return text
+    assert len(messages) == len(reports), f"{len(messages)} messages were made for {len(reports)} reports; make one for each"
+    return "\n\n".join(messages)
 
 
 def environment_message(reports: list[Report]) -> str:
     """Tells the agent which checks cannot run where they are, and that no code change fixes that."""
     assert all(report.environment for report in reports), f"{[report.name for report in reports if not report.environment]} have no environment line; pass only checks that cannot run"
-    lines = "\n".join(f"- `{report.command}`{where(report)}: {report.environment}" for report in reports)
+    lines = "\n".join(f"- `{safe_path(report.command)}`{where(report)}: {safe_line(report.environment)}" for report in reports)
     assert lines.count("\n- ") == max(len(reports) - 1, 0), f"environment message lists {lines.count(chr(10) + '- ') + 1} lines for {len(reports)} checks"
     return (
         "overwatch: these checks cannot run in this environment, so they are not reporting. "
@@ -146,17 +146,16 @@ def failing_suffix(failures: tuple[str, ...]) -> str:
     if not failures:
         return ""
     more = f" +{len(failures) - 1} more" if len(failures) > 1 else ""
-    suffix = f": {failures[0]}{more}"
-    assert suffix.startswith(f": {failures[0]}"), f"suffix {suffix} does not name {failures[0]} first"
-    assert (len(failures) > 1) == suffix.endswith(" more"), f"suffix {suffix} for {len(failures)} failures miscounts the rest"
-    return suffix
+    assert len(failures) > 1 or not more, f"{len(failures)} failures were told with a count of the rest"
+    assert len(failures) == 1 or more, f"{len(failures)} failures were told without a count of the rest"
+    return f": {safe_path(failures[0])}{more}"
 
 
 def failure_status(reports: list[Report]) -> str:
     """The status line for failing checks, one part each."""
     assert reports, "failure_status was given no reports; pass the checks that newly fail"
     summaries = " · ".join(
-        f"{report.name} ✗ {SUMMARY_DECORATION.sub('', report.summary)}{failing_suffix(report.failures)}"
+        f"{safe_path(report.name)} ✗ {safe_line(SUMMARY_DECORATION.sub('', report.summary))}{failing_suffix(report.failures)}"
         for report in reports
     )
     assert summaries.count(" ✗ ") >= len(reports), f"status {summaries} marks fewer than {len(reports)} checks; give each one part"
@@ -165,7 +164,7 @@ def failure_status(reports: list[Report]) -> str:
 
 def recovery_message(reports: tuple[Report, ...]) -> str:
     """Tells the agent the checks pass again, with each one's summary."""
-    summaries = " · ".join(f"overwatch {report.name} ✓ {SUMMARY_DECORATION.sub('', report.summary)}" for report in reports)
+    summaries = " · ".join(f"overwatch {safe_path(report.name)} ✓ {safe_line(SUMMARY_DECORATION.sub('', report.summary))}" for report in reports)
     assert summaries.count(" ✓ ") >= len(reports), f"recovery {summaries} marks fewer than {len(reports)} checks; give each one part"
     text = f"overwatch: green again. {summaries}"
     assert text.endswith(summaries), f"recovery {text} drops the summaries; end with them"
@@ -188,7 +187,7 @@ def context_output(event_name: str, text: str) -> dict[str, Any]:
 def gate_reason(reports: list[Report]) -> str:
     """Why an action is refused: the failing checks that guard it, and that repairs remain possible."""
     assert reports, "gate_reason was given no reports; give it the checks that guard the action"
-    lines = [f"- {report.name}: {' '.join(SUMMARY_DECORATION.sub('', report.summary).split())}" for report in reports]
+    lines = [f"- {safe_path(report.name)}: {safe_line(' '.join(SUMMARY_DECORATION.sub('', report.summary).split()))}" for report in reports]
     assert len(lines) == len(reports) and all("\n" not in line for line in lines), f"reason lines {lines} do not give each guarding check one line"
     return ("overwatch: this action is guarded while relevant checks fail:\n" + "\n".join(lines) + "\n"
             "Inspection, edits, and check commands remain available. Rerun the checks after repairing the failure.")

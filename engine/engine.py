@@ -25,12 +25,15 @@ from collections.abc import Iterator, Mapping
 from dataclasses import asdict, replace
 from typing import Any
 
+import tcr
+from bugs import TOLD_UNEXPECTED
 from gating import PolicyError, brings_in_files, protected_checks, read_gate, tool_command
 from triage import InventoryError, parse_check, parse_inventory
 from records import TIMED_OUT, Event, Read, First, Report, Session, State, Step, digest_of
 from sessions import data_root, in_data, load_state, locked, save_state, state_path, touched_path, write_log
 from running import run_persistent_checks
 from messages import SUMMARY_DECORATION, context_output, environment_message, failing_suffix, failure_message, failure_status, gate_reason, is_regression, known_failures, recovery_message, report_key
+from safe_text import safe_line, safe_path
 from workspace import commit_of, fingerprint, is_committed, repository_of
 from discovery import ConfigurationError, find_watchers, key_of, read_override
 
@@ -141,7 +144,7 @@ def inventory_checks(session: Session) -> dict[str, dict[str, object]] | None:
         value = json.loads(session.inventory.read_text())
     except FileNotFoundError:
         return {}
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, UnicodeDecodeError):
         return None
     if not isinstance(value, dict) or value.get("digest") != digest_of(value.get("checks")):
         return None
@@ -191,15 +194,21 @@ def baseline_inventory(old: State, current: State, session: Session) -> str:
     inventory.write_text(json.dumps({"digest": digest_of(checks), "checks": checks}, indent=2))
     assert len(checks) >= len(added), f"inventory {inventory} holds {len(checks)} checks after adding {len(added)}; append every one"
     assert all("text" not in check for check in checks[-len(added):]), f"inventory {inventory} kept a report's output; link its log instead"
-    count = sum(len(report.failures) for report in added)
-    detail = f"{count} named issues" if count else "individual issue names unavailable; see full logs"
-    policy = ("Inherited findings guard completion and protected actions. "
-              if current.inherited == "block"
-              else "It is not a Stop blocker; only new failures are guarded. ")
-    return (f"overwatch: inherited backlog in {len(added)} checks ({detail}). "
-            f"{policy}"
-            f"Triage inventory: `{inventory}`. Filter or page it with engine/triage.py; full logs are linked there."
-            f"{' The earlier inventory could not be read, so it now lists only these checks.' if listed is None else ''}")
+    return inherited_notice(added, current.inherited == "block", inventory, listed is None)
+
+
+def inherited_notice(added: list[Report], blocks: bool, inventory: Path, replaced: bool) -> str:
+    """What the agent is told of the checks that failed when the session began: how many and how many issues they name, whether they guard completion, where the triage inventory is, and, with replaced, that the earlier inventory could not be read."""
+    assert added, "an inherited backlog is told for no check; tell it only when a check failed at the start"
+    issues = sum(len(report.failures) for report in added)
+    detail = f"{issues} named issues" if issues else "individual issue names unavailable; see full logs"
+    policy = "Inherited findings guard completion and protected actions. " if blocks else "It is not a Stop blocker; only new failures are guarded. "
+    notice = (f"overwatch: inherited backlog in {len(added)} checks ({detail}). "
+              f"{policy}"
+              f"Triage inventory: `{safe_path(str(inventory))}`. Filter or page it with engine/triage.py; full logs are linked there."
+              f"{' The earlier inventory could not be read, so it now lists only these checks.' if replaced else ''}")
+    assert notice.startswith("overwatch: inherited backlog in "), f"the notice {notice[:40]!r} does not begin as every notice of overwatch does"
+    return notice
 
 
 def new_environment(reports: tuple[Report, ...] | list[Report], told: tuple[str, ...]) -> list[Report]:
@@ -233,8 +242,10 @@ def process_event(event: Event, root: Path) -> dict[str, Any]:
         edit = event.hook_event_name == "PostToolUse" and event.tool_name in EDITING_TOOLS
         command = tool_command(event.tool_input) if event.hook_event_name == "PostToolUse" else ""
         read = checked_state(session, cwd, Step(edit, command))
+        taken = tcr.settle(tcr.Turn(event, cwd, session, read_override(cwd), read.edited, read.moved), read.old, read.current)
+        read = replace(read, current=taken.state)
         current = read.current
-        output = report_output(event, read, session)
+        output = tcr.told(report_output(event, read, session), event.hook_event_name, taken)
         if event.hook_event_name == "SessionStart" and event.integration == "opencode1":
             current = replace(current, told=read.old.told)
         save_state(session, current)
@@ -270,7 +281,7 @@ def checked_state(session: Session, cwd: Path, step: Step = Step(), followed: li
     head = commit_of(cwd)
     moved = is_moved(cwd, old.head, head, step.command)
     if moved:
-        old = replace(old, baseline={}, fingerprint=None, told=None, failed=False, signatures=())
+        old = replace(old, baseline={}, fingerprint=None, told=None, failed=False, signatures=(), held=(), held_fingerprint=None)
     gate = read_gate(read_override(cwd))
     before = fingerprint(cwd)
     should_run = followed is None and old.fingerprint != before
@@ -293,7 +304,7 @@ def checked_state(session: Session, cwd: Path, step: Step = Step(), followed: li
     )
     assert current.environment[:len(told)] == told, f"environment {current.environment} forgot what the agent was told; keep {told} first"
     assert should_run or followed is not None or current.reports == old.reports, f"unchanged workspace {cwd} got new reports; reuse the saved ones"
-    return Read(old, current, edited)
+    return Read(old, current, edited, moved)
 
 
 def merged_reports(followed: list[Report], saved: tuple[Report, ...]) -> list[Report]:
@@ -344,7 +355,7 @@ def report_output(event: Event, read: Read, session: Session) -> dict[str, Any]:
 def integration_report(current: State) -> dict[str, Any]:
     """Internal plugin transport metadata; native hook responses retain their existing schema and deduplication."""
     reports = current.reports
-    status = ' · '.join(f"{report.name} {'✗' if report.failed else '✓'} {SUMMARY_DECORATION.sub('', report.summary)}{failing_suffix(report.failures)}"
+    status = ' · '.join(f"{safe_path(report.name)} {'✗' if report.failed else '✓'} {safe_line(SUMMARY_DECORATION.sub('', report.summary))}{failing_suffix(report.failures)}"
                         for report in reports)
     result = {'status': f'Overwatch: {status}' if status else None,
               'guarded': bool(gate_reports(current)), 'signature': current.told}
@@ -378,12 +389,23 @@ def follow(event: Event, root: Path, parent: int) -> Iterator[dict[str, Any]]:
             yield output
 
 
+def hook_error(error: Exception) -> str:
+    """The hook's output, a JSON object, for an error it tells the host instead of failing: a mistake in the project or the event is told as it is, and any other expected kind of error as an unexpected one to report. The text of the error is written by safe_line, as it can hold a path."""
+    text = safe_line(str(error))
+    message = f"overwatch: {text}" if isinstance(error, (ConfigurationError, PolicyError)) else f"overwatch: unexpected error: {text}; report it at https://github.com/benomahony/overwatch/issues with the hook event"
+    assert message.startswith("overwatch: "), f"the message {message[:40]!r} does not begin as every message of overwatch does"
+    output = json.dumps({"systemMessage": message})
+    assert output.startswith("{"), f"the hook's output {output[:40]!r} is no JSON object"
+    return output
+
+
 def main() -> None:
     """Answers one hook event on stdin with JSON on stdout; with `follow`, reads one event naming the session and
     prints a line of JSON for each settled result after that, as a hook would answer it, until its parent exits. The event comes from the agent host that started this
-    process, through the pipe it holds, so no one else can write it. Every problem is told to the host in that
+    process, through the pipe it holds, so no one else can write it. A problem it expects is told to the host in that
     output, as a system message it shows the user: a mistake in .overwatch.json, its gate or the event as the error
-    says. An unexpected error is also written to stderr, where the host logs it."""
+    says. An OSError, ValueError, TypeError, KeyError or SubprocessError is told the same way, whatever its cause, with exit 0.
+    Any other bug is not caught: the process exits non-zero with its traceback on stderr, which the hosts surface."""
     if sys.argv[1:] == ["follow"]:
         parent = os.getppid()
         for output in follow(read_event(), data_root(os.environ.get("PLUGIN_DATA")), parent):
@@ -391,12 +413,10 @@ def main() -> None:
         return
     try:
         output = json.dumps(process_event(read_event(), data_root(os.environ.get("PLUGIN_DATA"))))
-    except (ConfigurationError, PolicyError) as error:
-        output = json.dumps({"systemMessage": f"overwatch: {error}"})
-    except (OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError) as error:
-        print(f"overwatch: unexpected {type(error).__name__}: {error}", file=sys.stderr)
-        output = json.dumps({"systemMessage": f"overwatch: unexpected error: {error}; report it at "
-                                              "https://github.com/benomahony/overwatch/issues with the hook event"})
+    except (ConfigurationError, PolicyError, OSError, *TOLD_UNEXPECTED) as error:
+        if not isinstance(error, (ConfigurationError, PolicyError)):
+            print(f"overwatch: unexpected {type(error).__name__}: {error}", file=sys.stderr)
+        output = hook_error(error)
     assert output.startswith("{"), f"hook output {output[:40]} is not a JSON object; return a dict from process_event"
     assert "\n" not in output, "hook output spans lines; print it as one JSON line"
     print(output)

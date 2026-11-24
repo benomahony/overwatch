@@ -1,8 +1,9 @@
 import type { On } from 'claude-code'
-import { expect, mock, test } from 'claude-code/testing'
+import { expect, mock } from 'claude-code/testing'
 import { assert } from '../hooks/assert'
 import { PASSING, project, ZIG_WATCH, turnHooks } from './fixtures/session'
 import { start, ended } from './fixtures/gating'
+import { longTest } from './fixtures/tcr-session'
 
 const quickExitWatcher = (on: On) => {
   const clock = mock.clock(on)
@@ -32,7 +33,7 @@ const quickExitWatcher = (on: On) => {
   return { clock, attempts: () => attempts, prompts, statuses }
 }
 
-test('a marker created mid-session starts its watcher on the next turn', async ($, on) => {
+longTest('a marker created mid-session starts its watcher on the next turn', async ($, on) => {
   const clock = mock.clock(on)
   const files: string[] = []
   const spawned: string[][] = []
@@ -48,7 +49,7 @@ test('a marker created mid-session starts its watcher on the next turn', async (
   expect(spawned).toEqual([ZIG_WATCH])
 })
 
-test('a marker created during a turn starts its watcher as the turn completes', async ($, on) => {
+longTest('a marker created during a turn starts its watcher as the turn completes', async ($, on) => {
   const clock = mock.clock(on)
   const files: string[] = []
   const spawned: string[][] = []
@@ -62,8 +63,9 @@ test('a marker created during a turn starts its watcher as the turn completes', 
   expect(spawned).toEqual([ZIG_WATCH])
 })
 
-test('a watcher that exits is restarted at once, and the agent told', async ($, on) => {
+longTest('a watcher that exits is restarted at once, and the agent told',  async ($, on) => {
   const clock = mock.clock(on)
+  mock.env(on, {})
   const session = mock.session(on)
   const spawned: string[][] = []
   const statuses: (string | undefined)[] = []
@@ -96,7 +98,7 @@ test('a watcher that exits is restarted at once, and the agent told', async ($, 
   await ending
 })
 
-test('a running watcher restarts once when its program is replaced on PATH, and not while it stays', async ($, on) => {
+longTest('a running watcher restarts once when its program is replaced on PATH, and not while it stays', async ($, on) => {
   const clock = mock.clock(on)
   const started: string[] = []
   const statuses: (string | undefined)[] = []
@@ -123,6 +125,7 @@ test('a running watcher restarts once when its program is replaced on PATH, and 
     return next(e)
   })
   on('session.start', ($, e) => ({ cwd: e.cwd }))
+  on('session.end', ($, e) => ({ sessionId: e.sessionId }))
   turnHooks(on)
   await $.session.start(start)
   await clock.advance(1000)
@@ -137,9 +140,12 @@ test('a running watcher restarts once when its program is replaced on PATH, and 
   await $.turn.start({ text: 'and on', turnId: 't3' })
   await clock.advance(1000)
   expect(started.length).toBe(2)
+  const ending = $.session.end({ reason: 'prompt_input_exit', sessionId: 's1', resume: { id: 's1' } })
+  await clock.advance(1000)
+  await ending
 })
 
-test('a watcher that keeps exiting backs off, then gives up and wakes the agent', async ($, on) => {
+longTest('a watcher that keeps exiting backs off, then gives up and wakes the agent', async ($, on) => {
   const { clock, attempts, prompts, statuses } = quickExitWatcher(on)
   await $.session.start(start)
   await clock.advance(1000)
@@ -159,7 +165,7 @@ test('a watcher that keeps exiting backs off, then gives up and wakes the agent'
   expect(prompts[0]).toContain('What it printed last: `/home/me/.cache/overwatch/logs/zig-repo.log`')
 })
 
-test('a watcher given up on retries only on a later turn', async ($, on) => {
+longTest('a watcher given up on retries only on a later turn', async ($, on) => {
   const { clock, attempts, prompts } = quickExitWatcher(on)
   await $.session.start(start)
   await clock.advance(91_000)
@@ -175,8 +181,9 @@ test('a watcher given up on retries only on a later turn', async ($, on) => {
   expect(attempts()).toBe(4)
 })
 
-test('enabled: false keeps the watcher off, read afresh at each turn', async ($, on) => {
+longTest('enabled: false keeps the watcher off, read afresh at each turn', async ($, on) => {
   const clock = mock.clock(on)
+  mock.env(on, {})
   const spawned: string[][] = []
   let override = { enabled: false }
   on('fs.read', ($, e) => (e.path === '/repo/.overwatch.json' ? { value: JSON.stringify(override) } : { deny: 'no such file' }))
@@ -205,8 +212,9 @@ test('enabled: false keeps the watcher off, read afresh at each turn', async ($,
   await ending
 })
 
-test('a turn that starts while the session is still looking spawns one watcher', async ($, on) => {
+longTest('a turn that starts while the session is still looking spawns one watcher',  async ($, on) => {
   const clock = mock.clock(on)
+  mock.env(on, {})
   const spawned: string[][] = []
   on('fs.read', () => ({ deny: 'no such file' }))
   const looking: (() => void)[] = []
@@ -251,7 +259,7 @@ test('a turn that starts while the session is still looking spawns one watcher',
   await ending
 })
 
-test('the session ending stops the watcher and any restart', async ($, on) => {
+longTest('the session ending stops the watcher and any restart', async ($, on) => {
   const clock = mock.clock(on)
   const spawned: string[][] = []
   const statuses: (string | undefined)[] = []
@@ -272,7 +280,7 @@ test('the session ending stops the watcher and any restart', async ($, on) => {
   expect(statuses.at(-1)).toBeUndefined()
 })
 
-test('a resumed session starts watching again at once', async ($, on) => {
+longTest('a resumed session starts watching again at once', async ($, on) => {
   const clock = mock.clock(on)
   const spawned: string[][] = []
   project(on, { files: ['build.zig'], output: PASSING, spawned })

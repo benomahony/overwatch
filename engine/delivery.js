@@ -11,7 +11,7 @@ export class SessionDelivery {
 
   stateOf(id) {
     assert(typeof id === 'string' && id !== '', `delivery session ${id} must have an ID`)
-    if (!this.sessions.has(id)) this.sessions.set(id, { pending: undefined, correction: undefined, isCorrectionPass: false, isEditedSinceCorrection: false, closed: false })
+    if (!this.sessions.has(id)) this.sessions.set(id, { pending: undefined, notices: [], correction: undefined, isCorrectionPass: false, isEditedSinceCorrection: false, closed: false })
     const state = this.sessions.get(id)
     assert(state !== undefined, `delivery session ${id} was not initialized`)
     return state
@@ -23,15 +23,20 @@ export class SessionDelivery {
     if (output.overwatch?.guarded === false) { state.pending = undefined; state.correction = undefined }
     const message = contextOf(output)
     if (message) state.pending = message
+    const told = output.overwatch?.notices
+    if (Array.isArray(told)) state.notices.push(...told.filter(notice => typeof notice === 'string' && notice !== ''))
     assert(state.pending === undefined || typeof state.pending === 'string', `delivery pending context for ${id} must be text`)
+    assert(state.notices.every(notice => typeof notice === 'string'), `delivery notices for ${id} must be text`)
   }
 
   take(id) {
     const state = this.stateOf(id)
-    const text = state.pending
+    const unseen = state.notices.filter(notice => !(state.pending ?? '').includes(notice))
+    const text = [...unseen, state.pending].filter(part => part !== undefined).join('\n\n') || undefined
     assert(text === undefined || typeof text === 'string', `pending delivery for ${id} is ${typeof text}`)
     state.pending = undefined
-    assert(state.pending === undefined, `delivery for ${id} was not consumed`)
+    state.notices = []
+    assert(state.pending === undefined && state.notices.length === 0, `delivery for ${id} was not consumed`)
     return text
   }
 
@@ -55,6 +60,15 @@ export class SessionDelivery {
     return true
   }
 
+  undelivered(id) {
+    assert(typeof id === 'string' && id !== '', `an undelivered correction needs a session ID, not ${id}`)
+    const state = this.sessions.get(id)
+    if (state === undefined || !state.isCorrectionPass) return
+    state.correction = undefined
+    state.isCorrectionPass = false
+    assert(state.correction === undefined && !state.isCorrectionPass, `the undelivered correction of ${id} still holds the session's deduplication`)
+  }
+
   /** The session ran an editing tool, so a result that changes after it may ask for another correction. */
   edited(id) {
     assert(this.sessions.has(id), `an edit belongs to unknown session ${id}; record it after the session's first event`)
@@ -63,10 +77,10 @@ export class SessionDelivery {
     assert(state.isEditedSinceCorrection, `edit in ${id} was not recorded`)
   }
 
-  /** Work outside a correction pass releases its deduplication; inside one, the work is that correction's answer. */
   progressed(id) {
-    const state = this.stateOf(id)
-    assert(this.sessions.has(id), `work progress belongs to unknown session ${id}`)
+    assert(typeof id === 'string' && id !== '', `work progress needs a session ID, not ${id}`)
+    const state = this.sessions.get(id)
+    if (state === undefined) return
     if (!state.isCorrectionPass) state.correction = undefined
     assert(state.isCorrectionPass || state.correction === undefined, `work in ${id} did not release correction deduplication`)
   }

@@ -1,7 +1,8 @@
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
 import { start, ended, gatingProject } from './fixtures/gating'
+import { longTest } from './fixtures/tcr-session'
 
-test('a failing watcher permits diagnostic and repair tool calls', async ($, on) => {
+longTest('a failing watcher permits diagnostic and repair tool calls', async ($, on) => {
   const { clock, calls } = gatingProject(on)
   try {
     await $.session.start(start)
@@ -20,7 +21,7 @@ test('a failing watcher permits diagnostic and repair tool calls', async ($, on)
 })
 
 for (const inherited of ['allow', 'block'] as const) {
-  test(`inherited watcher findings follow the ${inherited} policy without denying inspection`, async ($, on) => {
+  longTest(`inherited watcher findings follow the ${inherited} policy without denying inspection`, async ($, on) => {
     const warnings = 'zanity: 0 errors and 29 warnings in 1 of 1 files\n'
     const { clock, calls } = gatingProject(on, { inherited, initial: warnings })
     try {
@@ -38,7 +39,7 @@ for (const inherited of ['allow', 'block'] as const) {
   })
 }
 
-test('a guard names each check once and ends its summaries with one full stop', async ($, on) => {
+longTest('a guard names each check once and ends its summaries with one full stop', async ($, on) => {
   const { clock, prompts, setReport } = gatingProject(on)
   setReport('zanity: 0 errors, 1 warning in 1/1 file.\n')
   try {
@@ -56,7 +57,7 @@ test('a guard names each check once and ends its summaries with one full stop', 
   }
 })
 
-test('publication and repeated completion stay guarded until passing checks release them', async ($, on) => {
+longTest('publication and repeated completion stay guarded until passing checks release them',  async ($, on) => {
   const { clock, calls, repair } = gatingProject(on)
   try {
     await $.session.start(start)
@@ -79,3 +80,24 @@ test('publication and repeated completion stay guarded until passing checks rele
     await ending
   }
 })
+
+for (const stops of ['...', '..', '.', '']) {
+  longTest(`a guard whose check summary ends in ${JSON.stringify(stops)} is still given: it ends the summary with one full stop`, async ($, on) => {
+    const { clock, prompts, setReport } = gatingProject(on)
+    setReport(`zanity: 0 errors, 1 warning in ${stops}\n`)
+    try {
+      await $.session.start(start)
+      await clock.advance(1500)
+      await $.turn.start({ text: 'finish', turnId: 't1' })
+      await $.turn.complete(ended)
+      const guards = prompts.filter(text => text.includes('guarded'))
+      expect(guards.length).toBe(1)
+      expect(guards[0]).toMatch(/1 warning in ?\. Inspection, edits, and check commands remain available\.$/)
+      expect(guards[0]).not.toContain('..')
+    } finally {
+      const ending = $.session.end({ reason: 'prompt_input_exit', sessionId: 's1', resume: { id: 's1' } })
+      await clock.advance(1000)
+      await ending
+    }
+  })
+}

@@ -1,9 +1,16 @@
 import type { On } from 'claude-code'
 import { mock } from 'claude-code/testing'
 import { assert } from '../../hooks/assert'
+import { QUIET_MS } from '../../hooks/delivery'
 
 export const start = { cwd: '/repo', surface: 'terminal' as const, isInteractive: true }
 export const ended = { turnId: 't1', answer: '', durationMs: 1, isAborted: false, reason: 'answer' as const }
+/** A fake watcher reports every REPORT_MS, a little after QUIET_MS, so that each report is judged before the next arrives. A scenario advances its clock by whole intervals, so that each advance ends as a report arrives: one that ends between a judgement and the next arrival makes the host wait about a second of real time, and a few of those pass the runner's limit. */
+export const REPORT_MS = QUIET_MS + 50
+/** Two report intervals. A report that arrives in the first is judged, after a quiet wait, before the second arrives; one that arrived just before it is judged and its message sent. */
+export const JUDGED_MS = 2 * REPORT_MS
+/** How long a fake watcher runs before it exits. */
+const WATCHER_LIFETIME_MS = 4000
 const ZANITY_CLEAN = 'zanity: checked 1 file, no issues found.\n'
 
 type ProjectOptions = { inherited?: 'allow' | 'block'; initial?: string; withZig?: boolean }
@@ -27,8 +34,8 @@ export function gatingProject(on: On, options: ProjectOptions = {}) {
   on('process.spawn', async function* ($, e) {
     const isZig = e.argv[0] === 'zig'
     yield { stream: 'stdout' as const, text: isZig ? 'Build Summary: 3/3 steps succeeded; 1/1 tests passed\n' : initial }
-    for (let report = 0; report < 4; report++) {
-      await clock.sleep(1000)
+    for (let report = 0; report < Math.floor(WATCHER_LIFETIME_MS / REPORT_MS); report++) {
+      await clock.sleep(REPORT_MS)
       yield { stream: 'stdout' as const, text: isZig ? zigOutput : output }
     }
     return { value: { code: 0, signal: null } }

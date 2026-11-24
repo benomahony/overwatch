@@ -115,22 +115,48 @@ def mark_step(line: str, phase: str | None) -> tuple[str, str | None]:
     return marked, following
 
 
+def unverified_headings(body: list[str]) -> set[int]:
+    """The positions of the scenario headings whose tags line names the faked host: such a scenario is not marked verified."""
+    assert isinstance(body, list) and all(isinstance(line, str) for line in body), f"the guide is {type(body).__name__} of {[type(line).__name__ for line in body][:3]}, not a list of lines"
+    found: set[int] = set()
+    heading = -1
+    for position, line in enumerate(body):
+        if line.startswith("### "):
+            heading = position
+        elif line.startswith("Tags: ") and heading >= 0 and "faked-host" in line.removeprefix("Tags: ").rstrip(".").split(", "):
+            found.add(heading)
+    named = sum(line.startswith("Tags: ") and "faked-host" in line.removeprefix("Tags: ").rstrip(".").split(", ") for line in body)
+    assert named == len(found), f"{named} tags lines name the faked host but {len(found)} scenarios were marked unverified; each scenario has one tags line, after its heading"
+    return found
+
+
+def page_unique_id(identifier: str, group: str, taken: set[str]) -> str:
+    """The id of a heading, joined to its group's id when an earlier heading on the page already has it, and recorded in taken."""
+    assert identifier, f"a heading has an empty id in group {group!r}; give it a title"
+    unique = f"{identifier}-{group}" if identifier in taken else identifier
+    assert unique not in taken, f"id {unique!r} is on the page twice, even with its group {group!r}; reword one heading"
+    taken.add(unique)
+    return unique
+
+
 def scenarios(body: list[str]) -> list[str]:
-    """The behavior guide with every heading starting a section, each scenario's marked verified or proposed, its
+    """The behavior guide with every heading starting a section, each scenario's marked verified, unverified or proposed, its
     tags as chips, and each step's keyword marked with its phase, so the site can style and search them.
 
     Each scenario heading starts a new Given, When, Then sequence. Raises SyncError, saying to regenerate the guide,
     when a step line, keyword order or tags line is malformed."""
-    status, phase, marked = "verified", None, []
-    for line in body:
+    status, phase, marked, group, taken = "verified", None, [], "", set()
+    unverified = unverified_headings(body)
+    for position, line in enumerate(body):
         if line.startswith("### "):
             phase = None
         line, phase = mark_step(line, phase)
         if line.startswith("# "):
             status = "proposed" if line.startswith("# [Proposed") else "verified"
         if line.startswith("#"):
-            attrs = f".attrs('{status}')" if line.startswith("### ") else ""
-            line = re.sub(r"\$heading\.id\('([^']*)'\)\)$", rf"$section.id('\1'){attrs})", line)
+            attrs = f".attrs('{'unverified' if position in unverified else status}')" if line.startswith("### ") else ""
+            line = re.sub(r"\$heading\.id\('([^']*)'\)\)$", lambda found: f"$section.id('{page_unique_id(found[1], group, taken)}'){attrs})", line)
+            group = re.search(r"\$section\.id\('([^']*)'", line)[1] if line.startswith("# ") else group
         if line.startswith("Tags: "):
             if not line.endswith("."):
                 raise SyncError(f"docs/behavior.md has tags line {line!r} without its closing period; regenerate it with python3 scripts/scenarios.py")

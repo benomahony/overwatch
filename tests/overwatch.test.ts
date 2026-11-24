@@ -1,9 +1,10 @@
-import { expect, mock, test } from 'claude-code/testing'
+import { expect, mock } from 'claude-code/testing'
 import { treeEntry } from './fixtures/watchers'
 import { FAILING, PASSING, project, turnHooks, commands } from './fixtures/session'
 import { start } from './fixtures/gating'
+import { longTest } from './fixtures/tcr-session'
 
-test('a failing build wakes an idle session with the failure', async ($, on) => {
+longTest('a failing build wakes an idle session with the failure', async ($, on) => {
   const clock = mock.clock(on)
   const spawned: string[][] = []
   const prompts: string[] = []
@@ -23,7 +24,7 @@ test('a failing build wakes an idle session with the failure', async ($, on) => 
   expect(prompts[0]).not.toContain('try std.testing.expect')
 })
 
-test('a failure the project had when the session started is not reported', async ($, on) => {
+longTest('a failure the project had when the session started is not reported', async ($, on) => {
   const clock = mock.clock(on)
   const session = mock.session(on)
   const prompts: string[] = []
@@ -46,7 +47,7 @@ test('a failure the project had when the session started is not reported', async
   expect(statuses).toContain('zig ✗ 3/5 steps succeeded (1 failed); 2/3 tests passed (1 failed): root.test.basic add functionality')
 })
 
-test('a session outside a git repository watches nothing', async ($, on) => {
+longTest('a session outside a git repository watches nothing', async ($, on) => {
   const clock = mock.clock(on)
   const spawned: string[][] = []
   mock.env(on, { PATH: '/usr/bin' })
@@ -65,7 +66,7 @@ test('a session outside a git repository watches nothing', async ($, on) => {
   expect(spawned).toEqual([])
 })
 
-test('the repository holding the session is watched, each directory once by its real path', async ($, on) => {
+longTest('the repository holding the session is watched, each directory once by its real path', async ($, on) => {
   const clock = mock.clock(on)
   const spawned: string[][] = []
   const tree: Record<string, string[]> = { '/repo': ['api/', 'mirror/', 'Downloads/'], '/repo/api': ['go.mod'], '/repo/mirror': ['go.mod'], '/repo/Downloads': ['pyproject.toml'] }
@@ -83,7 +84,7 @@ test('the repository holding the session is watched, each directory once by its 
   expect(spawned).toEqual([['go', 'test', './...']])
 })
 
-test('a failing build during a turn joins that turn', async ($, on) => {
+longTest('a failing build during a turn joins that turn', async ($, on) => {
   const clock = mock.clock(on)
   const session = mock.session(on)
   const prompts: string[] = []
@@ -104,7 +105,7 @@ test('a failing build during a turn joins that turn', async ($, on) => {
   expect(texts.some(text => text.includes('failed after the latest change'))).toBe(true)
 })
 
-test('a passing build stays quiet', async ($, on) => {
+longTest('a passing build stays quiet', async ($, on) => {
   const clock = mock.clock(on)
   const session = mock.session(on)
   const prompts: string[] = []
@@ -119,7 +120,7 @@ test('a passing build stays quiet', async ($, on) => {
   expect(session.appended()).toEqual([])
 })
 
-test('a project with no watcher starts nothing', async ($, on) => {
+longTest('a project with no watcher starts nothing', async ($, on) => {
   const clock = mock.clock(on)
   const spawned: string[][] = []
   project(on, { files: [], output: FAILING, spawned })
@@ -128,8 +129,9 @@ test('a project with no watcher starts nothing', async ($, on) => {
   expect(spawned).toEqual([])
 })
 
-test('a project with no watch command reruns its suite after each edit', async ($, on) => {
+longTest('a project with no watch command reruns its suite after each edit', async ($, on) => {
   const clock = mock.clock(on)
+  mock.env(on, {})
   const spawned: string[][] = []
   const prompts: string[] = []
   const override = {
@@ -168,8 +170,9 @@ test('a project with no watch command reruns its suite after each edit', async (
   expect(prompts[0]).toContain('failed after the latest change: 1 fail')
 })
 
-test('an edit made while the suite reruns stops that run and starts another', async ($, on) => {
+longTest('an edit made while the suite reruns stops that run and starts another', async ($, on) => {
   const clock = mock.clock(on)
+  mock.env(on, {})
   const spawned: string[][] = []
   const prompts: string[] = []
   const override = { name: 'cargo', baseline: ['cargo', 'test'], summary: '^test result: .*$', failed: 'FAILED' }
@@ -203,8 +206,9 @@ test('an edit made while the suite reruns stops that run and starts another', as
   expect(prompts[0]).not.toContain('stale')
 })
 
-test('an edit made during the first full run is rechecked and its failures are not inherited', async ($, on) => {
+longTest('an edit made during the first full run is rechecked and its failures are not inherited', async ($, on) => {
   const clock = mock.clock(on)
+  mock.env(on, {})
   const spawned: string[][] = []
   const prompts: string[] = []
   const override = { name: 'cargo', baseline: ['cargo', 'test'], summary: '^test result: .*$', failed: 'FAILED' }
@@ -233,7 +237,7 @@ test('an edit made during the first full run is rechecked and its failures are n
   expect(prompts[0]).toContain('broken by the edit')
 })
 
-test('an override with no command starts nothing in a project with no marker', async ($, on) => {
+longTest('an override with no command starts nothing in a project with no marker', async ($, on) => {
   const clock = mock.clock(on)
   const spawned: string[][] = []
   on('fs.read', () => ({ value: JSON.stringify({ summary: '^ \\d+ fail$' }) }))

@@ -1,6 +1,7 @@
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
 import { CHECKERS, WATCHERS, readReport } from '../hooks/watchers'
 import { CARGO_FAILING, GO_FAILING, readResult, watcherNamed } from './fixtures/watchers'
+import { longTest } from './fixtures/tcr-session'
 
 // What `zanity check . --plain` prints for two findings: one record per finding, then the summary.
 const ZANITY_FAILING = [
@@ -89,7 +90,7 @@ error: could not compile \`calc\` (lib) due to 1 previous error
 error: could not compile \`calc\` (lib test) due to 1 previous error
 `
 
-test('JavaScript runners report what failed', () => {
+longTest('JavaScript runners report what failed', () => {
   expect(readResult(watcherNamed('vitest'), VITEST_FAILING)).toEqual(['vitest ✗ 1 failed (1): calc.test.js > adds', ['calc.test.js > adds']])
   expect(readResult(watcherNamed('vitest'), VITEST_BROKEN)[1]).toEqual(['calc.test.js [ calc.test.js ]'])
   expect(readReport(watcherNamed('vitest'), ' Test Files  1 passed (1)\n')?.isFailed).toBe(false)
@@ -103,7 +104,7 @@ test('JavaScript runners report what failed', () => {
   )
 })
 
-test('Go runners report what failed', () => {
+longTest('Go runners report what failed', () => {
   const gotestsum = WATCHERS.find(watcher => watcher.requires === 'gotestsum')!
   expect(readResult(gotestsum, GOTESTSUM_FAILING)).toEqual(['go ✗ 2 tests, 1 failure in 0.184s: . TestAdd', ['. TestAdd']])
   const go = WATCHERS.find(watcher => watcher.name === 'go' && watcher.requires === undefined)!
@@ -113,14 +114,14 @@ test('Go runners report what failed', () => {
   expect(readResult(go, 'ok  \texample.com/calc\t0.2s\n', 0)).toEqual(['go ✓ passed', []])
 })
 
-test('zanity names each finding by path, rule and an id that survives a line shift', () => {
+longTest('zanity names each finding by path, rule and an id that survives a line shift', () => {
   const zanity = CHECKERS.find(checker => checker.name === 'zanity')!
   expect(zanity.argv).toContain('--plain')
   expect(readResult(zanity, ZANITY_FAILING)[1]).toEqual(['calc.py dead-symbol ba4ccb9f687b', 'calc.py swallowed-error cdde7f46bc45'])
   expect(readResult(zanity, 'zanity: checked 1 file, no issues found\n')[1]).toEqual([])
 })
 
-test('Rust reports compile and test failures', () => {
+longTest('Rust reports compile and test failures', () => {
   expect(readResult(watcherNamed('rust'), CARGO_FAILING, 101)).toEqual(['rust ✗ 1 failed: tests::adds', ['tests::adds']])
   expect(readResult(watcherNamed('rust'), CARGO_BROKEN, 101)).toEqual([
     'rust ✗ 1 failed: error[E0308]: mismatched types',
@@ -128,7 +129,7 @@ test('Rust reports compile and test failures', () => {
   ])
 })
 
-test('output holding two builds is read as the later one', () => {
+longTest('output holding two builds is read as the later one', () => {
   const zanity = CHECKERS.find(checker => checker.name === 'zanity')!
   const twoRuns = 'zanity: 0 errors, 17 warnings in 1/41 files.\ndead-symbol [warning] 17 in 1 file\nzanity: checked 41 files, no issues found.\n'
   expect(readResult(zanity, twoRuns)).toEqual(['zanity ✓ checked 41 files, no issues found.', []])
@@ -141,7 +142,7 @@ test('output holding two builds is read as the later one', () => {
   expect(readResult(zig, passing + fixed)[1]).toEqual(['root.test.new'])
 })
 
-test('the latest Deno build supplies both its result and failures', () => {
+longTest('the latest Deno build supplies both its result and failures', () => {
   const deno = watcherNamed('deno', 'deno.json')
   const passing = 'ok | 2 passed | 0 failed (1ms)\nWatcher Test finished. Restarting on file change...\n'
   expect(readResult(deno, DENO_FAILING + passing)).toEqual(['deno ✓ 2 passed | 0 failed (1ms)', []])

@@ -12,6 +12,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE = "https://github.com/benomahony/overwatch/blob/main"
 FORM = ROOT / ".github" / "ISSUE_TEMPLATE" / "behaviour.yml"
 NEW_FEATURE = "A new feature"
+CLAUDE_TCR_TAGS = {"claude", "tcr"}
+FAKED_HOST_TAG = "faked-host"
 sys.path.insert(0, str(ROOT / "tests"))
 
 catalog = importlib.import_module("acceptance.catalog")
@@ -85,6 +87,30 @@ def step_text(step: dsl.Step) -> str:
     return text
 
 
+GUIDE_SECTIONS = (("implemented", "Verified behavior", False), ("implemented", "Run against a faked host (not verified)", True), ("proposed", "Proposed behavior (not implemented)", False))
+
+
+def feature_lines(selected: list[dsl.Scenario], status: str) -> list[str]:
+    """The guide's lines for the scenarios of one section, grouped by feature."""
+    assert selected and all(scenario.status == status for scenario in selected), f"a section of {status!r} scenarios holds {[scenario.status for scenario in selected]}"
+    lines: list[str] = []
+    for feature in dict.fromkeys(scenario.feature for scenario in selected):
+        lines.extend([f"### {feature}", ""])
+        for scenario in selected:
+            if scenario.feature != feature:
+                continue
+            tags = (*scenario.tags, FAKED_HOST_TAG) if CLAUDE_TCR_TAGS <= set(scenario.tags) else scenario.tags
+            lines.extend([f"#### {scenario.title}", "", f"Tags: {', '.join(tags)}."])
+            link = scenario_link(scenario)
+            if link:
+                lines.append(f"[{'View test' if status == 'implemented' else 'View proposal'}]({link})")
+            lines.append("")
+            lines.extend(f"- **{step.keyword}** {step_text(step)}." for step in scenario.steps)
+            lines.append("")
+    assert lines.count("") >= len(selected), f"{len(lines)} lines for {len(selected)} scenarios; each scenario ends with a blank line"
+    return lines
+
+
 def render_scenarios(scenarios: tuple[dsl.Scenario, ...]) -> str:
     """Renders the behavior guide: verified scenarios, then proposed ones, each grouped by feature."""
     assert scenarios, f"no scenarios to render ({len(scenarios)}); pass SCENARIOS from tests/acceptance/catalog.py"
@@ -92,22 +118,14 @@ def render_scenarios(scenarios: tuple[dsl.Scenario, ...]) -> str:
         scenario.validate()
     lines = ["# How Overwatch behaves", "",
              "Generated from the executable scenarios in `tests/acceptance/catalog.py`.",
-             "Run `python3 scripts/scenarios.py` to verify the scenarios and regenerate this page.", ""]
-    for status, title in (("implemented", "Verified behavior"), ("proposed", "Proposed behavior (not implemented)")):
-        lines.extend([f"## {title}", ""])
-        selected = [scenario for scenario in scenarios if scenario.status == status]
-        for feature in dict.fromkeys(scenario.feature for scenario in selected):
-            lines.extend([f"### {feature}", ""])
-            for scenario in selected:
-                if scenario.feature != feature:
-                    continue
-                lines.extend([f"#### {scenario.title}", "", f"Tags: {', '.join(scenario.tags)}."])
-                link = scenario_link(scenario)
-                if link:
-                    lines.append(f"[{'View test' if status == 'implemented' else 'View proposal'}]({link})")
-                lines.append("")
-                lines.extend(f"- **{step.keyword}** {step_text(step)}." for step in scenario.steps)
-                lines.append("")
+             "Run `python3 scripts/scenarios.py` to verify the scenarios and regenerate this page.",
+             "The scenarios of Claude Code need the real `claude` binary and run in the CI job `docs`; unless a change says it ran them, they were not run for that change (unverified).",
+             "The scenarios of Claude Code in TCR mode run the plugin's hooks against a faked repository and a faked checkpoint command, so they do not show what git or the engine does; each carries the tag `faked-host` and is not marked verified.", ""]
+    for status, title, is_faked in GUIDE_SECTIONS:
+        selected = [scenario for scenario in scenarios if scenario.status == status and (CLAUDE_TCR_TAGS <= set(scenario.tags)) == is_faked]
+        if selected:
+            lines.extend([f"## {title}", ""])
+            lines.extend(feature_lines(selected, status))
     guide = "\n".join(lines).rstrip() + "\n"
     missing = [scenario.title for scenario in scenarios if f"#### {scenario.title}\n" not in guide]
     assert not missing, f"guide leaves out scenarios {missing}; check the feature grouping above"
