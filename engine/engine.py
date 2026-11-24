@@ -233,8 +233,9 @@ def process_event(event: Event, root: Path) -> dict[str, Any]:
         edit = event.hook_event_name == "PostToolUse" and event.tool_name in EDITING_TOOLS
         command = tool_command(event.tool_input) if event.hook_event_name == "PostToolUse" else ""
         read = checked_state(session, cwd, Step(edit, command))
-        current = read.current
-        output = report_output(event, read, session)
+        reverted = tcr(cwd, read)
+        current = replace(read.old, fingerprint=fingerprint(cwd)) if reverted else read.current
+        output = report_output(event, read, session, reverted)
         if event.hook_event_name == "SessionStart" and event.integration == "opencode1":
             current = replace(current, told=read.old.told)
         save_state(session, current)
@@ -306,7 +307,18 @@ def merged_reports(followed: list[Report], saved: tuple[Report, ...]) -> list[Re
     return merged
 
 
-def report_output(event: Event, read: Read, session: Session) -> dict[str, Any]:
+def tcr(cwd: Path, read: Read) -> bool:
+    """In a project whose .overwatch.json sets "mode": "tcr", commits the session's edit when it left no new failure
+    and discards it when it did, returning whether it was discarded."""
+    if not read.edited or read_override(cwd).get("mode") != "tcr":
+        return False
+    steps = [["reset", "--hard", "-q"], ["clean", "-fdq"]] if read.current.failed else [["add", "-A"], ["commit", "-qm", "tcr"]]
+    for step in steps:
+        subprocess.run(["git", *step], cwd=cwd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+    return read.current.failed
+
+
+def report_output(event: Event, read: Read, session: Session, reverted: bool = False) -> dict[str, Any]:
     """The hook output for the state read left: what newly fails, recovers or cannot run, and a Stop refusal when
     guarded. A read that follows the session's own edit: a failure it finds is the agent's, and may wake it, as one
     after a timeout may; another process's is told without waking, as the model's waking is edited or a timeout."""
@@ -323,7 +335,7 @@ def report_output(event: Event, read: Read, session: Session) -> dict[str, Any]:
         logs = {report_key(report): write_log(session, report) for report in regressions}
         waking = edited or any(TIMED_OUT in report.failures for report in regressions)
         message = failure_message(regressions, current.baseline, logs, not edited)
-        parts.append(message)
+        parts.append(f"{message}\n\noverwatch TCR reverted this edit: the workspace is back at the last commit." if reverted else message)
         output["systemMessage"] = failure_status(regressions)
     elif not current.failed and old.failed:
         parts.append(recovery_message(reports))
@@ -370,8 +382,9 @@ def follow(event: Event, root: Path, parent: int) -> Iterator[dict[str, Any]]:
             continue
         with locked(state_path(event, cwd, root), root) as session:
             read = checked_state(session, cwd, followed=reports)
-            output = report_output(event, read, session)
-            save_state(session, read.current)
+            reverted = tcr(cwd, read)
+            output = report_output(event, read, session, reverted)
+            save_state(session, replace(read.old, fingerprint=fingerprint(cwd)) if reverted else read.current)
         assert session.state.exists(), f"no state was saved for {cwd} at {session.state}; save_state must write it"
         if output:
             assert json.loads(json.dumps(output)) == output, f"follow would print {output!r}, which is not plain JSON"

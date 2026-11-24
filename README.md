@@ -122,6 +122,8 @@ Claude Code, Codex, OpenCode, Pi, and Neovim all read it; `summary` and `failed`
 ```
 
 `"enabled": false` turns overwatch off for that project, zanity included; `"baseline": []` skips the full run first.
+`"mode": "tcr"` turns on test && commit || revert: once every check has a result for the agent's edit and none newly fails, overwatch commits the whole workspace as `tcr`; a new failure discards the edit with `git reset --hard` and `git clean -fd`, and the agent is told it was reverted.
+Ignored files stay, and the workspace should be clean when the session starts, since a revert discards every uncommitted change.
 The other fields apply to one test watcher alone: in a polyglot project or a monorepo, the first language in the table above that the project has, at its root or in a sub-project.
 The override is read only at the project's root.
 

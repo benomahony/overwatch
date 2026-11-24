@@ -57,6 +57,7 @@ export type WatcherSettings = {
 export type Override = {
   gate?: GatePolicy
   enabled?: boolean
+  mode?: 'tcr'
   name?: string
   argv?: string[]
   baseline?: string[]
