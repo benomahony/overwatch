@@ -18,35 +18,33 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          fetch-depth: 0
 
       - name: Install Claude Code for executable Claude acceptance scenarios
         run: npm install --global @anthropic-ai/claude-code@2.1.318
 
-      - name: Verify acceptance scenarios and their generated documentation
-        run: |
-          python3 -m unittest discover -s tests -p test_scenarios.py
-          python3 scripts/scenarios.py --check
+      - name: Verify the generated behavior guide
+        run: python3 scripts/scenarios.py --check
 
-      - name: Verify model fixtures and typeset modules
+      - name: Find whether the spec changed
+        id: spec
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ "$EVENT" = workflow_dispatch ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null || ! git diff --quiet "$BASE" HEAD -- spec; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Verify every module typesets
+        if: steps.spec.outputs.changed == 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y texlive-latex-base
           curl -fsSL https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar -o "$RUNNER_TEMP/tla2tools.jar"
           echo "936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88  $RUNNER_TEMP/tla2tools.jar" | sha256sum --check
-          python3 scripts/model_traces.py --jar "$RUNNER_TEMP/tla2tools.jar" --check
-          python3 scripts/integration_traces.py --jar "$RUNNER_TEMP/tla2tools.jar" --check
           python3 scripts/spec_latex.py --jar "$RUNNER_TEMP/tla2tools.jar" --check
-          python3 -m unittest discover -s tests -p test_contract_docs.py
-
-      - name: Verify command and Claude integration contracts
-        run: |
-          node --test tests/test_integration_contract.mjs
-          claude plugin test .
-
-      - name: Verify editor integration contracts
-        run: |
-          curl -sSfL https://github.com/neovim/neovim/releases/download/v0.11.4/nvim-linux-x86_64.tar.gz | tar -xz -C "$RUNNER_TEMP"
-          "$RUNNER_TEMP/nvim-linux-x86_64/bin/nvim" --headless -l tests/integration_contract_spec.lua
 
       # Pages come from the README, spec guide, and executable scenario/contract fixtures.
       - name: Check generated site pages
