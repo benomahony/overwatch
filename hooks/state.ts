@@ -53,6 +53,8 @@ export type State = {
   isCorrectionTurn: boolean
   /** Whether the agent edited since the last correction was submitted; a guard that changed without one is not submitted again. */
   isEditedSinceCorrection: boolean
+  /** The subject a TCR commit of the agent's latest edit takes: what its tool call says it does. */
+  edit: string
   /** Whether the running turn has had its one message from overwatch. */
   isToldThisTurn: boolean
   /** The messages not yet sent, by their live's key and kind. */

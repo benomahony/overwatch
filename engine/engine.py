@@ -30,7 +30,7 @@ from triage import InventoryError, parse_check, parse_inventory
 from records import TIMED_OUT, Event, Read, First, Report, Session, State, Step, digest_of
 from sessions import data_root, in_data, load_state, locked, save_state, state_path, touched_path, write_log
 from running import run_persistent_checks
-from messages import SUMMARY_DECORATION, context_output, environment_message, failing_suffix, failure_message, failure_status, gate_reason, is_regression, known_failures, recovery_message, report_key
+from messages import REVERTED, SUMMARY_DECORATION, context_output, environment_message, failing_suffix, failure_message, failure_status, gate_reason, is_regression, known_failures, recovery_message, report_key
 from workspace import commit_of, fingerprint, is_committed, repository_of
 from discovery import ConfigurationError, find_watchers, key_of, read_override
 
@@ -233,7 +233,7 @@ def process_event(event: Event, root: Path) -> dict[str, Any]:
         edit = event.hook_event_name == "PostToolUse" and event.tool_name in EDITING_TOOLS
         command = tool_command(event.tool_input) if event.hook_event_name == "PostToolUse" else ""
         read = checked_state(session, cwd, Step(edit, command))
-        reverted = tcr(cwd, read)
+        reverted = tcr(cwd, read, edit_subject(event))
         current = replace(read.old, fingerprint=fingerprint(cwd)) if reverted else read.current
         output = report_output(event, read, session, reverted)
         if event.hook_event_name == "SessionStart" and event.integration == "opencode1":
@@ -307,12 +307,21 @@ def merged_reports(followed: list[Report], saved: tuple[Report, ...]) -> list[Re
     return merged
 
 
-def tcr(cwd: Path, read: Read) -> bool:
-    """In a project whose .overwatch.json sets "mode": "tcr", commits the session's edit when it left no new failure
-    and discards it when it did, returning whether it was discarded."""
+def edit_subject(event: Event) -> str:
+    """The subject of a TCR commit: what the agent's tool call says it does, its description, else the file it edits,
+    else its command, else the tool's name."""
+    fields = event.tool_input if isinstance(event.tool_input, dict) else {}
+    said = [*(fields.get(key) for key in ("description", "file_path", "filePath", "path")), tool_command(event.tool_input), event.tool_name]
+    text = next((value.strip() for value in said if isinstance(value, str) and value.strip()), "edit")
+    return f"tcr: {text.splitlines()[0]}"
+
+
+def tcr(cwd: Path, read: Read, subject: str) -> bool:
+    """In a project whose .overwatch.json sets "mode": "tcr", commits the session's edit as subject when it left no
+    new failure and discards it when it did, returning whether it was discarded."""
     if not read.edited or read_override(cwd).get("mode") != "tcr":
         return False
-    steps = [["reset", "--hard", "-q"], ["clean", "-fdq"]] if read.current.failed else [["add", "-A"], ["commit", "-qm", "tcr"]]
+    steps = [["reset", "--hard", "-q"], ["clean", "-fdq"]] if read.current.failed else [["add", "-A"], ["commit", "-qm", subject]]
     for step in steps:
         subprocess.run(["git", *step], cwd=cwd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
     return read.current.failed
@@ -335,7 +344,7 @@ def report_output(event: Event, read: Read, session: Session, reverted: bool = F
         logs = {report_key(report): write_log(session, report) for report in regressions}
         waking = edited or any(TIMED_OUT in report.failures for report in regressions)
         message = failure_message(regressions, current.baseline, logs, not edited)
-        parts.append(f"{message}\n\noverwatch TCR reverted this edit: the workspace is back at the last commit." if reverted else message)
+        parts.append(f"{message}\n\n{REVERTED}" if reverted else message)
         output["systemMessage"] = failure_status(regressions)
     elif not current.failed and old.failed:
         parts.append(recovery_message(reports))
@@ -382,7 +391,7 @@ def follow(event: Event, root: Path, parent: int) -> Iterator[dict[str, Any]]:
             continue
         with locked(state_path(event, cwd, root), root) as session:
             read = checked_state(session, cwd, followed=reports)
-            reverted = tcr(cwd, read)
+            reverted = tcr(cwd, read, edit_subject(event))
             output = report_output(event, read, session, reverted)
             save_state(session, replace(read.old, fingerprint=fingerprint(cwd)) if reverted else read.current)
         assert session.state.exists(), f"no state was saved for {cwd} at {session.state}; save_state must write it"

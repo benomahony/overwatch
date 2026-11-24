@@ -204,9 +204,9 @@ class CodexHookTests(CodexHook):
         subprocess.run([*git, "config", "user.email", "t@t"], check=True)
         self.call("SessionStart", source="startup")
         write(self.cwd / "green.txt", "kept")
-        self.call("PostToolUse", tool_name="apply_patch")
+        self.call("PostToolUse", tool_name="apply_patch", tool_input={"description": "keep green"})
         log = subprocess.run([*git, "log", "--format=%s"], check=True, capture_output=True, text=True).stdout
-        self.assertEqual(log.split(), ["tcr", "start"])
+        self.assertEqual(log.splitlines(), ["tcr: keep green", "start"])
         write(self.cwd / "red.txt", "discarded")
         write(result, "RESULT: FAIL", "RESULT: PASS")
         failed, _ = self.call("PostToolUse", tool_name="apply_patch")

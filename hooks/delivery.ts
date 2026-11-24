@@ -9,6 +9,7 @@ import {
   environmentLine,
   environmentMessage,
   failureMessage,
+  REVERTED,
   hasRegression,
   recoveryMessage,
   statusLine,
@@ -182,8 +183,8 @@ export async function deliver($: EngineInterface, run: Run, report: Report) {
  */
 async function tcr($: EngineInterface, { state, cwd }: Run, isRegression: boolean): Promise<boolean> {
   if ((await readOverride($, cwd)).mode !== 'tcr') return false
-  if (!isRegression && state.liveWatchers.some(each => each.isEditedSinceResult || each.wasFailing)) return false
-  const steps = isRegression ? [['reset', '--hard', '-q'], ['clean', '-fdq']] : [['add', '-A'], ['commit', '-qm', 'tcr']]
+  if (!isRegression && state.liveWatchers.some(each => (each.isEditedSinceResult && each.watcher?.name !== 'git') || each.wasFailing)) return false
+  const steps = isRegression ? [['reset', '--hard', '-q'], ['clean', '-fdq']] : [['add', '-A'], ['commit', '-qm', state.edit]]
   for (const step of steps) {
     const child = $.process.spawn({ argv: ['git', ...step], cwd })
     await Array.fromAsync(child)
@@ -208,7 +209,7 @@ export async function tellRegression($: EngineInterface, run: Run, report: Repor
   const signature = `failed:${fresh.length > 0 ? [...fresh].sort().join('\n') : report.summary.replace(TIMING, '')}`
   if (live.told === signature && !state.outbox.has(`${live.key}:report`)) return
   const failure = failureMessage(watcher, report, { known, log: await writeLog($, live, report.text), origin })
-  const text = isReverted ? `${failure}\n\noverwatch TCR reverted this edit: the workspace is back at the last commit.` : failure
+  const text = isReverted ? `${failure}\n\n${REVERTED}` : failure
   queue($, run, signature, { text, isWaking: origin === 'session', kind: 'report' })
   if (isReverted) Object.assign(live, { wasFailing: false, told: undefined })
 }

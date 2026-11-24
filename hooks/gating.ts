@@ -16,6 +16,17 @@ export function commandOf(input: object): string {
 }
 
 /**
+ * The subject of a TCR commit: what the agent's tool call says it does, its description, else the file it edits,
+ * else its command, else the tool's name.
+ */
+export function editSubject(input: { tool: string }): string {
+  const fields = input as Record<string, unknown>
+  const said = [fields.description, fields.file_path, fields.filePath, fields.path, commandOf(input), input.tool]
+  const text = said.find((value): value is string => typeof value === 'string' && value.trim() !== '')?.trim() ?? 'edit'
+  return `tcr: ${text.split('\n')[0]}`
+}
+
+/**
  * One shell token: an operator (&&, ||, ;, &, |, parentheses, a new line or a backtick), or a word made of plain
  * characters and quoted parts. A quote that never closes matches nothing and is skipped.
  */
