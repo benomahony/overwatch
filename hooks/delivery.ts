@@ -9,11 +9,13 @@ import {
   environmentLine,
   environmentMessage,
   failureMessage,
+  REVERTED,
   hasRegression,
   recoveryMessage,
   statusLine,
   type Report,
 } from './watchers'
+import { readOverride } from './project'
 import type { LiveWatcher, Message, State, Run } from './state'
 
 export const QUIET_MS = 400
@@ -150,7 +152,8 @@ export async function deliver($: EngineInterface, run: Run, report: Report) {
     return
   }
   const isRepeat = previous !== undefined && sameResult(previous, report)
-  const origin = live.isEditedSinceResult ? 'session' : isRepeat ? live.origin : 'outside'
+  const isEdited = live.isEditedSinceResult
+  const origin = isEdited ? 'session' : isRepeat ? live.origin : 'outside'
   live.origin = origin
   live.isEditedSinceResult = false
   if (live.baseline === undefined) {
@@ -161,8 +164,9 @@ export async function deliver($: EngineInterface, run: Run, report: Report) {
   const isRegression = hasRegression(report, live.baseline)
   const wasFailing = live.wasFailing
   live.wasFailing = isRegression
+  const isReverted = isEdited && await tcr($, run, isRegression)
   if (isRegression) {
-    await tellRegression($, run, report)
+    await tellRegression($, run, report, isReverted)
     return
   }
   if (!wasFailing) return
@@ -174,10 +178,27 @@ export async function deliver($: EngineInterface, run: Run, report: Report) {
 }
 
 /**
+ * In a project whose .overwatch.json sets "mode": "tcr", discards the session's edit once a check regresses on it, and
+ * commits it once every check has a result for it and none regresses. Returns whether the edit was discarded.
+ */
+async function tcr($: EngineInterface, { state, cwd }: Run, isRegression: boolean): Promise<boolean> {
+  if ((await readOverride($, cwd)).mode !== 'tcr') return false
+  if (!isRegression && state.liveWatchers.some(each => (each.isEditedSinceResult && each.watcher?.name !== 'git') || each.wasFailing)) return false
+  const steps = isRegression ? [['reset', '--hard', '-q'], ['clean', '-fdq']] : [['add', '-A'], ['commit', '-qm', state.edit]]
+  for (const step of steps) {
+    const child = $.process.spawn({ argv: ['git', ...step], cwd })
+    await Array.fromAsync(child)
+    await child.result
+  }
+  if (isRegression) for (const each of state.liveWatchers) each.changed?.()
+  return isRegression
+}
+
+/**
  * Queues a regression against `baseline` for the agent, unless it was told already. Another process's change is told
  * at the agent's next turn; it never wakes the agent.
  */
-export async function tellRegression($: EngineInterface, run: Run, report: Report) {
+export async function tellRegression($: EngineInterface, run: Run, report: Report, isReverted = false) {
   const { state, live, watcher } = run
   const { baseline, origin } = live
   assert(baseline !== undefined && live.report === report, `${live.key} tells ${report.summary} without a baseline or as a result it does not hold; deliver it first`)
@@ -187,6 +208,8 @@ export async function tellRegression($: EngineInterface, run: Run, report: Repor
   const fresh = report.failures.filter(name => !knownNames.has(name))
   const signature = `failed:${fresh.length > 0 ? [...fresh].sort().join('\n') : report.summary.replace(TIMING, '')}`
   if (live.told === signature && !state.outbox.has(`${live.key}:report`)) return
-  const text = failureMessage(watcher, report, { known, log: await writeLog($, live, report.text), origin })
+  const failure = failureMessage(watcher, report, { known, log: await writeLog($, live, report.text), origin })
+  const text = isReverted ? `${failure}\n\n${REVERTED}` : failure
   queue($, run, signature, { text, isWaking: origin === 'session', kind: 'report' })
+  if (isReverted) Object.assign(live, { wasFailing: false, told: undefined })
 }

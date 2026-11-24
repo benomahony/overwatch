@@ -9,6 +9,7 @@ import json
 import re
 from pathlib import Path
 import os
+import subprocess
 import unittest
 from unittest.mock import patch
 
@@ -190,6 +191,29 @@ class CodexHookTests(CodexHook):
         stopped, _ = self.call("Stop", stop_hook_active=False)
         self.assertEqual(stopped, {})
         self.assertEqual(read(count), "3")
+
+    def test_tcr_commits_a_green_edit_and_reverts_a_red_one(self) -> None:
+        result, _ = self.configure()
+        write(result, "RESULT: PASS")
+        config = read(self.cwd / ".overwatch.json")
+        write(self.cwd / ".overwatch.json", json.dumps({**json.loads(config), "mode": "tcr"}), config)
+        git = ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-C", str(self.cwd)]
+        subprocess.run([*git, "add", "-A"], check=True)
+        subprocess.run([*git, "commit", "-qm", "start"], check=True)
+        subprocess.run([*git, "config", "user.name", "t"], check=True)
+        subprocess.run([*git, "config", "user.email", "t@t"], check=True)
+        self.call("SessionStart", source="startup")
+        write(self.cwd / "green.txt", "kept")
+        self.call("PostToolUse", tool_name="apply_patch", tool_input={"description": "keep green"})
+        log = subprocess.run([*git, "log", "--format=%s"], check=True, capture_output=True, text=True).stdout
+        self.assertEqual(log.splitlines(), ["tcr: keep green", "start"])
+        write(self.cwd / "red.txt", "discarded")
+        write(result, "RESULT: FAIL", "RESULT: PASS")
+        failed, _ = self.call("PostToolUse", tool_name="apply_patch")
+        self.assertIn("TCR reverted", failed["hookSpecificOutput"]["additionalContext"])
+        self.assertEqual(read(result), "RESULT: PASS")
+        self.assertFalse((self.cwd / "red.txt").exists())
+        self.assertEqual(self.call("Stop", stop_hook_active=False)[0], {})
 
     def test_watch_command_stops_after_its_first_report(self) -> None:
         result, count = self.configure(watch=True)

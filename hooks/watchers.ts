@@ -57,6 +57,7 @@ export type WatcherSettings = {
 export type Override = {
   gate?: GatePolicy
   enabled?: boolean
+  mode?: 'tcr'
   name?: string
   argv?: string[]
   baseline?: string[]
@@ -414,6 +415,9 @@ export function failureMessage(watcher: Watcher, report: Report, { known, log, o
   assert(fresh.length + old === report.failures.length, `${watcher.name} split ${report.failures.length} failures into ${fresh.length} new and ${old} old`)
   return message
 }
+
+/** What TCR adds to a failure it reverted the edit for. */
+export const REVERTED = 'overwatch TCR reverted that edit: every file is back as it was at the last commit, so none of the edit is left. Make a smaller change that keeps the checks passing, using the failure above to see what broke.'
 
 /**
  * Tells the agent a watcher is green again, or back to only the failures it

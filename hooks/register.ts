@@ -1,6 +1,6 @@
 import type { EngineInterface, Register, Timer } from 'claude-code'
 import { assert } from './assert'
-import { bringsInFiles, commandOf, protectedChecks } from './gating'
+import { bringsInFiles, commandOf, editSubject, protectedChecks } from './gating'
 import {
   commandLine,
   environmentIn,
@@ -363,12 +363,13 @@ async function rebaselineOnMove($: EngineInterface, state: State, command = '') 
  * A tool that ran is work, so the same correction may be told again, except in the correction's own turn, where
  * inspecting it is the answer to it. An editing tool also reruns each check and may have moved HEAD.
  */
-async function afterTool($: EngineInterface, state: State, tool: string, command = '') {
+async function afterTool($: EngineInterface, state: State, tool: string, command = '', subject = `tcr: ${tool}`) {
   assert(tool !== '', `a tool call named the tool ${JSON.stringify(tool)}; pass the name of the tool the agent called`)
   if (!state.isCorrectionTurn) state.completionCorrection = undefined
   assert(!state.isCorrectionTurn || state.completionCorrection !== undefined, `the correction turn lost its correction after ${tool}; keep it while the turn answers it`)
   if (!EDITING_TOOLS.has(tool)) return
   state.isEditedSinceCorrection = true
+  state.edit = subject
   for (const each of state.liveWatchers) {
     each.isEdited = true
     each.isEditedSinceResult = true
@@ -396,6 +397,7 @@ const initialState = (): State => {
     completionCorrection: undefined,
     isCorrectionTurn: false,
     isEditedSinceCorrection: false,
+    edit: 'tcr: edit',
     isToldThisTurn: false,
     outbox: new Map(),
     flushing: undefined,
@@ -434,7 +436,7 @@ export const register: Register = on => {
       if (reason !== undefined) return { deny: reason }
     }
     const result = await next(e)
-    await afterTool($, state, e.tool, commandOf(e))
+    await afterTool($, state, e.tool, commandOf(e), editSubject(e))
     return result
   })
 

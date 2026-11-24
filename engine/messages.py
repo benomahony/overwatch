@@ -163,6 +163,11 @@ def failure_status(reports: list[Report]) -> str:
     return f"Overwatch: {summaries}"
 
 
+# What TCR adds to a failure it reverted the edit for.
+REVERTED = ("overwatch TCR reverted that edit: every file is back as it was at the last commit, so none of the edit is left. "
+            "Make a smaller change that keeps the checks passing, using the failure above to see what broke.")
+
+
 def recovery_message(reports: tuple[Report, ...]) -> str:
     """Tells the agent the checks pass again, with each one's summary."""
     summaries = " · ".join(f"overwatch {report.name} ✓ {SUMMARY_DECORATION.sub('', report.summary)}" for report in reports)
