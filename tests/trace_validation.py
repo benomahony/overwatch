@@ -15,6 +15,7 @@ Copyright (c) 2026 benomahony. SPDX-License-Identifier: MIT
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import os
 from pathlib import Path
@@ -249,6 +250,27 @@ INVARIANTS
     return reached
 
 
+def corrupted_copy(trace: tuple[dict[str, dict], list[dict[str, object]]]) -> tuple[dict[str, dict], list[dict[str, object]]]:
+    corrupted = copy.deepcopy(trace)
+    observation = next(entry for entry in corrupted[1] if entry["kind"] == "Observe")
+    observation["guarded"] = not observation["guarded"]
+    return corrupted
+
+
+def shows_guard(traces: list[tuple[dict[str, dict], list[dict[str, object]]]]) -> bool:
+    return any(entry["kind"] == "Observe" and entry["guarded"] for _, log in traces for entry in log)
+
+
+def print_rejected(rejected: list[tuple[int, int]], traces: list[tuple[dict[str, dict], list[dict[str, object]]]], seed: int) -> None:
+    for scenario, index in rejected:
+        plan, log = traces[scenario - 1]
+        print(f"trace {scenario - 1} (seed {seed + scenario - 1}) leaves the model at entry {index}: {json.dumps(log[index - 1])}")
+        print("  truth " + json.dumps({version: plan[version]["failures"] for version in plan}) +
+              " hangs " + json.dumps([version for version in plan if plan[version]["hang"]]))
+        for position, entry in enumerate(log[:index], 1):
+            print(f"  {position:2} {json.dumps(entry)}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--jar", type=Path, default=os.environ.get("TLA2TOOLS_JAR", str(Path.home() / ".cache/tlalings/tla2tools.jar")))
@@ -267,18 +289,19 @@ def main() -> None:
                 traces.append((trace.plan, trace.run()))
             finally:
                 stop_daemons(trace.data)
+    real = len(traces)
+    traces.append(corrupted_copy(traces[0]))
     reached = validate(args.jar.resolve(), traces)
     rejected = [(scenario, reached.get(scenario, 0)) for scenario in range(1, len(traces) + 1)
                 if reached.get(scenario, 0) <= len(traces[scenario - 1][1])]
-    for scenario, index in rejected:
-        plan, log = traces[scenario - 1]
-        print(f"trace {scenario - 1} (seed {args.seed + scenario - 1}) leaves the model at entry {index}: {json.dumps(log[index - 1])}")
-        print("  truth " + json.dumps({version: plan[version]["failures"] for version in plan}) +
-              " hangs " + json.dumps([version for version in plan if plan[version]["hang"]]))
-        for position, entry in enumerate(log[:index], 1):
-            print(f"  {position:2} {json.dumps(entry)}")
-    print(f"{len(traces) - len(rejected)} of {len(traces)} engine traces are behaviours of the model")
-    if rejected:
+    corruption_rejected = any(scenario == len(traces) for scenario, _ in rejected)
+    rejected = [(scenario, index) for scenario, index in rejected if scenario <= real]
+    print_rejected(rejected, traces, args.seed)
+    print(f"{real - len(rejected)} of {real} engine traces are behaviours of the model")
+    print(f"the trace with a corrupted observation is {'rejected' if corruption_rejected else 'ACCEPTED'}")
+    guard_shown = shows_guard(traces[:real])
+    print(f"the engine traces {'show' if guard_shown else 'do NOT show'} a guarded observation")
+    if rejected or not corruption_rejected or not guard_shown:
         raise SystemExit(1)
 
 
