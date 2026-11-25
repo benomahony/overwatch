@@ -95,6 +95,7 @@ export function modelHost(options: ModelOptions = {}) {
   let kind: Timer['kind'] = 'flush'
   let status = ''
   let commit = 'a'.repeat(40)
+  let moves = 0
   let publications = 0
   let completions = 0
   const streams = { zig: outputStream(), zanity: outputStream() }
@@ -142,7 +143,7 @@ export function modelHost(options: ModelOptions = {}) {
     async timer(selected: Timer['kind']) {
       await runTimer(timers, selected)
     },
-    move() { commit = 'b'.repeat(40) },
+    move() { moves++; commit = moves.toString(16).padStart(40, 'b') },
     snapshot() { return { status, publications, completions, messages: [...messages], prompts: [...prompts] } },
   }
 }
