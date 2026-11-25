@@ -5,6 +5,12 @@ package.path = root .. '/tests/?.lua;' .. package.path
 local overwatch = require('overwatch')
 local fake = require('fake_editor')
 local traces = vim.json.decode(table.concat(vim.fn.readfile(root .. '/tests/fixtures/model-traces.json'), '\n'))
+for _, walk in ipairs(vim.json.decode(table.concat(vim.fn.readfile(root .. '/tests/fixtures/model-walks.json'), '\n'))) do
+  walk.is_walk = true
+  traces[#traces + 1] = walk
+end
+local UNSUPPORTED_EVENTS = { Timeout = 'Neovim has no check timeout' }
+local replayed, total = 0, 0
 fake.install()
 
 --- What zig prints for one of the model's build events: the failures of the workspace's version, then the summary,
@@ -37,14 +43,19 @@ local function replay_model(trace)
   vim.fn.mkdir(directory, 'p')
   vim.fn.writefile({}, directory .. '/build.zig')
   local version, partial = 1, ''
+  if trace.is_walk then total = total + #trace.events end
   overwatch.start(directory)
   local ok, err = pcall(function()
     for index, event in ipairs(trace.events) do
+      if UNSUPPORTED_EVENTS[event] then break end
       -- Another process's save is a new version too; the editor sees it like any other.
       if event == 'Edit' or event == 'Move' or event == 'Outside' then version = version + 1 end
-      if event == 'Build' or event == 'Partial' or event == 'PartialSummary' then
-        fake.children.zig.output(nil, build_text(trace.truth[version], event, partial))
-        partial = event == 'Build' and '' or event
+      local stale = event:match('^Build@(%d+)$')
+      local build = event == 'Build' or stale
+      if build or event == 'Partial' or event == 'PartialSummary' then
+        local at = stale and tonumber(stale, 10) + 1 or version
+        fake.children.zig.output(nil, build_text(trace.truth[at], build and 'Build' or event, partial))
+        partial = build and '' or event
       end
       if event == 'Read' or event == 'Poll' then
         local timer = fake.timers[#fake.timers]
@@ -54,6 +65,7 @@ local function replay_model(trace)
         callback()
       end
       check_status(trace, event, trace.expected[index + 1])
+      if trace.is_walk then replayed = replayed + 1 end
     end
   end)
   overwatch.stop()
@@ -68,4 +80,6 @@ for _, trace in ipairs(traces) do
 end
 fake.restore()
 print(('%d Neovim model traces, %d failures'):format(#traces, failures))
+print(('walk steps replayed: %d/%d'):format(replayed, total))
+for event, reason in pairs(UNSUPPORTED_EVENTS) do print(('walks stop at %s: %s'):format(event, reason)) end
 assert(failures == 0, ('%d of %d Neovim model traces failed'):format(failures, #traces))
